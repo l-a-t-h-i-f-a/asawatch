@@ -166,25 +166,32 @@ class _ProfilTabState extends State<ProfilTab> {
     required VoidCallback onTap,
     Color color = const Color(0xFF1E3A34),
   }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
+    // The white background and border live on Material/ListTile.shape rather
+    // than a wrapping Container: ListTile paints its ink splash on the nearest
+    // Material ancestor, so an opaque DecoratedBox in between would hide it.
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2EBE8), width: 1.2),
-      ),
-      child: ListTile(
-        onTap: onTap,
-        leading: Icon(icon, color: color),
-        title: Text(
-          title,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-            color: color,
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          onTap: onTap,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Color(0xFFE2EBE8), width: 1.2),
           ),
+          leading: Icon(icon, color: color),
+          title: Text(
+            title,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          trailing: Icon(Icons.chevron_right_rounded, color: color.withValues(alpha: 0.5)),
         ),
-        trailing: Icon(Icons.chevron_right_rounded, color: color.withValues(alpha: 0.5)),
       ),
     );
   }

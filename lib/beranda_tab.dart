@@ -21,17 +21,21 @@ class _BerandaTabState extends State<BerandaTab> {
     _loadNama();
   }
 
-  // Fungsi memuat nama dari SharedPreferences secara periodik / saat dimuat
+  // Fungsi memuat nama dari SharedPreferences secara periodik / saat dimuat.
+  //
+  // Dipanggil juga dari build(), jadi pemeriksaan `nama == _nama` di bawah
+  // WAJIB ada: tanpa itu setState memicu build berikutnya, yang memanggil
+  // _loadNama() lagi, dan tab ini rebuild tanpa henti begitu ada nama tersimpan.
   Future<void> _loadNama() async {
     final prefs = await SharedPreferences.getInstance();
     final savedName = prefs.getString('user_name');
-    if (savedName != null && savedName.isNotEmpty) {
-      if (mounted) {
-        setState(() {
-          _nama = savedName;
-        });
-      }
-    }
+    final nama = (savedName == null || savedName.isEmpty) ? 'Lathifa' : savedName;
+
+    if (!mounted || nama == _nama) return;
+
+    setState(() {
+      _nama = nama;
+    });
   }
 
   // Format tanggal saat ini ke format Indonesia

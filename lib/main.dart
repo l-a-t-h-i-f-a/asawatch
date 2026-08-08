@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'
+    show LicenseEntryWithLineBreaks, LicenseRegistry;
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:asawatch/welcome_page.dart';
 import 'package:asawatch/login_page.dart';
 import 'package:asawatch/register_page.dart';
@@ -9,6 +12,13 @@ import 'package:asawatch/profil_tab.dart';
 import 'package:asawatch/deteksi_makanan_page.dart';
 
 void main() {
+  // Montserrat is bundled from assets/fonts; the SIL OFL requires its licence
+  // to travel with it, so surface it in the app's licence page.
+  LicenseRegistry.addLicense(() async* {
+    final license = await rootBundle.loadString('assets/fonts/OFL.txt');
+    yield LicenseEntryWithLineBreaks(const ['Montserrat'], license);
+  });
+
   runApp(const MyApp());
 }
 
@@ -18,7 +28,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'HealthWatch',
+      title: 'AsaWatch',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -39,7 +49,6 @@ class MyApp extends StatelessWidget {
     );
   }
 }
-
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
@@ -85,7 +94,9 @@ class _MyHomePageState extends State<MyHomePage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF4FAF7),
       body: IndexedStack(
-        index: _currentIndex == 2 ? 0 : _currentIndex, // Keep showing previous tab if index 2 is clicked (though it pushes a page)
+        index: _currentIndex == 2
+            ? 0
+            : _currentIndex, // Keep showing previous tab if index 2 is clicked (though it pushes a page)
         children: _tabs,
       ),
       bottomNavigationBar: Container(
@@ -117,7 +128,9 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Widget _buildNavItem(int index, IconData icon, String label) {
     final isSelected = _currentIndex == index;
-    final color = isSelected ? const Color(0xFF0EAD69) : const Color(0xFF8FA7A1);
+    final color = isSelected
+        ? const Color(0xFF0EAD69)
+        : const Color(0xFF8FA7A1);
     return GestureDetector(
       onTap: () => _onTabSelected(index),
       behavior: HitTestBehavior.opaque,
