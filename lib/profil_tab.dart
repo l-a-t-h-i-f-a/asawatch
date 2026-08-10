@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'informasi_pribadi_page.dart';
+import 'kalibrasi_tekanan_darah_page.dart';
+import 'menghubungkan_perangkat_page.dart';
 import 'tujuan_kesehatan_page.dart';
 
-import 'package:shared_preferences/shared_preferences.dart';
+import 'repositories/profil_repository.dart';
 
 class ProfilTab extends StatefulWidget {
   const ProfilTab({super.key});
@@ -12,9 +14,7 @@ class ProfilTab extends StatefulWidget {
 }
 
 class _ProfilTabState extends State<ProfilTab> {
-  String _name = 'Lathifa';
-  String _email = 'lathifa@gmail.com';
-  String _phone = '+62 812-3456-7890';
+  Profil _profil = Profil.kosong;
   bool _isLoading = true;
 
   @override
@@ -24,11 +24,10 @@ class _ProfilTabState extends State<ProfilTab> {
   }
 
   Future<void> _loadProfileData() async {
-    final prefs = await SharedPreferences.getInstance();
+    final profil = await const ProfilRepository().muat();
+    if (!mounted) return;
     setState(() {
-      _name = prefs.getString('user_name') ?? 'Lathifa';
-      _email = prefs.getString('user_email') ?? 'lathifa21@email.com';
-      _phone = prefs.getString('user_phone') ?? '0812-3456-7890';
+      _profil = profil;
       _isLoading = false;
     });
   }
@@ -68,19 +67,17 @@ class _ProfilTabState extends State<ProfilTab> {
                     ),
                     child: Row(
                       children: [
-                        CircleAvatar(
+                        // Dulu memuat foto orang asing dari Unsplash. Selain
+                        // menampilkan identitas yang bukan milik pengguna, ia
+                        // tidak pernah muncul di build rilis: aplikasi ini tidak
+                        // mendeklarasikan izin INTERNET.
+                        const CircleAvatar(
                           radius: 36,
-                          backgroundColor: const Color(0xFFE0F2F1),
-                          child: ClipOval(
-                            child: Image.network(
-                              'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=150',
-                              fit: BoxFit.cover,
-                              width: 72,
-                              height: 72,
-                              errorBuilder: (context, error, stackTrace) {
-                                return const Icon(Icons.person, color: Color(0xFF0EAD69), size: 36);
-                              },
-                            ),
+                          backgroundColor: Color(0xFFE0F2F1),
+                          child: Icon(
+                            Icons.person,
+                            color: Color(0xFF0EAD69),
+                            size: 36,
                           ),
                         ),
                         const SizedBox(width: 16),
@@ -89,29 +86,50 @@ class _ProfilTabState extends State<ProfilTab> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                _name,
-                                style: const TextStyle(
+                                _profil.nama.isEmpty
+                                    ? 'Belum ada nama'
+                                    : _profil.nama,
+                                style: TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
-                                  color: Color(0xFF1E3A34),
+                                  color: _profil.nama.isEmpty
+                                      ? const Color(0xFF8FA7A1)
+                                      : const Color(0xFF1E3A34),
                                 ),
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _email,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: Color(0xFF7E9A94),
+                              // Baris yang belum diisi dihilangkan, bukan
+                              // ditampilkan kosong: satu ajakan lebih jelas
+                              // daripada tiga baris hampa.
+                              if (_profil.belumDiisi) ...[
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Lengkapi lewat Informasi Pribadi di bawah.',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFF7E9A94),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _phone,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: Color(0xFF7E9A94),
+                              ],
+                              if (_profil.email.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  _profil.email,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFF7E9A94),
+                                  ),
                                 ),
-                              ),
+                              ],
+                              if (_profil.telepon.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  _profil.telepon,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFF7E9A94),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -141,6 +159,30 @@ class _ProfilTabState extends State<ProfilTab> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => const TujuanKesehatanPage()),
+                );
+              },
+            ),
+            _buildProfileMenu(
+              icon: Icons.watch_rounded,
+              title: 'Status Perangkat',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const MenghubungkanPerangkatPage(),
+                  ),
+                );
+              },
+            ),
+            _buildProfileMenu(
+              icon: Icons.tune_rounded,
+              title: 'Kalibrasi Tekanan Darah',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const KalibrasiTekananDarahPage(),
+                  ),
                 );
               },
             ),

@@ -1,10 +1,29 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:asawatch/tekanan_darah_detail_page.dart';
-import 'package:asawatch/gula_darah_detail_page.dart';
-import 'package:asawatch/detak_jantung_detail_page.dart';
-import 'package:asawatch/widgets/sparkline.dart';
+import 'package:provider/provider.dart';
 
+import 'controllers/sesi_makan_controller.dart';
+import 'models/sesi_makan.dart';
+import 'models/target_harian.dart';
+import 'repositories/profil_repository.dart';
+import 'ringkasan_sesi_page.dart';
+import 'sesi_berjalan_page.dart';
+import 'utils/format_waktu.dart';
+import 'utils/ikon.dart';
+import 'widgets/foto_makanan.dart';
+import 'widgets/judul_bagian.dart';
+import 'widgets/petunjuk_tombol_jam.dart';
+import 'widgets/ringkasan_nutrisi.dart';
+import 'widgets/sparkline.dart';
+import 'widgets/timeline_sampel.dart';
+
+/// Beranda menjawab "sesi kamu sampai mana", bukan lagi "bagaimana kondisimu
+/// sekarang" (§3). Kartu vital "sekarang" sudah dihapus: jam hanya mengukur
+/// saat sesi makan, jadi angka semacam itu akan basi hampir sepanjang waktu.
+///
+/// Tiga wajah sesuai status sesi (§4.1): idle, sesi berjalan, dan sesi baru
+/// selesai. Hanya bagian sesi yang mendengarkan controller — sapaan dan
+/// tanggal tetap di luar, karena `build()` di sini memanggil `_loadNama()`
+/// yang async.
 class BerandaTab extends StatefulWidget {
   const BerandaTab({super.key});
 
@@ -13,7 +32,7 @@ class BerandaTab extends StatefulWidget {
 }
 
 class _BerandaTabState extends State<BerandaTab> {
-  String _nama = 'Lathifa';
+  String _nama = '';
 
   @override
   void initState() {
@@ -21,15 +40,13 @@ class _BerandaTabState extends State<BerandaTab> {
     _loadNama();
   }
 
-  // Fungsi memuat nama dari SharedPreferences secara periodik / saat dimuat.
+  // Memuat nama lewat ProfilRepository saat tab ini dibangun.
   //
   // Dipanggil juga dari build(), jadi pemeriksaan `nama == _nama` di bawah
   // WAJIB ada: tanpa itu setState memicu build berikutnya, yang memanggil
   // _loadNama() lagi, dan tab ini rebuild tanpa henti begitu ada nama tersimpan.
   Future<void> _loadNama() async {
-    final prefs = await SharedPreferences.getInstance();
-    final savedName = prefs.getString('user_name');
-    final nama = (savedName == null || savedName.isEmpty) ? 'Lathifa' : savedName;
+    final nama = (await const ProfilRepository().muat()).nama;
 
     if (!mounted || nama == _nama) return;
 
@@ -51,25 +68,7 @@ class _BerandaTabState extends State<BerandaTab> {
       'Sabtu',
       'Minggu',
     ];
-    const months = [
-      '',
-      'Januari',
-      'Februari',
-      'Maret',
-      'April',
-      'Mei',
-      'Juni',
-      'Juli',
-      'Agustus',
-      'September',
-      'Oktober',
-      'November',
-      'Desember',
-    ];
-
-    final dayName = days[now.weekday];
-    final monthName = months[now.month];
-    return '$dayName, ${now.day} $monthName ${now.year}';
+    return '${days[now.weekday]}, ${formatTanggal(now)}';
   }
 
   @override
@@ -87,20 +86,13 @@ class _BerandaTabState extends State<BerandaTab> {
             // Header Row
             Row(
               children: [
-                CircleAvatar(
+                // Foto orang asing dari Unsplash dihapus bersama sisa identitas
+                // demo; ia juga tidak pernah termuat di rilis karena izin
+                // INTERNET tidak dideklarasikan.
+                const CircleAvatar(
                   radius: 22,
-                  backgroundColor: const Color(0xFFE0F2F1),
-                  child: ClipOval(
-                    child: Image.network(
-                      'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=150',
-                      fit: BoxFit.cover,
-                      width: 44,
-                      height: 44,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Icon(Icons.person, color: Color(0xFF0EAD69));
-                      },
-                    ),
-                  ),
+                  backgroundColor: Color(0xFFE0F2F1),
+                  child: Icon(Icons.person, color: Color(0xFF0EAD69)),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -110,7 +102,9 @@ class _BerandaTabState extends State<BerandaTab> {
                       Row(
                         children: [
                           Text(
-                            'Halo, $_nama',
+                            // Tanpa nama tersimpan, sapaannya berhenti di
+                            // "Halo" — bukan menyapa dengan nama orang lain.
+                            _nama.isEmpty ? 'Halo' : 'Halo, $_nama',
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
@@ -142,7 +136,11 @@ class _BerandaTabState extends State<BerandaTab> {
                 Stack(
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.notifications_none_rounded, color: Color(0xFF1E3A34), size: 28),
+                      icon: const Icon(
+                        Icons.notifications_none_rounded,
+                        color: Color(0xFF1E3A34),
+                        size: 28,
+                      ),
                       onPressed: () {},
                     ),
                     Positioned(
@@ -161,432 +159,339 @@ class _BerandaTabState extends State<BerandaTab> {
                 ),
               ],
             ),
-            const SizedBox(height: 24),
-
-            // Watch Connected Card
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE2F6F0),
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Row(
-                children: [
-                  // Smartwatch Illustration
-                  Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    padding: const EdgeInsets.all(8),
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        // Watch bands
-                        Container(
-                          width: 24,
-                          height: 60,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF2C3E50),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        // Screen
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF1A1A1A),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: const Color(0xFF5AB693), width: 1.5),
-                          ),
-                          child: const Center(
-                            child: Icon(
-                              Icons.favorite_rounded,
-                              color: Color(0xFF0EAD69),
-                              size: 16,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Watch Terhubung',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF1E3A34),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            const Icon(Icons.battery_5_bar_rounded, color: Color(0xFF0EAD69), size: 16),
-                            const SizedBox(width: 4),
-                            Text(
-                              '100%',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: const Color(0xFF1E3A34).withValues(alpha: 0.8),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Terakhir sinkronisasi\n21 Mei 2024, 08:00',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Color(0xFF6B807B),
-                            height: 1.3,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  // Sync Button
-                  ElevatedButton.icon(
-                    onPressed: () {},
-                    icon: const Icon(Icons.sync_rounded, size: 14, color: Colors.white),
-                    label: const Text(
-                      'Sinkronkan',
-                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF0EAD69),
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Ringkasan Kesehatan
-            const Text(
-              'Ringkasan Kesehatan',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF1E3A34),
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Data terbaru 08:00',
-              style: TextStyle(
-                fontSize: 11,
-                color: Color(0xFF7E9A94),
-              ),
-            ),
             const SizedBox(height: 16),
 
-            // Grid of 4 Health summaries
-            GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 16,
-              crossAxisSpacing: 16,
-              childAspectRatio: 1.3,
-              children: [
-                _buildHealthCard(
-                  context,
-                  title: 'Detak Jantung',
-                  value: '78',
-                  unit: ' bpm',
-                  status: 'Normal',
-                  icon: Icons.favorite_rounded,
-                  iconColor: Colors.redAccent,
-                  sparklineColors: [Colors.redAccent, Colors.redAccent.withValues(alpha: 0.2)],
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const DetakJantungDetailPage()),
-                  ),
-                ),
-                _buildHealthCard(
-                  context,
-                  title: 'Gula Darah',
-                  value: '112',
-                  unit: ' mg/dL',
-                  status: 'Normal',
-                  icon: Icons.water_drop_rounded,
-                  iconColor: const Color(0xFF0EAD69),
-                  sparklineColors: [const Color(0xFF0EAD69), const Color(0xFF0EAD69).withValues(alpha: 0.2)],
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const GulaDarahDetailPage()),
-                  ),
-                ),
-                _buildHealthCard(
-                  context,
-                  title: 'Tekanan Darah',
-                  value: '118/78',
-                  unit: ' mmHg',
-                  status: 'Normal',
-                  icon: Icons.favorite_border_rounded,
-                  iconColor: Colors.teal,
-                  sparklineColors: [Colors.teal, Colors.teal.withValues(alpha: 0.2)],
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const TekananDarahDetailPage()),
-                  ),
-                ),
-                _buildHealthCard(
-                  context,
-                  title: 'Kalori Hari Ini',
-                  value: '1560',
-                  unit: ' kcal',
-                  status: 'Baik',
-                  icon: Icons.local_fire_department_rounded,
-                  iconColor: Colors.orange,
-                  sparklineColors: [Colors.orange, Colors.orange.withValues(alpha: 0.2)],
-                  onTap: () {},
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-
-            // Tren Kesehatan section
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Tren Kesehatan (Per 2 Jam)',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1E3A34),
-                  ),
-                ),
-                TextButton(
-                  onPressed: () {},
-                  child: const Text(
-                    'Lihat Semua',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF0EAD69),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // Toggle Tabs
-            Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFFE5EDE9),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              padding: const EdgeInsets.all(4),
-              child: Row(
-                children: [
-                  _buildToggleTab('Harian', true),
-                  _buildToggleTab('Mingguan', false),
-                  _buildToggleTab('Bulanan', false),
-                ],
-              ),
-            ),
+            // Status jam ringkas — pendengar sendiri, bukan seluruh tab.
+            const _StatusJamHeader(),
+            const _PeringatanPenyimpanan(),
             const SizedBox(height: 20),
 
-            // Chart Card
-            Container(
-              height: 200,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              child: Stack(
-                children: [
-                  // Chart background grid
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: List.generate(4, (index) {
-                      return Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              height: 1,
-                              color: const Color(0xFFE0EDE9).withValues(alpha: 0.6),
-                            ),
-                          ),
-                        ],
-                      );
-                    }),
-                  ),
-                  // Spline line
-                  Positioned.fill(
-                    child: CustomPaint(
-                      painter: DashboardSplinePainter(),
-                    ),
-                  ),
-                  // Highlight Label at 08:00
-                  Positioned(
-                    left: 92,
-                    top: 42,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE2F6F0),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: const Text(
-                        '08:00',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF0EAD69),
-                        ),
-                      ),
-                    ),
-                  ),
-                  // Timeline texts
-                  Positioned(
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: const [
-                        Text('00:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE))),
-                        Text('04:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE))),
-                        Text('08:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE), fontWeight: FontWeight.bold)),
-                        Text('12:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE))),
-                        Text('16:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE))),
-                        Text('20:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE))),
-                        Text('24:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE))),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            // Tiga wajah sesi.
+            const _AreaSesi(),
             const SizedBox(height: 16),
           ],
         ),
       ),
     );
   }
+}
 
-  Widget _buildToggleTab(String title, bool isSelected) {
-    return Expanded(
-      child: Container(
-        height: 38,
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF0EAD69) : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
+class _StatusJamHeader extends StatelessWidget {
+  const _StatusJamHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<SesiMakanController>();
+    final p = controller.statusPerangkat;
+
+    return Row(
+      children: [
+        Expanded(child: StatusPerangkatBar(perangkat: p)),
+        const SizedBox(width: 10),
+        IconButton(
+          onPressed: controller.sinkronkan,
+          tooltip: 'Sinkronkan',
+          icon: const Icon(Icons.sync_rounded, color: Color(0xFF0EAD69)),
         ),
-        alignment: Alignment.center,
-        child: Text(
-          title,
-          style: TextStyle(
-            color: isSelected ? Colors.white : const Color(0xFF6B807B),
-            fontWeight: FontWeight.bold,
-            fontSize: 13,
+      ],
+    );
+  }
+}
+
+/// Peringatan bahwa sesi terakhir gagal ditulis ke penyimpanan.
+///
+/// Ditempatkan di Beranda, bukan sebagai SnackBar, karena akibatnya bertahan:
+/// sesinya masih terlihat di layar tetapi akan hilang saat aplikasi ditutup.
+/// Pesan sekilas yang menghilang sendiri akan menyembunyikan justru bagian yang
+/// perlu diketahui.
+class _PeringatanPenyimpanan extends StatelessWidget {
+  const _PeringatanPenyimpanan();
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<SesiMakanController>();
+    final pesan = controller.galatPenyimpanan;
+    if (pesan == null) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF4E5),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFF0D9B5), width: 1.5),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.warning_amber_rounded,
+            size: 20,
+            color: Color(0xFFB4761E),
           ),
-        ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              pesan,
+              style: const TextStyle(fontSize: 12, color: Color(0xFF6B4E1E)),
+            ),
+          ),
+          GestureDetector(
+            onTap: controller.buangGalatPenyimpanan,
+            child: const Padding(
+              padding: EdgeInsets.only(left: 8),
+              child: Icon(Icons.close_rounded, size: 18, color: Color(0xFFB4761E)),
+            ),
+          ),
+        ],
       ),
     );
   }
+}
 
-  Widget _buildHealthCard(
-    BuildContext context, {
-    required String title,
-    required String value,
-    required String unit,
-    required String status,
-    required IconData icon,
-    required Color iconColor,
-    required List<Color> sparklineColors,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
+class _AreaSesi extends StatelessWidget {
+  const _AreaSesi();
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<SesiMakanController>();
+    final aktif = controller.sesiAktif;
+    final hasilBaru = controller.hasilBelumDibaca;
+
+    // Wajah B — sesi berjalan.
+    if (aktif != null) {
+      return _KartuSesiBerjalan(sesi: aktif, controller: controller);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Wajah C — hasil sesi terbaru, bertahan sampai dibuka user.
+        if (hasilBaru != null) ...[
+          _KartuHasilBaru(sesi: hasilBaru, controller: controller),
+          const SizedBox(height: 20),
+        ],
+
+        // Wajah A — ringkasan hari ini, selalu ada datanya karena tiap makan
+        // difoto.
+        _RingkasanHariIni(controller: controller),
+        const SizedBox(height: 20),
+
+        if (hasilBaru == null) ...[
+          _KartuSesiTerakhir(controller: controller),
+          const SizedBox(height: 20),
+        ],
+
+        _KartuPuncakTerakhir(controller: controller),
+      ],
+    );
+  }
+}
+
+// --- Wajah B ---------------------------------------------------------------
+
+class _KartuSesiBerjalan extends StatelessWidget {
+  const _KartuSesiBerjalan({required this.sesi, required this.controller});
+
+  final SesiMakan sesi;
+  final SesiMakanController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        JudulBagian(
+          ikon: ikonStatusSesi(sesi.status),
+          judul: 'Sesi Kamu',
+          aksi: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE2F6F0),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              sesi.status.label,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF0EAD69),
+              ),
+            ),
+          ),
         ),
-        padding: const EdgeInsets.all(12),
+
+        // Timeline mendominasi layar saat sesi berjalan (§4.1 B).
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
+          ),
+          child: TimelineSampel(
+            sampel: sesi.sampel,
+            t0: sesi.t0,
+            indexBerikutnya: sesi.sampelBerikutnya?.index,
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Di bawahnya: foto makanan dan ringkasan nutrisinya.
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  FotoMakanan(fotoPath: sesi.fotoPath, lebar: 56, tinggi: 56),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      sesi.hasil?.ringkasanNama ?? 'Makanan',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1E3A34),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              RingkasanNutrisi(hasil: sesi.hasil),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        if (sesi.t0 == null)
+          PetunjukTombolJam(
+            status: sesi.status,
+            perangkat: controller.statusPerangkat,
+          )
+        else
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SesiBerjalanPage()),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF0EAD69),
+                side: const BorderSide(color: Color(0xFFE2EBE8), width: 1.5),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              child: const Text(
+                'Buka Sesi',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+// --- Wajah C ---------------------------------------------------------------
+
+class _KartuHasilBaru extends StatelessWidget {
+  const _KartuHasilBaru({required this.sesi, required this.controller});
+
+  final SesiMakan sesi;
+  final SesiMakanController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final t0 = sesi.t0;
+    final delta = sesi.deltaPuncak;
+
+    return GestureDetector(
+      onTap: () {
+        controller.tandaiHasilDibaca();
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => RingkasanSesiPage(sesi: sesi)),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFE2F6F0),
+          borderRadius: BorderRadius.circular(24),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Icon(icon, color: iconColor, size: 18),
-                const SizedBox(width: 6),
-                Expanded(
+                const Icon(
+                  Icons.insights_rounded,
+                  color: Color(0xFF0EAD69),
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
                   child: Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 11,
+                    'Sesi baru selesai',
+                    style: TextStyle(
+                      fontSize: 13,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF1E3A34),
                     ),
                   ),
                 ),
-              ],
-            ),
-            const Spacer(),
-            RichText(
-              text: TextSpan(
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1E3A34),
-                ),
-                children: [
-                  TextSpan(text: value),
-                  TextSpan(
-                    text: unit,
+                if (t0 != null)
+                  Text(
+                    formatWaktuRelatif(t0),
                     style: const TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.normal,
+                      fontSize: 11,
                       color: Color(0xFF6B807B),
                     ),
                   ),
-                ],
-              ),
+              ],
             ),
-            const SizedBox(height: 2),
-            Text(
-              status,
-              style: TextStyle(
-                fontSize: 10,
-                color: status == 'Baik' || status == 'Normal' ? const Color(0xFF0EAD69) : Colors.red,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const Spacer(),
-            // Miniature Sparkline
-            SizedBox(
-              height: 18,
-              width: double.infinity,
-              child: CustomPaint(
-                painter: MiniSparklinePainter(colors: sparklineColors),
-              ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                FotoMakanan(fotoPath: sesi.fotoPath, lebar: 56, tinggi: 56),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        sesi.verdict,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1E3A34),
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        delta == null
+                            ? 'Ketuk untuk melihat rinciannya'
+                            : 'Ketuk untuk melihat kurva responsnya',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF6B807B),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -595,56 +500,336 @@ class _BerandaTabState extends State<BerandaTab> {
   }
 }
 
-class DashboardSplinePainter extends CustomPainter {
+// --- Wajah A ---------------------------------------------------------------
+
+class _RingkasanHariIni extends StatelessWidget {
+  const _RingkasanHariIni({required this.controller});
+
+  final SesiMakanController controller;
+
   @override
-  void paint(Canvas canvas, Size size) {
-    // Wave line path
-    final paintLine = Paint()
-      ..color = const Color(0xFF0EAD69)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5
-      ..strokeCap = StrokeCap.round;
+  Widget build(BuildContext context) {
+    const target = TargetHarian.bawaan;
+    final total = controller.totalNutrisiHariIni();
+    final jumlahSesi = controller.sesiHariIni().length;
 
-    final path = Path()
-      ..moveTo(0, size.height * 0.6)
-      ..cubicTo(size.width * 0.15, size.height * 0.5, size.width * 0.22, size.height * 0.65, size.width * 0.33, size.height * 0.48)
-      ..cubicTo(size.width * 0.45, size.height * 0.3, size.width * 0.55, size.height * 0.6, size.width * 0.68, size.height * 0.52)
-      ..cubicTo(size.width * 0.78, size.height * 0.4, size.width * 0.88, size.height * 0.63, size.width, size.height * 0.55);
-
-    // Gradient below the line
-    final pathFill = Path.from(path)
-      ..lineTo(size.width, size.height - 20)
-      ..lineTo(0, size.height - 20)
-      ..close();
-
-    final paintFill = Paint()
-      ..shader = LinearGradient(
-        colors: [
-          const Color(0xFF0EAD69).withValues(alpha: 0.15),
-          const Color(0xFF0EAD69).withValues(alpha: 0.0),
-        ],
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
-
-    canvas.drawPath(pathFill, paintFill);
-    canvas.drawPath(path, paintLine);
-
-    // Draw active dot at 08:00 (around x = width * 0.33, y = height * 0.48)
-    final dotX = size.width * 0.33;
-    final dotY = size.height * 0.48;
-
-    final dotOuter = Paint()
-      ..color = const Color(0xFFE2F6F0)
-      ..style = PaintingStyle.fill;
-    final dotInner = Paint()
-      ..color = const Color(0xFF0EAD69)
-      ..style = PaintingStyle.fill;
-
-    canvas.drawCircle(Offset(dotX, dotY), 8, dotOuter);
-    canvas.drawCircle(Offset(dotX, dotY), 4, dotInner);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        JudulBagian(
+          ikon: Icons.restaurant_menu_rounded,
+          judul: 'Ringkasan Hari Ini',
+          aksi: Text(
+            jumlahSesi == 0 ? 'belum ada sesi' : '$jumlahSesi sesi',
+            style: const TextStyle(fontSize: 11, color: Color(0xFF7E9A94)),
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
+          ),
+          child: Column(
+            children: [
+              _BarisTarget(
+                label: 'Kalori',
+                nilai: total.kalori,
+                target: target.kalori,
+                satuan: 'kcal',
+              ),
+              const SizedBox(height: 14),
+              _BarisTarget(
+                label: 'Karbohidrat',
+                nilai: total.karbohidrat,
+                target: target.karbohidrat,
+                satuan: 'g',
+              ),
+              const SizedBox(height: 14),
+              _BarisTarget(
+                label: 'Protein',
+                nilai: total.protein,
+                target: target.protein,
+                satuan: 'g',
+              ),
+              const SizedBox(height: 14),
+              _BarisTarget(
+                label: 'Lemak',
+                nilai: total.lemak,
+                target: target.lemak,
+                satuan: 'g',
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
+}
+
+class _BarisTarget extends StatelessWidget {
+  const _BarisTarget({
+    required this.label,
+    required this.nilai,
+    required this.target,
+    required this.satuan,
+  });
+
+  final String label;
+  final double nilai;
+  final double target;
+  final String satuan;
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  Widget build(BuildContext context) {
+    final rasio = target <= 0 ? 0.0 : (nilai / target).clamp(0.0, 1.0);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              ikonMakro[label] ?? Icons.circle,
+              size: 13,
+              color: const Color(0xFF8FA7A1),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF1E3A34),
+                ),
+              ),
+            ),
+            Text(
+              '${formatAngka(nilai)} / ${formatAngka(target)} $satuan',
+              style: const TextStyle(fontSize: 11, color: Color(0xFF6B807B)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: LinearProgressIndicator(
+            value: rasio,
+            minHeight: 6,
+            backgroundColor: const Color(0xFFE2EBE8),
+            valueColor: const AlwaysStoppedAnimation(Color(0xFF0EAD69)),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _KartuSesiTerakhir extends StatelessWidget {
+  const _KartuSesiTerakhir({required this.controller});
+
+  final SesiMakanController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final sesi = controller.sesiTerakhir;
+
+    if (sesi == null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
+        ),
+        child: Column(
+          children: const [
+            Icon(
+              Icons.photo_camera_rounded,
+              size: 32,
+              color: Color(0xFF8FA7A1),
+            ),
+            SizedBox(height: 10),
+            Text(
+              'Belum ada sesi',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1E3A34),
+              ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              'Foto makananmu lewat tombol kamera untuk memulai sesi.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 11, color: Color(0xFF7E9A94)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final t0 = sesi.t0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const JudulBagian(
+          ikon: Icons.history_rounded,
+          judul: 'Sesi Terakhir',
+        ),
+        GestureDetector(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => RingkasanSesiPage(sesi: sesi)),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
+            ),
+            child: Row(
+              children: [
+                FotoMakanan(fotoPath: sesi.fotoPath, lebar: 52, tinggi: 52),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            ikonWaktuMakan(sesi.waktuMakan),
+                            size: 12,
+                            color: const Color(0xFF8FA7A1),
+                          ),
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: Text(
+                              t0 == null
+                                  ? formatJam(sesi.waktuFoto)
+                                  : '${formatJam(t0)} · '
+                                        '${formatWaktuRelatif(t0)}',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF8FA7A1),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        sesi.verdict,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1E3A34),
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: Color(0xFF8FA7A1),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _KartuPuncakTerakhir extends StatelessWidget {
+  const _KartuPuncakTerakhir({required this.controller});
+
+  final SesiMakanController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final puncak = controller.puncakTerakhir();
+    // Satu titik bukan tren; jangan digambar (§8).
+    if (puncak.length < 2) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
+      ),
+      child: Row(
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: const [
+                  Icon(ikonGulaDarah, size: 14, color: Color(0xFF0EAD69)),
+                  SizedBox(width: 6),
+                  Text(
+                    'Puncak Gula Darah',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1E3A34),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${puncak.length} sesi terakhir',
+                style: const TextStyle(fontSize: 10, color: Color(0xFF8FA7A1)),
+              ),
+              const SizedBox(height: 8),
+              RichText(
+                text: TextSpan(
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1E3A34),
+                  ),
+                  children: [
+                    TextSpan(text: formatAngka(puncak.last)),
+                    const TextSpan(
+                      text: ' mg/dL',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.normal,
+                        color: Color(0xFF6B807B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: SizedBox(
+              height: 44,
+              child: CustomPaint(
+                painter: MiniSparklinePainter(
+                  colors: [
+                    const Color(0xFF0EAD69),
+                    const Color(0xFF0EAD69).withValues(alpha: 0.3),
+                  ],
+                  nilai: puncak,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

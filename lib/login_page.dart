@@ -261,7 +261,7 @@ class _LoginPageState extends State<LoginPage> {
                               Navigator.pushReplacement(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) => const MyHomePage(title: 'HealthWatch Home'),
+                                  builder: (context) => const MyHomePage(title: 'AsaWatch'),
                                 ),
                               );
                             }

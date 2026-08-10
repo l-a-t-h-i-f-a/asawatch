@@ -1,66 +1,30 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-class BloodPressureSplinePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Wave line path for Sistolik
-    final paintLine1 = Paint()
-      ..color = const Color(0xFF0EAD69)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5
-      ..strokeCap = StrokeCap.round;
+import 'controllers/sesi_makan_controller.dart';
+import 'gula_darah_detail_page.dart' show BarisNilaiSampel, JudulSesi, PesanTanpaSesi;
+import 'kalibrasi_tekanan_darah_page.dart';
+import 'models/sesi_makan.dart';
+import 'utils/format_waktu.dart';
+import 'widgets/judul_bagian.dart';
+import 'widgets/kurva_sampel.dart';
+import 'widgets/sparkline.dart';
 
-    final path1 = Path()
-      ..moveTo(0, size.height * 0.45)
-      ..cubicTo(size.width * 0.15, size.height * 0.4, size.width * 0.22, size.height * 0.48, size.width * 0.33, size.height * 0.42)
-      ..cubicTo(size.width * 0.45, size.height * 0.35, size.width * 0.55, size.height * 0.44, size.width * 0.68, size.height * 0.41)
-      ..cubicTo(size.width * 0.78, size.height * 0.38, size.width * 0.88, size.height * 0.45, size.width, size.height * 0.43);
-
-    // Wave line path for Diastolik (lower line)
-    final paintLine2 = Paint()
-      ..color = const Color(0xFF8AE8CD)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5
-      ..strokeCap = StrokeCap.round;
-
-    final path2 = Path()
-      ..moveTo(0, size.height * 0.68)
-      ..cubicTo(size.width * 0.15, size.height * 0.65, size.width * 0.22, size.height * 0.72, size.width * 0.33, size.height * 0.68)
-      ..cubicTo(size.width * 0.45, size.height * 0.62, size.width * 0.55, size.height * 0.7, size.width * 0.68, size.height * 0.66)
-      ..cubicTo(size.width * 0.78, size.height * 0.63, size.width * 0.88, size.height * 0.71, size.width, size.height * 0.69);
-
-    canvas.drawPath(path1, paintLine1);
-    canvas.drawPath(path2, paintLine2);
-
-    // Draw active dot at 08:00 for Sistolik (around x = width * 0.33, y = height * 0.42)
-    final dotX = size.width * 0.33;
-    final dotY = size.height * 0.42;
-
-    final dotOuter = Paint()
-      ..color = const Color(0xFFE2F6F0)
-      ..style = PaintingStyle.fill;
-    final dotInner = Paint()
-      ..color = const Color(0xFF0EAD69)
-      ..style = PaintingStyle.fill;
-
-    canvas.drawCircle(Offset(dotX, dotY), 8, dotOuter);
-    canvas.drawCircle(Offset(dotX, dotY), 4, dotInner);
-
-    // Draw active dot at 08:00 for Diastolik (around x = width * 0.33, y = height * 0.68)
-    final dotY2 = size.height * 0.68;
-    canvas.drawCircle(Offset(dotX, dotY2), 8, dotOuter);
-    canvas.drawCircle(Offset(dotX, dotY2), 4, paintLine2);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
+/// Detail tekanan darah satu sesi: sistolik dan diastolik sebagai dua garis
+/// yang digambar dari sampel, bukan dari path tetap (§7).
+///
+/// Di bawahnya: tren baseline antar sesi dan pintu masuk kalibrasi beserta
+/// statusnya (§4.4). Alur kalibrasinya sendiri adalah langkah 7.
 class TekananDarahDetailPage extends StatelessWidget {
-  const TekananDarahDetailPage({super.key});
+  const TekananDarahDetailPage({super.key, this.sesi});
+
+  final SesiMakan? sesi;
 
   @override
   Widget build(BuildContext context) {
+    final controller = context.watch<SesiMakanController>();
+    final sesiTampil = sesi ?? controller.sesiTerakhir;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF4FAF7),
       appBar: AppBar(
@@ -72,385 +36,355 @@ class TekananDarahDetailPage extends StatelessWidget {
         ),
         title: const Text(
           'Tekanan Darah',
-          style: TextStyle(color: Color(0xFF1E3A34), fontWeight: FontWeight.bold, fontSize: 18),
+          style: TextStyle(
+            color: Color(0xFF1E3A34),
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
         ),
         centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.calendar_today_outlined, color: Color(0xFF1E3A34)),
-            onPressed: () {},
-          ),
-        ],
       ),
-      body: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Tabs toggle
-            Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFFE5EDE9),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              padding: const EdgeInsets.all(4),
-              child: Row(
+      body: sesiTampil == null
+          ? const PesanTanpaSesi()
+          : _IsiTekananDarah(sesi: sesiTampil, semuaSesi: controller.riwayat),
+    );
+  }
+}
+
+class _IsiTekananDarah extends StatelessWidget {
+  const _IsiTekananDarah({required this.sesi, required this.semuaSesi});
+
+  final SesiMakan sesi;
+  final List<SesiMakan> semuaSesi;
+
+  @override
+  Widget build(BuildContext context) {
+    // Titik acuan halaman ini adalah kondisi sebelum makan.
+    final baseline = sesi.sampel[0];
+
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          JudulSesi(sesi: sesi),
+          const SizedBox(height: 20),
+
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildTab('Harian', true),
-                  _buildTab('Mingguan', false),
-                  _buildTab('Bulanan', false),
+                  RichText(
+                    text: TextSpan(
+                      style: const TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1E3A34),
+                      ),
+                      children: [
+                        TextSpan(text: baseline.tekananDarah ?? tandaKosong),
+                        const TextSpan(
+                          text: ' mmHg',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.normal,
+                            color: Color(0xFF6B807B),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Text(
+                    'Baseline sebelum makan',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF7E9A94)),
+                  ),
                 ],
               ),
-            ),
-            const SizedBox(height: 24),
-
-            // Average display row
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    RichText(
-                      text: const TextSpan(
-                        style: TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF1E3A34),
-                        ),
-                        children: [
-                          TextSpan(text: '118/78'),
-                          TextSpan(
-                            text: ' mmHg',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.normal,
-                              color: Color(0xFF6B807B),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Text(
-                      'Rata-rata Hari Ini',
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE2F6F0),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  children: const [
+                    Icon(Icons.speed_rounded, color: Color(0xFF0EAD69), size: 16),
+                    SizedBox(width: 4),
+                    Text(
+                      'Per sesi',
                       style: TextStyle(
+                        color: Color(0xFF0EAD69),
+                        fontWeight: FontWeight.bold,
                         fontSize: 12,
-                        color: Color(0xFF7E9A94),
                       ),
                     ),
                   ],
                 ),
-                // Normal Indicator with + Icon
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE2F6F0),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          KurvaSampel(
+            sampel: sesi.sampel,
+            seri: const [seriSistolik, seriDiastolik],
+            pesanKosong: 'Belum ada sampel tekanan darah',
+          ),
+          const SizedBox(height: 24),
+
+          const JudulBagian(
+            ikon: Icons.timeline_rounded,
+            judul: 'Nilai Tiap Titik',
+          ),
+          for (final s in sesi.sampel)
+            BarisNilaiSampel(
+              sampel: s,
+              t0: sesi.t0,
+              nilai: s.tekananDarah,
+              satuan: 'mmHg',
+            ),
+          const SizedBox(height: 12),
+
+          _TrenPerSesi(semuaSesi: semuaSesi),
+          const SizedBox(height: 24),
+
+          const _KartuKalibrasi(),
+          const SizedBox(height: 24),
+
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE2F6F0),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: const [
-                      Icon(Icons.add, color: Color(0xFF0EAD69), size: 16),
-                      SizedBox(width: 4),
                       Text(
-                        'Normal',
+                        'Tekanan darah normal:',
                         style: TextStyle(
-                          color: Color(0xFF0EAD69),
-                          fontWeight: FontWeight.bold,
                           fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1E3A34),
+                        ),
+                      ),
+                      SizedBox(height: 6),
+                      Text(
+                        '90/60 - 120/80 mmHg',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0EAD69),
                         ),
                       ),
                     ],
                   ),
                 ),
+                const SizedBox(width: 12),
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.speed_rounded,
+                    color: Color(0xFF0EAD69),
+                    size: 28,
+                  ),
+                ),
               ],
             ),
-            const SizedBox(height: 24),
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+}
 
-            // Chart Box (Double Line chart for Sistolik & Diastolik)
-            Container(
-              height: 200,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              child: Stack(
-                children: [
-                  // Legend
-                  Positioned(
-                    top: 0,
-                    right: 0,
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF0EAD69),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        const Text(
-                          'Sistolik',
-                          style: TextStyle(fontSize: 10, color: Color(0xFF6B807B)),
-                        ),
-                        const SizedBox(width: 12),
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF8AE8CD),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        const Text(
-                          'Diastolik',
-                          style: TextStyle(fontSize: 10, color: Color(0xFF6B807B)),
-                        ),
-                      ],
-                    ),
-                  ),
-                  // Horizontal Grid
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: List.generate(4, (index) {
-                      return Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              height: 1,
-                              color: const Color(0xFFE0EDE9).withValues(alpha: 0.6),
-                            ),
-                          ),
-                        ],
-                      );
-                    }),
-                  ),
-                  // Double Spline Line
-                  Positioned.fill(
-                    child: CustomPaint(
-                      painter: BloodPressureSplinePainter(),
-                    ),
-                  ),
-                  // Active label indicator "08:00"
-                  Positioned(
-                    left: 92,
-                    top: 42,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE2F6F0),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: const Text(
-                        '08:00',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF0EAD69),
-                        ),
-                      ),
-                    ),
-                  ),
-                  // Timeline labels
-                  Positioned(
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: const [
-                        Text('00:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE))),
-                        Text('04:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE))),
-                        Text('08:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE), fontWeight: FontWeight.bold)),
-                        Text('12:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE))),
-                        Text('16:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE))),
-                        Text('20:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE))),
-                        Text('24:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE))),
-                      ],
-                    ),
-                  ),
-                ],
+/// Tren tekanan darah antar sesi: nilai baseline pra-makan tiap sesi, urut
+/// lama → baru. Empat titik dalam satu sesi terlalu pendek untuk disebut tren,
+/// jadi yang dibandingkan adalah sesi dengan sesi.
+class _TrenPerSesi extends StatelessWidget {
+  const _TrenPerSesi({required this.semuaSesi});
+
+  final List<SesiMakan> semuaSesi;
+
+  @override
+  Widget build(BuildContext context) {
+    // Urut lama → baru supaya sparkline terbaca kiri ke kanan.
+    final urut = [...semuaSesi].reversed;
+    final sistolik = <double>[];
+    final diastolik = <double>[];
+    for (final s in urut) {
+      final dasar = s.sampel[0];
+      if (!dasar.terisi || dasar.sistolik == null || dasar.diastolik == null) {
+        continue;
+      }
+      sistolik.add(dasar.sistolik!.toDouble());
+      diastolik.add(dasar.diastolik!.toDouble());
+    }
+
+    if (sistolik.length < 2) {
+      return const SizedBox.shrink();
+    }
+
+    double rata(List<double> n) => n.reduce((a, b) => a + b) / n.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        JudulBagian(
+          ikon: Icons.show_chart_rounded,
+          judul: 'Tren Antar Sesi',
+          keterangan:
+              'Baseline pra-makan ${sistolik.length} sesi terakhir · '
+              'rata-rata ${rata(sistolik).round()}/'
+              '${rata(diastolik).round()} mmHg',
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
+          ),
+          child: Column(
+            children: [
+              _garis('Sistolik', sistolik, const Color(0xFF0EAD69)),
+              const SizedBox(height: 14),
+              _garis('Diastolik', diastolik, const Color(0xFF7BE5C4)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _garis(String label, List<double> nilai, Color warna) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 70,
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 11, color: Color(0xFF6B807B)),
+          ),
+        ),
+        Expanded(
+          child: SizedBox(
+            height: 32,
+            child: CustomPaint(
+              painter: MiniSparklinePainter(
+                colors: [warna, warna.withValues(alpha: 0.3)],
+                nilai: nilai,
               ),
             ),
-            const SizedBox(height: 24),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          '${nilai.last.round()}',
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF1E3A34),
+          ),
+        ),
+      ],
+    );
+  }
+}
 
-            // Data Per 2 Jam Section Header
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+/// Pintu masuk kalibrasi beserta statusnya (§4.4).
+///
+/// Statusnya dibaca dari controller: selama belum pernah dikalibrasi, yang
+/// ditulis adalah "Belum pernah dikalibrasi" — bukan tanggal karangan (§8).
+class _KartuKalibrasi extends StatelessWidget {
+  const _KartuKalibrasi();
+
+  @override
+  Widget build(BuildContext context) {
+    final kalibrasi = context.watch<SesiMakanController>().kalibrasiTerakhir;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: const BoxDecoration(
+              color: Color(0xFFE2F6F0),
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: const Icon(
+              Icons.tune_rounded,
+              size: 20,
+              color: Color(0xFF0EAD69),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Data per 2 Jam',
+                  'Kalibrasi Tekanan Darah',
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 13,
                     fontWeight: FontWeight.bold,
                     color: Color(0xFF1E3A34),
                   ),
                 ),
-                TextButton(
-                  onPressed: () {},
-                  child: const Text(
-                    'Hari Ini >',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF0EAD69),
-                    ),
+                const SizedBox(height: 3),
+                Text(
+                  kalibrasi == null
+                      ? 'Belum pernah dikalibrasi'
+                      : 'Terakhir dikalibrasi '
+                            '${formatWaktuRelatif(kalibrasi.waktu)} · koreksi '
+                            '${kalibrasi.ringkasanOffset}',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFF8FA7A1),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-
-            // List of readings
-            _buildTimeReadingItem('08:00', '118/78 mmHg', 'Normal'),
-            _buildTimeReadingItem('06:00', '115/75 mmHg', 'Normal'),
-            _buildTimeReadingItem('04:00', '112/72 mmHg', 'Normal'),
-            _buildTimeReadingItem('02:00', '110/70 mmHg', 'Normal'),
-            _buildTimeReadingItem('00:00', '108/68 mmHg', 'Normal'),
-            const SizedBox(height: 24),
-
-            // Normal Range Box
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE2F6F0),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text(
-                          'Tekanan darah normal:',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF1E3A34),
-                          ),
-                        ),
-                        SizedBox(height: 6),
-                        Text(
-                          '< 120/80 mmHg',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF0EAD69),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  // Pressure meter icon container
-                  Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    alignment: Alignment.center,
-                    child: const Icon(
-                      Icons.speed_rounded, // custom speed/meter representation
-                      color: Color(0xFF0EAD69),
-                      size: 28,
-                    ),
-                  ),
-                ],
+          ),
+          TextButton(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const KalibrasiTekananDarahPage(),
               ),
             ),
-            const SizedBox(height: 24),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTab(String title, bool isSelected) {
-    return Expanded(
-      child: Container(
-        height: 38,
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF0EAD69) : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          title,
-          style: TextStyle(
-            color: isSelected ? Colors.white : const Color(0xFF6B807B),
-            fontWeight: FontWeight.bold,
-            fontSize: 13,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTimeReadingItem(String time, String value, String status) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2EBE8), width: 1.2),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF0EAD69),
-                  shape: BoxShape.circle,
-                ),
+            child: Text(
+              kalibrasi == null ? 'Kalibrasi' : 'Ulangi',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF0EAD69),
               ),
-              const SizedBox(width: 12),
-              Text(
-                time,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1E3A34),
-                ),
-              ),
-            ],
-          ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF1E3A34),
             ),
-          ),
-          Row(
-            children: [
-              Text(
-                status,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF0EAD69),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(width: 4),
-              const Text(
-                '💚',
-                style: TextStyle(fontSize: 12),
-              ),
-            ],
           ),
         ],
       ),

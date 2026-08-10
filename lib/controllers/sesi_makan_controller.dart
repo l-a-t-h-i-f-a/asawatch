@@ -1,0 +1,401 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+
+import '../models/sesi_makan.dart';
+import '../repositories/sesi_repository.dart';
+import '../services/ble_service.dart';
+import '../services/nutrisi_service.dart';
+
+/// Satu-satunya state hidup di aplikasi (§12.6), disediakan lewat satu
+/// `ChangeNotifierProvider` di atas `MaterialApp`.
+///
+/// Aturan yang dikunci di sini:
+/// - hanya satu sesi aktif pada satu waktu;
+/// - notifikasi ~4 kali seumur sesi, bukan tiap detik (hitung mundur ditangani
+///   lokal oleh kartunya sendiri);
+/// - sampel di-dedup dengan kunci `(sesiId, index)` karena pengiriman jam
+///   bersifat at-least-once;
+/// - jadwal selalu diturunkan dari `t0` absolut, tidak pernah dari "sisa waktu".
+class SesiMakanController extends ChangeNotifier {
+  /// [riwayatAwal] adalah riwayat yang **sudah dimuat** oleh pemanggil dari
+  /// [repo]; konstruktor ini sengaja tetap sinkron (lihat `SesiRepository`).
+  /// [repo] hanya dipakai sebagai tempat menulis. Bila null, sesi yang selesai
+  /// tidak disimpan ke mana pun — itu yang diinginkan sebagian besar test.
+  SesiMakanController({
+    required this.ble,
+    required this.nutrisi,
+    List<SesiMakan> riwayatAwal = const [],
+    this.repo,
+  }) : _riwayat = List.of(riwayatAwal) {
+    _langgananSampel = ble.sampelMasuk.listen(_terimaSampel);
+    _langgananT0 = ble.selesaiMakanDitekan.listen(_terimaT0);
+    _langgananStatus = ble.statusPerangkat.listen((status) {
+      _statusPerangkat = status;
+      // Jam yang baru tersambung perlu disiapkan agar tombolnya menyala.
+      unawaited(_siapkanJam());
+      notifyListeners();
+    });
+    _statusPerangkat = ble.statusTerakhir;
+  }
+
+  final BleService ble;
+  final NutrisiService nutrisi;
+  final SesiRepository? repo;
+
+  StreamSubscription<({String sesiId, Sampel sampel})>? _langgananSampel;
+  StreamSubscription<({String sesiId, DateTime t0})>? _langgananT0;
+  StreamSubscription<StatusPerangkat>? _langgananStatus;
+
+  final List<SesiMakan> _riwayat; // terbaru di depan
+  final Set<String> _sampelDiterima = {}; // kunci "sesiId#index"
+
+  SesiMakan? _sesiAktif;
+  SesiMakan? _hasilBelumDibaca;
+  late StatusPerangkat _statusPerangkat;
+
+  SesiMakan? get sesiAktif => _sesiAktif;
+
+  String? _galatPenyimpanan;
+
+  /// Pesan bila sesi terakhir gagal ditulis ke penyimpanan; null bila tidak ada
+  /// masalah. Ditampilkan Beranda sampai dibuang lewat [buangGalatPenyimpanan].
+  String? get galatPenyimpanan => _galatPenyimpanan;
+
+  void buangGalatPenyimpanan() {
+    if (_galatPenyimpanan == null) return;
+    _galatPenyimpanan = null;
+    notifyListeners();
+  }
+
+  /// Sesi yang baru selesai dan kartunya masih harus ditampilkan di Beranda
+  /// sampai dibuka user (§4.1 wajah C).
+  SesiMakan? get hasilBelumDibaca => _hasilBelumDibaca;
+
+  List<SesiMakan> get riwayat => List.unmodifiable(_riwayat);
+
+  StatusPerangkat get statusPerangkat => _statusPerangkat;
+
+  SesiMakan? get sesiTerakhir => _riwayat.isEmpty ? null : _riwayat.first;
+
+  /// Sesi hari ini, dipakai ringkasan nutrisi harian di Beranda.
+  List<SesiMakan> sesiHariIni({DateTime? sekarang}) {
+    final now = sekarang ?? DateTime.now();
+    final hariIni = DateTime(now.year, now.month, now.day);
+    bool samaHari(DateTime? d) =>
+        d != null && !d.isBefore(hariIni) && d.isBefore(hariIni.add(const Duration(days: 1)));
+
+    return [
+      if (samaHari(_sesiAktif?.t0 ?? _sesiAktif?.waktuFoto)) _sesiAktif!,
+      ..._riwayat.where((s) => samaHari(s.t0 ?? s.waktuFoto)),
+    ];
+  }
+
+  /// Total nutrisi hari ini. Sesi yang analisisnya belum selesai dilewati,
+  /// bukan ditaksir.
+  Nutrisi totalNutrisiHariIni({DateTime? sekarang}) {
+    var total = Nutrisi.kosong;
+    for (final s in sesiHariIni(sekarang: sekarang)) {
+      final hasil = s.hasil;
+      if (hasil != null) total = total + hasil.total;
+    }
+    return total;
+  }
+
+  /// Puncak gula darah beberapa sesi terakhir, urut lama → baru, untuk
+  /// sparkline di Beranda.
+  List<double> puncakTerakhir({int jumlah = 7}) {
+    final nilai = <double>[];
+    for (final s in _riwayat) {
+      final puncak = s.puncakGulaDarah;
+      if (puncak != null) nilai.add(puncak.toDouble());
+      if (nilai.length == jumlah) break;
+    }
+    return nilai.reversed.toList();
+  }
+
+  // --- Siklus sesi ------------------------------------------------------
+
+  /// Shutter kamera ditekan: sesi draft dibuat, baseline pra-makan diminta ke
+  /// jam, dan analisis nutrisi berjalan di belakang.
+  Future<void> mulaiDraft(String fotoPath) async {
+    if (_sesiAktif != null) {
+      throw StateError(
+        'Masih ada sesi aktif. Akhiri sesi berjalan lebih dulu (§6).',
+      );
+    }
+
+    final sekarang = DateTime.now();
+    final id = 'sesi-${sekarang.microsecondsSinceEpoch}';
+    _sesiAktif = SesiMakan(
+      id: id,
+      fotoPath: fotoPath,
+      waktuFoto: sekarang,
+      status: StatusSesi.draft,
+      sampel: const [
+        Sampel.menunggu(index: 0, detikRelatifT0: 0),
+        Sampel.menunggu(index: 1, detikRelatifT0: 0),
+        Sampel.menunggu(index: 2, detikRelatifT0: 3600),
+        Sampel.menunggu(index: 3, detikRelatifT0: 7200),
+      ],
+    );
+    notifyListeners();
+
+    await ble.mintaUkur(id, 0);
+    // Tombol "Selesai Makan" di jam baru menyala setelah ada foto: jam yang
+    // menetapkan t0, tetapi hanya untuk sesi yang sudah punya makanannya.
+    await _siapkanJam();
+    unawaited(_analisisNutrisi(id, fotoPath));
+  }
+
+  Future<void> _analisisNutrisi(String sesiId, String fotoPath) async {
+    try {
+      final hasil = await nutrisi.analisis(fotoPath);
+      final sesi = _sesiAktif;
+      if (sesi == null || sesi.id != sesiId) return; // sesi sudah berganti
+      _sesiAktif = sesi.salin(hasil: hasil);
+      notifyListeners();
+    } catch (_) {
+      // Analisis gagal bukan alasan sesi gagal: t0 tetap akurat dan UI tetap
+      // menampilkan slot nutrisi kosong.
+    }
+  }
+
+  /// Menyalakan tombol "Selesai Makan" di jam untuk sesi draft yang sedang
+  /// ditunggu, lalu menyesuaikan statusnya.
+  ///
+  /// Dipanggil saat draft dibuat dan setiap kali jam tersambung kembali:
+  /// selama jam belum tersambung, penyiapannya tidak pernah sampai dan sesi
+  /// berdiri di `menungguPerangkat`.
+  Future<void> _siapkanJam() async {
+    final sesi = _sesiAktif;
+    if (sesi == null || sesi.t0 != null) return;
+    if (!sesi.status.sedangAktif) return;
+
+    final siap = await ble.siapkanSesi(sesi.id);
+    final status = siap ? StatusSesi.draft : StatusSesi.menungguPerangkat;
+
+    final terkini = _sesiAktif;
+    if (terkini == null || terkini.id != sesi.id || terkini.t0 != null) return;
+    if (terkini.status == status) return;
+
+    _sesiAktif = terkini.salin(status: status);
+    notifyListeners();
+  }
+
+  /// Tombol "Selesai Makan" di jam ditekan — satu-satunya jalan sebuah sesi
+  /// mendapatkan t0.
+  ///
+  /// `pesan.t0` adalah waktu menurut jam tangan dan dipakai apa adanya: kalau
+  /// tombolnya ditekan saat HP tidak tersambung, pesannya baru sampai
+  /// belakangan, dan menghitung ulang t0 di sini akan menggeser seluruh
+  /// jadwal sesi (§8).
+  void _terimaT0(({String sesiId, DateTime t0}) pesan) {
+    final sesi = _sesiAktif;
+    // Tombol untuk sesi yang sudah dibatalkan/diganti tidak menghidupkannya
+    // kembali.
+    if (sesi == null || sesi.id != pesan.sesiId || sesi.t0 != null) return;
+
+    // Baseline diukur sebelum makan; jaraknya ke t0 baru diketahui sekarang.
+    final detikBaseline = sesi.waktuFoto.difference(pesan.t0).inSeconds;
+    final sampel = [
+      _geser(sesi.sampel[0], detikBaseline),
+      sesi.sampel[1],
+      sesi.sampel[2],
+      sesi.sampel[3],
+    ];
+
+    _sesiAktif = sesi.salin(
+      t0: pesan.t0,
+      sampel: sampel,
+      status: StatusSesi.berjalan,
+    );
+    notifyListeners();
+  }
+
+  Sampel _geser(Sampel s, int detikRelatifT0) => Sampel(
+    index: s.index,
+    detikRelatifT0: detikRelatifT0,
+    status: s.status,
+    dariBuffer: s.dariBuffer,
+    gulaDarah: s.gulaDarah,
+    detakJantung: s.detakJantung,
+    sistolik: s.sistolik,
+    diastolik: s.diastolik,
+    spo2: s.spo2,
+  );
+
+  /// Sesi dibatalkan user: tidak masuk riwayat dan tidak dihitung di analisis.
+  Future<void> batalkan() async {
+    final sesi = _sesiAktif;
+    if (sesi == null) return;
+
+    await ble.batalkanSesi(sesi.id);
+    _lupakanKunci(sesi.id);
+    _sesiAktif = null;
+    notifyListeners();
+  }
+
+  /// Mengakhiri sesi berjalan lebih awal — dipakai saat user mau memotret
+  /// makanan baru padahal sesi lama belum kelar (§6). Sampel yang belum masuk
+  /// ditandai terlewat, jadi sesinya `tidakLengkap`, bukan gagal.
+  Future<void> akhiriLebihAwal() async {
+    final sesi = _sesiAktif;
+    if (sesi == null) return;
+
+    await ble.batalkanSesi(sesi.id);
+    final sampel = [
+      for (final s in sesi.sampel)
+        s.status == StatusSampel.menunggu
+            ? Sampel(
+                index: s.index,
+                detikRelatifT0: s.detikRelatifT0,
+                status: StatusSampel.terlewat,
+              )
+            : s,
+    ];
+    _selesaikan(sesi.salin(sampel: sampel, status: StatusSesi.tidakLengkap));
+  }
+
+  /// User mengoreksi nama atau porsi hasil deteksi (§4.5).
+  ///
+  /// Momen paling akurat untuk ini adalah sebelum sesi dimulai — piringnya
+  /// masih di depan mata — tetapi koreksi tetap diterima selama sesi masih
+  /// aktif, karena angka karbohidrat inilah yang nanti dikorelasikan dengan
+  /// respons glukosa.
+  void koreksiHasil(List<ItemMakanan> makanan) {
+    final sesi = _sesiAktif;
+    final hasil = sesi?.hasil;
+    if (sesi == null || hasil == null) return;
+
+    _sesiAktif = sesi.salin(hasil: hasil.dikoreksi(makanan));
+    notifyListeners();
+  }
+
+  /// Kartu hasil di Beranda sudah dibuka user, jadi boleh hilang (§4.1 C).
+  void tandaiHasilDibaca() {
+    if (_hasilBelumDibaca == null) return;
+    _hasilBelumDibaca = null;
+    notifyListeners();
+  }
+
+  Future<void> sinkronkan() => ble.sinkronkan();
+
+  // --- Pemasangan jam ----------------------------------------------------
+  //
+  // Ketiganya cuma meneruskan ke `ble`; perubahan statusnya kembali lewat
+  // stream `statusPerangkat` yang sudah didengarkan di konstruktor, jadi tidak
+  // ada `notifyListeners()` di sini — dan jam yang baru tersambung otomatis
+  // disiapkan ulang oleh listener itu.
+
+  Stream<PerangkatDitemukan> pindaiPerangkat() => ble.pindai();
+
+  Future<bool> sambungkanPerangkat(String idPerangkat) =>
+      ble.sambungkan(idPerangkat);
+
+  Future<void> putuskanPerangkat() => ble.putuskan();
+
+  // --- Kalibrasi tekanan darah (§5, §4.7) --------------------------------
+
+  Kalibrasi? _kalibrasiTerakhir;
+
+  /// Kalibrasi terakhir yang berhasil dikirim ke jam; null berarti belum
+  /// pernah dikalibrasi. Selama Fase UI nilainya hidup di memori saja —
+  /// belum ada tempat penyimpanan untuk data perangkat.
+  Kalibrasi? get kalibrasiTerakhir => _kalibrasiTerakhir;
+
+  /// Meminta jam mengukur bersamaan dengan tensimeter.
+  Future<Sampel> ukurUntukKalibrasi() => ble.ukurSekarang();
+
+  /// Menghitung koefisien dari selisih tensimeter vs jam, lalu mengirimkannya.
+  Future<void> simpanKalibrasi(Kalibrasi kalibrasi) async {
+    await ble.kirimKalibrasi(kalibrasi);
+    _kalibrasiTerakhir = kalibrasi;
+    notifyListeners();
+  }
+
+  // --- Sampel masuk -----------------------------------------------------
+
+  void _terimaSampel(({String sesiId, Sampel sampel}) pesan) {
+    final sesi = _sesiAktif;
+    if (sesi == null || sesi.id != pesan.sesiId) return;
+
+    // Pengiriman jam at-least-once: sampel yang sama bisa datang dua kali.
+    final kunci = '${pesan.sesiId}#${pesan.sampel.index}';
+    if (!_sampelDiterima.add(kunci)) return;
+
+    final sampel = [...sesi.sampel];
+    final masuk = pesan.sampel;
+    sampel[masuk.index] = masuk.index == 0 && sesi.t0 == null
+        ? masuk // jarak baseline ke t0 dihitung nanti di _terimaT0
+        : _geser(masuk, sampel[masuk.index].detikRelatifT0);
+
+    final diperbarui = sesi.salin(sampel: sampel);
+    final tuntas = sampel.every((s) => s.status != StatusSampel.menunggu);
+
+    if (tuntas && diperbarui.t0 != null) {
+      _selesaikan(
+        diperbarui.salin(
+          status: diperbarui.adaSampelTerlewat
+              ? StatusSesi.tidakLengkap
+              : StatusSesi.selesai,
+        ),
+      );
+      return;
+    }
+
+    // Sampel yang masuk setelah t0 juga menandakan jam sudah nyambung. Selama
+    // t0 belum ada, status `menungguPerangkat` justru harus bertahan: yang
+    // ditunggu adalah tombol di jam, bukan sampel.
+    _sesiAktif =
+        diperbarui.status == StatusSesi.menungguPerangkat &&
+            diperbarui.t0 != null
+        ? diperbarui.salin(status: StatusSesi.berjalan)
+        : diperbarui;
+    notifyListeners();
+  }
+
+  void _selesaikan(SesiMakan sesi) {
+    _riwayat.insert(0, sesi);
+    _sesiAktif = null;
+    _hasilBelumDibaca = sesi;
+    _lupakanKunci(sesi.id);
+    unawaited(_simpan(sesi));
+    notifyListeners();
+  }
+
+  /// Menulis sesi yang sudah berakhir ke penyimpanan.
+  ///
+  /// Sengaja tidak ditunggu: sesi sudah masuk `_riwayat` di memori, dan menahan
+  /// `notifyListeners()` demi I/O akan menunda tampilnya kartu hasil di Beranda.
+  /// Kegagalan menulis tidak menjatuhkan sesi yang datanya sudah benar, tetapi
+  /// **harus terlihat**: sesi itu ada di layar sekarang dan akan hilang setelah
+  /// aplikasi ditutup, dan hanya pengguna yang bisa memutuskan apa artinya.
+  Future<void> _simpan(SesiMakan sesi) async {
+    final tujuan = repo;
+    if (tujuan == null) return;
+    try {
+      await tujuan.simpan(sesi);
+    } catch (e) {
+      debugPrint('Gagal menyimpan sesi ${sesi.id}: $e');
+      _galatPenyimpanan =
+          'Sesi terakhir gagal disimpan dan akan hilang saat aplikasi ditutup.';
+      notifyListeners();
+    }
+  }
+
+  void _lupakanKunci(String sesiId) {
+    _sampelDiterima.removeWhere((k) => k.startsWith('$sesiId#'));
+  }
+
+  /// Controller memiliki servicenya: sekali dibuang, jam palsu ikut berhenti
+  /// dan tidak menyisakan timer yang masih menunggu.
+  @override
+  void dispose() {
+    _langgananSampel?.cancel();
+    _langgananT0?.cancel();
+    _langgananStatus?.cancel();
+    ble.dispose();
+    super.dispose();
+  }
+}

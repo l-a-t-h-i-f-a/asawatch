@@ -1,64 +1,31 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-class BloodSugarSplinePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Wave line path
-    final paintLine = Paint()
-      ..color = const Color(0xFF0EAD69)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5
-      ..strokeCap = StrokeCap.round;
+import 'controllers/sesi_makan_controller.dart';
+import 'models/analisis_sesi.dart';
+import 'models/sesi_makan.dart';
+import 'utils/format_waktu.dart';
+import 'utils/ikon.dart';
+import 'widgets/judul_bagian.dart';
+import 'widgets/kurva_sampel.dart';
 
-    final path = Path()
-      ..moveTo(0, size.height * 0.5)
-      ..cubicTo(size.width * 0.15, size.height * 0.48, size.width * 0.22, size.height * 0.52, size.width * 0.33, size.height * 0.45)
-      ..cubicTo(size.width * 0.45, size.height * 0.4, size.width * 0.55, size.height * 0.48, size.width * 0.68, size.height * 0.46)
-      ..cubicTo(size.width * 0.78, size.height * 0.42, size.width * 0.88, size.height * 0.5, size.width, size.height * 0.48);
-
-    // Gradient below the line
-    final pathFill = Path.from(path)
-      ..lineTo(size.width, size.height - 20)
-      ..lineTo(0, size.height - 20)
-      ..close();
-
-    final paintFill = Paint()
-      ..shader = LinearGradient(
-        colors: [
-          const Color(0xFF0EAD69).withValues(alpha: 0.15),
-          const Color(0xFF0EAD69).withValues(alpha: 0.0),
-        ],
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
-
-    canvas.drawPath(pathFill, paintFill);
-    canvas.drawPath(path, paintLine);
-
-    // Draw active dot at 08:00 (around x = width * 0.33, y = height * 0.45)
-    final dotX = size.width * 0.33;
-    final dotY = size.height * 0.45;
-
-    final dotOuter = Paint()
-      ..color = const Color(0xFFE2F6F0)
-      ..style = PaintingStyle.fill;
-    final dotInner = Paint()
-      ..color = const Color(0xFF0EAD69)
-      ..style = PaintingStyle.fill;
-
-    canvas.drawCircle(Offset(dotX, dotY), 8, dotOuter);
-    canvas.drawCircle(Offset(dotX, dotY), 4, dotInner);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
+/// Detail gula darah satu sesi.
+///
+/// Kurvanya digambar dari `List<Sampel>` lewat [KurvaSampel] — tidak ada lagi
+/// path bezier hardcoded (§7) — dan di bawahnya ada kurva respons lintas sesi
+/// yang ditumpuk plus rata-rata puncak, bagian paling bernilai dari ketiga
+/// halaman detail (§4.4).
 class GulaDarahDetailPage extends StatelessWidget {
-  const GulaDarahDetailPage({super.key});
+  const GulaDarahDetailPage({super.key, this.sesi});
+
+  /// Sesi yang ditampilkan; bila null dipakai sesi terakhir dari controller.
+  final SesiMakan? sesi;
 
   @override
   Widget build(BuildContext context) {
+    final controller = context.watch<SesiMakanController>();
+    final sesiTampil = sesi ?? controller.sesiTerakhir;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF4FAF7),
       appBar: AppBar(
@@ -70,293 +37,297 @@ class GulaDarahDetailPage extends StatelessWidget {
         ),
         title: const Text(
           'Gula Darah',
-          style: TextStyle(color: Color(0xFF1E3A34), fontWeight: FontWeight.bold, fontSize: 18),
+          style: TextStyle(
+            color: Color(0xFF1E3A34),
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
         ),
         centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.calendar_today_outlined, color: Color(0xFF1E3A34)),
-            onPressed: () {},
-          ),
-        ],
       ),
-      body: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Tabs toggle
-            Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFFE5EDE9),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              padding: const EdgeInsets.all(4),
-              child: Row(
+      body: sesiTampil == null
+          ? const PesanTanpaSesi()
+          : _IsiGulaDarah(sesi: sesiTampil, semuaSesi: controller.riwayat),
+    );
+  }
+}
+
+class _IsiGulaDarah extends StatelessWidget {
+  const _IsiGulaDarah({required this.sesi, required this.semuaSesi});
+
+  final SesiMakan sesi;
+  final List<SesiMakan> semuaSesi;
+
+  @override
+  Widget build(BuildContext context) {
+    final puncak = sesi.puncakGulaDarah;
+    final delta = sesi.deltaPuncak;
+
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          JudulSesi(sesi: sesi),
+          const SizedBox(height: 20),
+
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildTab('Harian', true),
-                  _buildTab('Mingguan', false),
-                  _buildTab('Bulanan', false),
+                  RichText(
+                    text: TextSpan(
+                      style: const TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1E3A34),
+                      ),
+                      children: [
+                        TextSpan(text: puncak?.toString() ?? tandaKosong),
+                        const TextSpan(
+                          text: ' mg/dL',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.normal,
+                            color: Color(0xFF6B807B),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    delta == null
+                        ? 'Puncak sesi ini'
+                        : 'Puncak sesi ini · ${delta >= 0 ? '+' : ''}$delta '
+                              'dari baseline',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF7E9A94),
+                    ),
+                  ),
                 ],
               ),
-            ),
-            const SizedBox(height: 24),
-
-            // Average display row
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE2F6F0),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
                   children: [
-                    RichText(
-                      text: const TextSpan(
-                        style: TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF1E3A34),
-                        ),
-                        children: [
-                          TextSpan(text: '112'),
-                          TextSpan(
-                            text: ' mg/dL',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.normal,
-                              color: Color(0xFF6B807B),
-                            ),
-                          ),
-                        ],
-                      ),
+                    Icon(
+                      ikonKualitasRespons(sesi.kualitasRespons),
+                      color: const Color(0xFF0EAD69),
+                      size: 16,
                     ),
-                    const Text(
-                      'Rata-rata Hari Ini',
-                      style: TextStyle(
+                    const SizedBox(width: 4),
+                    Text(
+                      sesi.kualitasRespons.label,
+                      style: const TextStyle(
+                        color: Color(0xFF0EAD69),
+                        fontWeight: FontWeight.bold,
                         fontSize: 12,
-                        color: Color(0xFF7E9A94),
                       ),
                     ),
                   ],
                 ),
-                // Normal Indicator with Water Drop Icon
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE2F6F0),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          KurvaSampel(
+            sampel: sesi.sampel,
+            seri: const [seriGulaDarah],
+            garisAcuan: sesi.gulaDarahBaseline,
+            pesanKosong: 'Belum ada sampel gula darah',
+          ),
+          const SizedBox(height: 24),
+
+          const JudulBagian(
+            ikon: Icons.timeline_rounded,
+            judul: 'Nilai Tiap Titik',
+          ),
+          for (final s in sesi.sampel)
+            BarisNilaiSampel(
+              sampel: s,
+              t0: sesi.t0,
+              nilai: s.gulaDarah?.toString(),
+              satuan: 'mg/dL',
+            ),
+          const SizedBox(height: 12),
+
+          _LintasSesi(semuaSesi: semuaSesi),
+          const SizedBox(height: 24),
+
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE2F6F0),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: const [
-                      Icon(Icons.water_drop, color: Color(0xFF0EAD69), size: 16),
-                      SizedBox(width: 4),
                       Text(
-                        'Normal',
+                        'Kadar gula darah normal (puasa):',
                         style: TextStyle(
-                          color: Color(0xFF0EAD69),
-                          fontWeight: FontWeight.bold,
                           fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1E3A34),
+                        ),
+                      ),
+                      SizedBox(height: 6),
+                      Text(
+                        '70 - 130 mg/dL',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0EAD69),
                         ),
                       ),
                     ],
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 24),
-
-            // Chart Box
-            Container(
-              height: 200,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              child: Stack(
-                children: [
-                  // Horizontal Grid
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: List.generate(4, (index) {
-                      return Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              height: 1,
-                              color: const Color(0xFFE0EDE9).withValues(alpha: 0.6),
-                            ),
-                          ),
-                        ],
-                      );
-                    }),
+                const SizedBox(width: 12),
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                  // Spline Line (Slightly flatter spline for Blood Sugar)
-                  Positioned.fill(
-                    child: CustomPaint(
-                      painter: BloodSugarSplinePainter(),
-                    ),
-                  ),
-                  // Active label indicator "08:00"
-                  Positioned(
-                    left: 92,
-                    top: 42,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE2F6F0),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: const Text(
-                        '08:00',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF0EAD69),
-                        ),
-                      ),
-                    ),
-                  ),
-                  // Timeline labels
-                  Positioned(
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: const [
-                        Text('00:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE))),
-                        Text('04:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE))),
-                        Text('08:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE), fontWeight: FontWeight.bold)),
-                        Text('12:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE))),
-                        Text('16:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE))),
-                        Text('20:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE))),
-                        Text('24:00', style: TextStyle(fontSize: 10, color: Color(0xFF90A4AE))),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Data Per 2 Jam Section Header
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Data per 2 Jam',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1E3A34),
-                  ),
-                ),
-                TextButton(
-                  onPressed: () {},
-                  child: const Text(
-                    'Hari Ini >',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF0EAD69),
-                    ),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.water_drop,
+                    color: Color(0xFF0EAD69),
+                    size: 28,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+}
 
-            // List of readings
-            _buildTimeReadingItem('08:00', '112 mg/dL', 'Normal'),
-            _buildTimeReadingItem('06:00', '105 mg/dL', 'Normal'),
-            _buildTimeReadingItem('04:00', '98 mg/dL', 'Normal'),
-            _buildTimeReadingItem('02:00', '95 mg/dL', 'Normal'),
-            _buildTimeReadingItem('00:00', '92 mg/dL', 'Normal'),
-            const SizedBox(height: 24),
+/// Bagian paling bernilai dari ketiga halaman detail (§4.4): kurva respons
+/// seluruh sesi yang ditumpuk, plus rata-rata puncaknya.
+class _LintasSesi extends StatelessWidget {
+  const _LintasSesi({required this.semuaSesi});
 
-            // Normal Range Box
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE2F6F0),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text(
-                          'Kadar gula darah normal (puasa):',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF1E3A34),
-                          ),
-                        ),
-                        SizedBox(height: 6),
-                        Text(
-                          '70 - 130 mg/dL',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF0EAD69),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  // Water drop icon container
-                  Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    alignment: Alignment.center,
-                    child: const Icon(
-                      Icons.water_drop,
-                      color: Color(0xFF0EAD69),
-                      size: 28,
-                    ),
-                  ),
-                ],
+  final List<SesiMakan> semuaSesi;
+
+  @override
+  Widget build(BuildContext context) {
+    final analisis = AnalisisSesi(semuaSesi);
+    final rataPuncak = analisis.rataPuncak;
+    final rataDelta = analisis.rataDelta;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        JudulBagian(
+          ikon: Icons.stacked_line_chart_rounded,
+          judul: 'Semua Sesi',
+          keterangan: rataPuncak == null
+              ? 'Belum ada puncak yang terukur'
+              : 'Rata-rata puncak ${rataPuncak.round()} mg/dL'
+                    '${rataDelta == null ? '' : ' · rata-rata kenaikan '
+                          '+${rataDelta.round()} mg/dL'}',
+        ),
+        KurvaTumpukSesi(sesi: semuaSesi),
+        const SizedBox(height: 8),
+        const Text(
+          'Tiap garis tipis satu sesi, digambar sebagai selisih dari '
+          'baselinenya sendiri; garis tebal rata-ratanya.',
+          style: TextStyle(fontSize: 10, color: Color(0xFF9CB1AC), height: 1.4),
+        ),
+      ],
+    );
+  }
+}
+
+/// Judul kecil yang menyebut sesi mana yang sedang dilihat — tanpa ini angka
+/// di halaman detail kehilangan konteksnya (§2).
+class JudulSesi extends StatelessWidget {
+  const JudulSesi({super.key, required this.sesi});
+
+  final SesiMakan sesi;
+
+  @override
+  Widget build(BuildContext context) {
+    final waktu = sesi.t0 ?? sesi.waktuFoto;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              ikonWaktuMakan(sesi.waktuMakan),
+              size: 14,
+              color: const Color(0xFF0EAD69),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                '${sesi.waktuMakan.label} · '
+                '${sesi.hasil?.ringkasanNama ?? 'Makanan'}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1E3A34),
+                ),
               ),
             ),
-            const SizedBox(height: 24),
           ],
         ),
-      ),
+        const SizedBox(height: 3),
+        Text(
+          '${formatTanggal(waktu)} · ${formatJam(waktu)} · '
+          '${formatWaktuRelatif(waktu)}',
+          style: const TextStyle(fontSize: 11, color: Color(0xFF8FA7A1)),
+        ),
+      ],
     );
   }
+}
 
-  Widget _buildTab(String title, bool isSelected) {
-    return Expanded(
-      child: Container(
-        height: 38,
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF0EAD69) : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          title,
-          style: TextStyle(
-            color: isSelected ? Colors.white : const Color(0xFF6B807B),
-            fontWeight: FontWeight.bold,
-            fontSize: 13,
-          ),
-        ),
-      ),
-    );
-  }
+/// Satu baris nilai per titik pengukuran. Nilai yang tidak ada ditulis `—`.
+class BarisNilaiSampel extends StatelessWidget {
+  const BarisNilaiSampel({
+    super.key,
+    required this.sampel,
+    required this.t0,
+    required this.nilai,
+    required this.satuan,
+  });
 
-  Widget _buildTimeReadingItem(String time, String value, String status) {
+  final Sampel sampel;
+  final DateTime? t0;
+  final String? nilai;
+  final String satuan;
+
+  @override
+  Widget build(BuildContext context) {
+    final ada = sampel.terisi && nilai != null;
+    final jadwal = t0 == null ? null : sampel.waktuUkur(t0!);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -366,55 +337,82 @@ class GulaDarahDetailPage extends StatelessWidget {
         border: Border.all(color: const Color(0xFFE2EBE8), width: 1.2),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF0EAD69),
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                time,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1E3A34),
-                ),
-              ),
-            ],
-          ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF1E3A34),
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: ada ? const Color(0xFF0EAD69) : const Color(0xFF9CB1AC),
+              shape: BoxShape.circle,
             ),
           ),
-          Row(
-            children: [
-              Text(
-                status,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF0EAD69),
-                  fontWeight: FontWeight.bold,
-                ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              sampel.label,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1E3A34),
               ),
-              const SizedBox(width: 4),
-              const Text(
-                '💚',
-                style: TextStyle(fontSize: 12),
-              ),
-            ],
+            ),
+          ),
+          if (jadwal != null)
+            Text(
+              formatJam(jadwal),
+              style: const TextStyle(fontSize: 11, color: Color(0xFF8FA7A1)),
+            ),
+          const SizedBox(width: 12),
+          Text(
+            ada ? '$nilai $satuan' : tandaKosong,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: ada ? const Color(0xFF1E3A34) : const Color(0xFF9CB1AC),
+            ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Halaman detail hanya bermakna dalam konteks sebuah sesi; tanpa sesi
+/// katakan apa adanya, jangan tampilkan kurva kosong.
+class PesanTanpaSesi extends StatelessWidget {
+  const PesanTanpaSesi({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: const [
+            Icon(
+              Icons.insights_rounded,
+              size: 48,
+              color: Color(0xFF8FA7A1),
+            ),
+            SizedBox(height: 12),
+            Text(
+              'Belum ada sesi yang selesai',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1E3A34),
+              ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              'Jam hanya mengukur saat sesi makan, jadi grafik ini terisi '
+              'setelah sesi pertamamu selesai.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 11, color: Color(0xFF7E9A94)),
+            ),
+          ],
+        ),
       ),
     );
   }

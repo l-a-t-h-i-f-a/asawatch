@@ -131,7 +131,7 @@ class WelcomePage extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 16),
-                        // Title: HealthWatch
+                        // Wordmark: AsaWatch
                         RichText(
                           text: const TextSpan(
                             style: TextStyle(
@@ -142,7 +142,7 @@ class WelcomePage extends StatelessWidget {
                             ),
                             children: [
                               TextSpan(
-                                text: 'Health',
+                                text: 'Asa',
                                 style: TextStyle(color: Color(0xFF2C3E50)),
                               ),
                               TextSpan(
