@@ -27,6 +27,9 @@ class _RepoGagalMenyimpan implements SesiRepository {
 
   @override
   Future<void> simpan(SesiMakan sesi) async => throw StateError('disk penuh');
+
+  @override
+  Future<void> hapus(String sesiId) async {}
 }
 
 void main() {

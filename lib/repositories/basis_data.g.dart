@@ -58,8 +58,30 @@ class $TabelSesiTable extends TabelSesi
         type: DriftSqlType.string,
         requiredDuringInsert: true,
       ).withConverter<StatusSesi>($TabelSesiTable.$converterstatus);
+  static const VerificationMeta _waktuTidakPastiMeta = const VerificationMeta(
+    'waktuTidakPasti',
+  );
   @override
-  List<GeneratedColumn> get $columns => [id, fotoPath, waktuFoto, t0, status];
+  late final GeneratedColumn<bool> waktuTidakPasti = GeneratedColumn<bool>(
+    'waktu_tidak_pasti',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("waktu_tidak_pasti" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    fotoPath,
+    waktuFoto,
+    t0,
+    status,
+    waktuTidakPasti,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -96,6 +118,15 @@ class $TabelSesiTable extends TabelSesi
     if (data.containsKey('t0')) {
       context.handle(_t0Meta, t0.isAcceptableOrUnknown(data['t0']!, _t0Meta));
     }
+    if (data.containsKey('waktu_tidak_pasti')) {
+      context.handle(
+        _waktuTidakPastiMeta,
+        waktuTidakPasti.isAcceptableOrUnknown(
+          data['waktu_tidak_pasti']!,
+          _waktuTidakPastiMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -127,6 +158,10 @@ class $TabelSesiTable extends TabelSesi
           data['${effectivePrefix}status'],
         )!,
       ),
+      waktuTidakPasti: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}waktu_tidak_pasti'],
+      )!,
     );
   }
 
@@ -145,12 +180,22 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
   final int waktuFoto;
   final int? t0;
   final StatusSesi status;
+
+  /// Sesi ini berasal dari boot jam yang tidak pernah punya anchor, sehingga
+  /// waktunya tidak diketahui dan tidak akan pernah bisa diketahui
+  /// (docs/protokol-jam.md §4.3).
+  ///
+  /// Disimpan, bukan dihitung: begitu sesinya berakhir, tidak ada lagi jejak
+  /// yang bisa dipakai menurunkan ulang fakta ini — anchor untuk boot itu tidak
+  /// akan pernah ada.
+  final bool waktuTidakPasti;
   const TabelSesiData({
     required this.id,
     required this.fotoPath,
     required this.waktuFoto,
     this.t0,
     required this.status,
+    required this.waktuTidakPasti,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -166,6 +211,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
         $TabelSesiTable.$converterstatus.toSql(status),
       );
     }
+    map['waktu_tidak_pasti'] = Variable<bool>(waktuTidakPasti);
     return map;
   }
 
@@ -176,6 +222,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
       waktuFoto: Value(waktuFoto),
       t0: t0 == null && nullToAbsent ? const Value.absent() : Value(t0),
       status: Value(status),
+      waktuTidakPasti: Value(waktuTidakPasti),
     );
   }
 
@@ -192,6 +239,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
       status: $TabelSesiTable.$converterstatus.fromJson(
         serializer.fromJson<String>(json['status']),
       ),
+      waktuTidakPasti: serializer.fromJson<bool>(json['waktuTidakPasti']),
     );
   }
   @override
@@ -205,6 +253,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
       'status': serializer.toJson<String>(
         $TabelSesiTable.$converterstatus.toJson(status),
       ),
+      'waktuTidakPasti': serializer.toJson<bool>(waktuTidakPasti),
     };
   }
 
@@ -214,12 +263,14 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
     int? waktuFoto,
     Value<int?> t0 = const Value.absent(),
     StatusSesi? status,
+    bool? waktuTidakPasti,
   }) => TabelSesiData(
     id: id ?? this.id,
     fotoPath: fotoPath ?? this.fotoPath,
     waktuFoto: waktuFoto ?? this.waktuFoto,
     t0: t0.present ? t0.value : this.t0,
     status: status ?? this.status,
+    waktuTidakPasti: waktuTidakPasti ?? this.waktuTidakPasti,
   );
   TabelSesiData copyWithCompanion(TabelSesiCompanion data) {
     return TabelSesiData(
@@ -228,6 +279,9 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
       waktuFoto: data.waktuFoto.present ? data.waktuFoto.value : this.waktuFoto,
       t0: data.t0.present ? data.t0.value : this.t0,
       status: data.status.present ? data.status.value : this.status,
+      waktuTidakPasti: data.waktuTidakPasti.present
+          ? data.waktuTidakPasti.value
+          : this.waktuTidakPasti,
     );
   }
 
@@ -238,13 +292,15 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
           ..write('fotoPath: $fotoPath, ')
           ..write('waktuFoto: $waktuFoto, ')
           ..write('t0: $t0, ')
-          ..write('status: $status')
+          ..write('status: $status, ')
+          ..write('waktuTidakPasti: $waktuTidakPasti')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, fotoPath, waktuFoto, t0, status);
+  int get hashCode =>
+      Object.hash(id, fotoPath, waktuFoto, t0, status, waktuTidakPasti);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -253,7 +309,8 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
           other.fotoPath == this.fotoPath &&
           other.waktuFoto == this.waktuFoto &&
           other.t0 == this.t0 &&
-          other.status == this.status);
+          other.status == this.status &&
+          other.waktuTidakPasti == this.waktuTidakPasti);
 }
 
 class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
@@ -262,6 +319,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
   final Value<int> waktuFoto;
   final Value<int?> t0;
   final Value<StatusSesi> status;
+  final Value<bool> waktuTidakPasti;
   final Value<int> rowid;
   const TabelSesiCompanion({
     this.id = const Value.absent(),
@@ -269,6 +327,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
     this.waktuFoto = const Value.absent(),
     this.t0 = const Value.absent(),
     this.status = const Value.absent(),
+    this.waktuTidakPasti = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   TabelSesiCompanion.insert({
@@ -277,6 +336,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
     required int waktuFoto,
     this.t0 = const Value.absent(),
     required StatusSesi status,
+    this.waktuTidakPasti = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        fotoPath = Value(fotoPath),
@@ -288,6 +348,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
     Expression<int>? waktuFoto,
     Expression<int>? t0,
     Expression<String>? status,
+    Expression<bool>? waktuTidakPasti,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -296,6 +357,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
       if (waktuFoto != null) 'waktu_foto': waktuFoto,
       if (t0 != null) 't0': t0,
       if (status != null) 'status': status,
+      if (waktuTidakPasti != null) 'waktu_tidak_pasti': waktuTidakPasti,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -306,6 +368,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
     Value<int>? waktuFoto,
     Value<int?>? t0,
     Value<StatusSesi>? status,
+    Value<bool>? waktuTidakPasti,
     Value<int>? rowid,
   }) {
     return TabelSesiCompanion(
@@ -314,6 +377,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
       waktuFoto: waktuFoto ?? this.waktuFoto,
       t0: t0 ?? this.t0,
       status: status ?? this.status,
+      waktuTidakPasti: waktuTidakPasti ?? this.waktuTidakPasti,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -338,6 +402,9 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
         $TabelSesiTable.$converterstatus.toSql(status.value),
       );
     }
+    if (waktuTidakPasti.present) {
+      map['waktu_tidak_pasti'] = Variable<bool>(waktuTidakPasti.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -352,6 +419,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
           ..write('waktuFoto: $waktuFoto, ')
           ..write('t0: $t0, ')
           ..write('status: $status, ')
+          ..write('waktuTidakPasti: $waktuTidakPasti, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2577,6 +2645,1355 @@ class TabelAnchorWaktuCompanion extends UpdateCompanion<TabelAnchorWaktuData> {
   }
 }
 
+class $TabelKalibrasiTable extends TabelKalibrasi
+    with TableInfo<$TabelKalibrasiTable, TabelKalibrasiData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TabelKalibrasiTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _waktuMeta = const VerificationMeta('waktu');
+  @override
+  late final GeneratedColumn<int> waktu = GeneratedColumn<int>(
+    'waktu',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _sistolikReferensiMeta = const VerificationMeta(
+    'sistolikReferensi',
+  );
+  @override
+  late final GeneratedColumn<int> sistolikReferensi = GeneratedColumn<int>(
+    'sistolik_referensi',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _diastolikReferensiMeta =
+      const VerificationMeta('diastolikReferensi');
+  @override
+  late final GeneratedColumn<int> diastolikReferensi = GeneratedColumn<int>(
+    'diastolik_referensi',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sistolikJamMeta = const VerificationMeta(
+    'sistolikJam',
+  );
+  @override
+  late final GeneratedColumn<int> sistolikJam = GeneratedColumn<int>(
+    'sistolik_jam',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _diastolikJamMeta = const VerificationMeta(
+    'diastolikJam',
+  );
+  @override
+  late final GeneratedColumn<int> diastolikJam = GeneratedColumn<int>(
+    'diastolik_jam',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    waktu,
+    sistolikReferensi,
+    diastolikReferensi,
+    sistolikJam,
+    diastolikJam,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'tabel_kalibrasi';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<TabelKalibrasiData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('waktu')) {
+      context.handle(
+        _waktuMeta,
+        waktu.isAcceptableOrUnknown(data['waktu']!, _waktuMeta),
+      );
+    }
+    if (data.containsKey('sistolik_referensi')) {
+      context.handle(
+        _sistolikReferensiMeta,
+        sistolikReferensi.isAcceptableOrUnknown(
+          data['sistolik_referensi']!,
+          _sistolikReferensiMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_sistolikReferensiMeta);
+    }
+    if (data.containsKey('diastolik_referensi')) {
+      context.handle(
+        _diastolikReferensiMeta,
+        diastolikReferensi.isAcceptableOrUnknown(
+          data['diastolik_referensi']!,
+          _diastolikReferensiMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_diastolikReferensiMeta);
+    }
+    if (data.containsKey('sistolik_jam')) {
+      context.handle(
+        _sistolikJamMeta,
+        sistolikJam.isAcceptableOrUnknown(
+          data['sistolik_jam']!,
+          _sistolikJamMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_sistolikJamMeta);
+    }
+    if (data.containsKey('diastolik_jam')) {
+      context.handle(
+        _diastolikJamMeta,
+        diastolikJam.isAcceptableOrUnknown(
+          data['diastolik_jam']!,
+          _diastolikJamMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_diastolikJamMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {waktu};
+  @override
+  TabelKalibrasiData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return TabelKalibrasiData(
+      waktu: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}waktu'],
+      )!,
+      sistolikReferensi: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sistolik_referensi'],
+      )!,
+      diastolikReferensi: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}diastolik_referensi'],
+      )!,
+      sistolikJam: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sistolik_jam'],
+      )!,
+      diastolikJam: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}diastolik_jam'],
+      )!,
+    );
+  }
+
+  @override
+  $TabelKalibrasiTable createAlias(String alias) {
+    return $TabelKalibrasiTable(attachedDatabase, alias);
+  }
+}
+
+class TabelKalibrasiData extends DataClass
+    implements Insertable<TabelKalibrasiData> {
+  final int waktu;
+  final int sistolikReferensi;
+  final int diastolikReferensi;
+  final int sistolikJam;
+  final int diastolikJam;
+  const TabelKalibrasiData({
+    required this.waktu,
+    required this.sistolikReferensi,
+    required this.diastolikReferensi,
+    required this.sistolikJam,
+    required this.diastolikJam,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['waktu'] = Variable<int>(waktu);
+    map['sistolik_referensi'] = Variable<int>(sistolikReferensi);
+    map['diastolik_referensi'] = Variable<int>(diastolikReferensi);
+    map['sistolik_jam'] = Variable<int>(sistolikJam);
+    map['diastolik_jam'] = Variable<int>(diastolikJam);
+    return map;
+  }
+
+  TabelKalibrasiCompanion toCompanion(bool nullToAbsent) {
+    return TabelKalibrasiCompanion(
+      waktu: Value(waktu),
+      sistolikReferensi: Value(sistolikReferensi),
+      diastolikReferensi: Value(diastolikReferensi),
+      sistolikJam: Value(sistolikJam),
+      diastolikJam: Value(diastolikJam),
+    );
+  }
+
+  factory TabelKalibrasiData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return TabelKalibrasiData(
+      waktu: serializer.fromJson<int>(json['waktu']),
+      sistolikReferensi: serializer.fromJson<int>(json['sistolikReferensi']),
+      diastolikReferensi: serializer.fromJson<int>(json['diastolikReferensi']),
+      sistolikJam: serializer.fromJson<int>(json['sistolikJam']),
+      diastolikJam: serializer.fromJson<int>(json['diastolikJam']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'waktu': serializer.toJson<int>(waktu),
+      'sistolikReferensi': serializer.toJson<int>(sistolikReferensi),
+      'diastolikReferensi': serializer.toJson<int>(diastolikReferensi),
+      'sistolikJam': serializer.toJson<int>(sistolikJam),
+      'diastolikJam': serializer.toJson<int>(diastolikJam),
+    };
+  }
+
+  TabelKalibrasiData copyWith({
+    int? waktu,
+    int? sistolikReferensi,
+    int? diastolikReferensi,
+    int? sistolikJam,
+    int? diastolikJam,
+  }) => TabelKalibrasiData(
+    waktu: waktu ?? this.waktu,
+    sistolikReferensi: sistolikReferensi ?? this.sistolikReferensi,
+    diastolikReferensi: diastolikReferensi ?? this.diastolikReferensi,
+    sistolikJam: sistolikJam ?? this.sistolikJam,
+    diastolikJam: diastolikJam ?? this.diastolikJam,
+  );
+  TabelKalibrasiData copyWithCompanion(TabelKalibrasiCompanion data) {
+    return TabelKalibrasiData(
+      waktu: data.waktu.present ? data.waktu.value : this.waktu,
+      sistolikReferensi: data.sistolikReferensi.present
+          ? data.sistolikReferensi.value
+          : this.sistolikReferensi,
+      diastolikReferensi: data.diastolikReferensi.present
+          ? data.diastolikReferensi.value
+          : this.diastolikReferensi,
+      sistolikJam: data.sistolikJam.present
+          ? data.sistolikJam.value
+          : this.sistolikJam,
+      diastolikJam: data.diastolikJam.present
+          ? data.diastolikJam.value
+          : this.diastolikJam,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TabelKalibrasiData(')
+          ..write('waktu: $waktu, ')
+          ..write('sistolikReferensi: $sistolikReferensi, ')
+          ..write('diastolikReferensi: $diastolikReferensi, ')
+          ..write('sistolikJam: $sistolikJam, ')
+          ..write('diastolikJam: $diastolikJam')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    waktu,
+    sistolikReferensi,
+    diastolikReferensi,
+    sistolikJam,
+    diastolikJam,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is TabelKalibrasiData &&
+          other.waktu == this.waktu &&
+          other.sistolikReferensi == this.sistolikReferensi &&
+          other.diastolikReferensi == this.diastolikReferensi &&
+          other.sistolikJam == this.sistolikJam &&
+          other.diastolikJam == this.diastolikJam);
+}
+
+class TabelKalibrasiCompanion extends UpdateCompanion<TabelKalibrasiData> {
+  final Value<int> waktu;
+  final Value<int> sistolikReferensi;
+  final Value<int> diastolikReferensi;
+  final Value<int> sistolikJam;
+  final Value<int> diastolikJam;
+  const TabelKalibrasiCompanion({
+    this.waktu = const Value.absent(),
+    this.sistolikReferensi = const Value.absent(),
+    this.diastolikReferensi = const Value.absent(),
+    this.sistolikJam = const Value.absent(),
+    this.diastolikJam = const Value.absent(),
+  });
+  TabelKalibrasiCompanion.insert({
+    this.waktu = const Value.absent(),
+    required int sistolikReferensi,
+    required int diastolikReferensi,
+    required int sistolikJam,
+    required int diastolikJam,
+  }) : sistolikReferensi = Value(sistolikReferensi),
+       diastolikReferensi = Value(diastolikReferensi),
+       sistolikJam = Value(sistolikJam),
+       diastolikJam = Value(diastolikJam);
+  static Insertable<TabelKalibrasiData> custom({
+    Expression<int>? waktu,
+    Expression<int>? sistolikReferensi,
+    Expression<int>? diastolikReferensi,
+    Expression<int>? sistolikJam,
+    Expression<int>? diastolikJam,
+  }) {
+    return RawValuesInsertable({
+      if (waktu != null) 'waktu': waktu,
+      if (sistolikReferensi != null) 'sistolik_referensi': sistolikReferensi,
+      if (diastolikReferensi != null) 'diastolik_referensi': diastolikReferensi,
+      if (sistolikJam != null) 'sistolik_jam': sistolikJam,
+      if (diastolikJam != null) 'diastolik_jam': diastolikJam,
+    });
+  }
+
+  TabelKalibrasiCompanion copyWith({
+    Value<int>? waktu,
+    Value<int>? sistolikReferensi,
+    Value<int>? diastolikReferensi,
+    Value<int>? sistolikJam,
+    Value<int>? diastolikJam,
+  }) {
+    return TabelKalibrasiCompanion(
+      waktu: waktu ?? this.waktu,
+      sistolikReferensi: sistolikReferensi ?? this.sistolikReferensi,
+      diastolikReferensi: diastolikReferensi ?? this.diastolikReferensi,
+      sistolikJam: sistolikJam ?? this.sistolikJam,
+      diastolikJam: diastolikJam ?? this.diastolikJam,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (waktu.present) {
+      map['waktu'] = Variable<int>(waktu.value);
+    }
+    if (sistolikReferensi.present) {
+      map['sistolik_referensi'] = Variable<int>(sistolikReferensi.value);
+    }
+    if (diastolikReferensi.present) {
+      map['diastolik_referensi'] = Variable<int>(diastolikReferensi.value);
+    }
+    if (sistolikJam.present) {
+      map['sistolik_jam'] = Variable<int>(sistolikJam.value);
+    }
+    if (diastolikJam.present) {
+      map['diastolik_jam'] = Variable<int>(diastolikJam.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TabelKalibrasiCompanion(')
+          ..write('waktu: $waktu, ')
+          ..write('sistolikReferensi: $sistolikReferensi, ')
+          ..write('diastolikReferensi: $diastolikReferensi, ')
+          ..write('sistolikJam: $sistolikJam, ')
+          ..write('diastolikJam: $diastolikJam')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $TabelEntriJamTable extends TabelEntriJam
+    with TableInfo<$TabelEntriJamTable, TabelEntriJamData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TabelEntriJamTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _jenisMeta = const VerificationMeta('jenis');
+  @override
+  late final GeneratedColumn<int> jenis = GeneratedColumn<int>(
+    'jenis',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _seqMeta = const VerificationMeta('seq');
+  @override
+  late final GeneratedColumn<int> seq = GeneratedColumn<int>(
+    'seq',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _bootIdMeta = const VerificationMeta('bootId');
+  @override
+  late final GeneratedColumn<int> bootId = GeneratedColumn<int>(
+    'boot_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _uptimeSMeta = const VerificationMeta(
+    'uptimeS',
+  );
+  @override
+  late final GeneratedColumn<int> uptimeS = GeneratedColumn<int>(
+    'uptime_s',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _dariBufferMeta = const VerificationMeta(
+    'dariBuffer',
+  );
+  @override
+  late final GeneratedColumn<bool> dariBuffer = GeneratedColumn<bool>(
+    'dari_buffer',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("dari_buffer" IN (0, 1))',
+    ),
+  );
+  static const VerificationMeta _waktuTidakPastiMeta = const VerificationMeta(
+    'waktuTidakPasti',
+  );
+  @override
+  late final GeneratedColumn<bool> waktuTidakPasti = GeneratedColumn<bool>(
+    'waktu_tidak_pasti',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("waktu_tidak_pasti" IN (0, 1))',
+    ),
+  );
+  static const VerificationMeta _sesiIdMeta = const VerificationMeta('sesiId');
+  @override
+  late final GeneratedColumn<String> sesiId = GeneratedColumn<String>(
+    'sesi_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _indexSampelMeta = const VerificationMeta(
+    'indexSampel',
+  );
+  @override
+  late final GeneratedColumn<int> indexSampel = GeneratedColumn<int>(
+    'index_sampel',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _kodePeristiwaMeta = const VerificationMeta(
+    'kodePeristiwa',
+  );
+  @override
+  late final GeneratedColumn<int> kodePeristiwa = GeneratedColumn<int>(
+    'kode_peristiwa',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _payloadMeta = const VerificationMeta(
+    'payload',
+  );
+  @override
+  late final GeneratedColumn<int> payload = GeneratedColumn<int>(
+    'payload',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _gulaDarahMeta = const VerificationMeta(
+    'gulaDarah',
+  );
+  @override
+  late final GeneratedColumn<int> gulaDarah = GeneratedColumn<int>(
+    'gula_darah',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _detakJantungMeta = const VerificationMeta(
+    'detakJantung',
+  );
+  @override
+  late final GeneratedColumn<int> detakJantung = GeneratedColumn<int>(
+    'detak_jantung',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _sistolikMeta = const VerificationMeta(
+    'sistolik',
+  );
+  @override
+  late final GeneratedColumn<int> sistolik = GeneratedColumn<int>(
+    'sistolik',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _diastolikMeta = const VerificationMeta(
+    'diastolik',
+  );
+  @override
+  late final GeneratedColumn<int> diastolik = GeneratedColumn<int>(
+    'diastolik',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _spo2Meta = const VerificationMeta('spo2');
+  @override
+  late final GeneratedColumn<int> spo2 = GeneratedColumn<int>(
+    'spo2',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _diprosesMeta = const VerificationMeta(
+    'diproses',
+  );
+  @override
+  late final GeneratedColumn<bool> diproses = GeneratedColumn<bool>(
+    'diproses',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("diproses" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    jenis,
+    seq,
+    bootId,
+    uptimeS,
+    dariBuffer,
+    waktuTidakPasti,
+    sesiId,
+    indexSampel,
+    kodePeristiwa,
+    payload,
+    gulaDarah,
+    detakJantung,
+    sistolik,
+    diastolik,
+    spo2,
+    diproses,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'tabel_entri_jam';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<TabelEntriJamData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('jenis')) {
+      context.handle(
+        _jenisMeta,
+        jenis.isAcceptableOrUnknown(data['jenis']!, _jenisMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_jenisMeta);
+    }
+    if (data.containsKey('seq')) {
+      context.handle(
+        _seqMeta,
+        seq.isAcceptableOrUnknown(data['seq']!, _seqMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_seqMeta);
+    }
+    if (data.containsKey('boot_id')) {
+      context.handle(
+        _bootIdMeta,
+        bootId.isAcceptableOrUnknown(data['boot_id']!, _bootIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_bootIdMeta);
+    }
+    if (data.containsKey('uptime_s')) {
+      context.handle(
+        _uptimeSMeta,
+        uptimeS.isAcceptableOrUnknown(data['uptime_s']!, _uptimeSMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_uptimeSMeta);
+    }
+    if (data.containsKey('dari_buffer')) {
+      context.handle(
+        _dariBufferMeta,
+        dariBuffer.isAcceptableOrUnknown(data['dari_buffer']!, _dariBufferMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_dariBufferMeta);
+    }
+    if (data.containsKey('waktu_tidak_pasti')) {
+      context.handle(
+        _waktuTidakPastiMeta,
+        waktuTidakPasti.isAcceptableOrUnknown(
+          data['waktu_tidak_pasti']!,
+          _waktuTidakPastiMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_waktuTidakPastiMeta);
+    }
+    if (data.containsKey('sesi_id')) {
+      context.handle(
+        _sesiIdMeta,
+        sesiId.isAcceptableOrUnknown(data['sesi_id']!, _sesiIdMeta),
+      );
+    }
+    if (data.containsKey('index_sampel')) {
+      context.handle(
+        _indexSampelMeta,
+        indexSampel.isAcceptableOrUnknown(
+          data['index_sampel']!,
+          _indexSampelMeta,
+        ),
+      );
+    }
+    if (data.containsKey('kode_peristiwa')) {
+      context.handle(
+        _kodePeristiwaMeta,
+        kodePeristiwa.isAcceptableOrUnknown(
+          data['kode_peristiwa']!,
+          _kodePeristiwaMeta,
+        ),
+      );
+    }
+    if (data.containsKey('payload')) {
+      context.handle(
+        _payloadMeta,
+        payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta),
+      );
+    }
+    if (data.containsKey('gula_darah')) {
+      context.handle(
+        _gulaDarahMeta,
+        gulaDarah.isAcceptableOrUnknown(data['gula_darah']!, _gulaDarahMeta),
+      );
+    }
+    if (data.containsKey('detak_jantung')) {
+      context.handle(
+        _detakJantungMeta,
+        detakJantung.isAcceptableOrUnknown(
+          data['detak_jantung']!,
+          _detakJantungMeta,
+        ),
+      );
+    }
+    if (data.containsKey('sistolik')) {
+      context.handle(
+        _sistolikMeta,
+        sistolik.isAcceptableOrUnknown(data['sistolik']!, _sistolikMeta),
+      );
+    }
+    if (data.containsKey('diastolik')) {
+      context.handle(
+        _diastolikMeta,
+        diastolik.isAcceptableOrUnknown(data['diastolik']!, _diastolikMeta),
+      );
+    }
+    if (data.containsKey('spo2')) {
+      context.handle(
+        _spo2Meta,
+        spo2.isAcceptableOrUnknown(data['spo2']!, _spo2Meta),
+      );
+    }
+    if (data.containsKey('diproses')) {
+      context.handle(
+        _diprosesMeta,
+        diproses.isAcceptableOrUnknown(data['diproses']!, _diprosesMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  TabelEntriJamData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return TabelEntriJamData(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      jenis: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}jenis'],
+      )!,
+      seq: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}seq'],
+      )!,
+      bootId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}boot_id'],
+      )!,
+      uptimeS: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}uptime_s'],
+      )!,
+      dariBuffer: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}dari_buffer'],
+      )!,
+      waktuTidakPasti: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}waktu_tidak_pasti'],
+      )!,
+      sesiId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sesi_id'],
+      ),
+      indexSampel: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}index_sampel'],
+      ),
+      kodePeristiwa: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}kode_peristiwa'],
+      ),
+      payload: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}payload'],
+      ),
+      gulaDarah: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}gula_darah'],
+      ),
+      detakJantung: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}detak_jantung'],
+      ),
+      sistolik: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sistolik'],
+      ),
+      diastolik: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}diastolik'],
+      ),
+      spo2: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}spo2'],
+      ),
+      diproses: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}diproses'],
+      )!,
+    );
+  }
+
+  @override
+  $TabelEntriJamTable createAlias(String alias) {
+    return $TabelEntriJamTable(attachedDatabase, alias);
+  }
+}
+
+class TabelEntriJamData extends DataClass
+    implements Insertable<TabelEntriJamData> {
+  /// Kunci lokal, bukan `seq`: `seq` berputar 1..255 (§6 aturan 1) dan karena
+  /// itu tidak unik bahkan dalam satu boot.
+  final int id;
+
+  /// 0 = sampel (§5.2), 1 = peristiwa (§5.4).
+  final int jenis;
+  final int seq;
+  final int bootId;
+  final int uptimeS;
+  final bool dariBuffer;
+  final bool waktuTidakPasti;
+  final String? sesiId;
+  final int? indexSampel;
+  final int? kodePeristiwa;
+  final int? payload;
+  final int? gulaDarah;
+  final int? detakJantung;
+  final int? sistolik;
+  final int? diastolik;
+  final int? spo2;
+
+  /// Entri sudah ikut tersimpan di dalam sesinya, jadi tidak perlu diputar
+  /// ulang saat aplikasi start. Ditandai oleh `SesiRepositoryDrift.simpan()`
+  /// **di dalam transaksi yang sama** dengan penulisan sesinya: "sudah
+  /// diproses" dan "sesinya durabel" harus benar atau salah bersama-sama.
+  final bool diproses;
+  const TabelEntriJamData({
+    required this.id,
+    required this.jenis,
+    required this.seq,
+    required this.bootId,
+    required this.uptimeS,
+    required this.dariBuffer,
+    required this.waktuTidakPasti,
+    this.sesiId,
+    this.indexSampel,
+    this.kodePeristiwa,
+    this.payload,
+    this.gulaDarah,
+    this.detakJantung,
+    this.sistolik,
+    this.diastolik,
+    this.spo2,
+    required this.diproses,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['jenis'] = Variable<int>(jenis);
+    map['seq'] = Variable<int>(seq);
+    map['boot_id'] = Variable<int>(bootId);
+    map['uptime_s'] = Variable<int>(uptimeS);
+    map['dari_buffer'] = Variable<bool>(dariBuffer);
+    map['waktu_tidak_pasti'] = Variable<bool>(waktuTidakPasti);
+    if (!nullToAbsent || sesiId != null) {
+      map['sesi_id'] = Variable<String>(sesiId);
+    }
+    if (!nullToAbsent || indexSampel != null) {
+      map['index_sampel'] = Variable<int>(indexSampel);
+    }
+    if (!nullToAbsent || kodePeristiwa != null) {
+      map['kode_peristiwa'] = Variable<int>(kodePeristiwa);
+    }
+    if (!nullToAbsent || payload != null) {
+      map['payload'] = Variable<int>(payload);
+    }
+    if (!nullToAbsent || gulaDarah != null) {
+      map['gula_darah'] = Variable<int>(gulaDarah);
+    }
+    if (!nullToAbsent || detakJantung != null) {
+      map['detak_jantung'] = Variable<int>(detakJantung);
+    }
+    if (!nullToAbsent || sistolik != null) {
+      map['sistolik'] = Variable<int>(sistolik);
+    }
+    if (!nullToAbsent || diastolik != null) {
+      map['diastolik'] = Variable<int>(diastolik);
+    }
+    if (!nullToAbsent || spo2 != null) {
+      map['spo2'] = Variable<int>(spo2);
+    }
+    map['diproses'] = Variable<bool>(diproses);
+    return map;
+  }
+
+  TabelEntriJamCompanion toCompanion(bool nullToAbsent) {
+    return TabelEntriJamCompanion(
+      id: Value(id),
+      jenis: Value(jenis),
+      seq: Value(seq),
+      bootId: Value(bootId),
+      uptimeS: Value(uptimeS),
+      dariBuffer: Value(dariBuffer),
+      waktuTidakPasti: Value(waktuTidakPasti),
+      sesiId: sesiId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sesiId),
+      indexSampel: indexSampel == null && nullToAbsent
+          ? const Value.absent()
+          : Value(indexSampel),
+      kodePeristiwa: kodePeristiwa == null && nullToAbsent
+          ? const Value.absent()
+          : Value(kodePeristiwa),
+      payload: payload == null && nullToAbsent
+          ? const Value.absent()
+          : Value(payload),
+      gulaDarah: gulaDarah == null && nullToAbsent
+          ? const Value.absent()
+          : Value(gulaDarah),
+      detakJantung: detakJantung == null && nullToAbsent
+          ? const Value.absent()
+          : Value(detakJantung),
+      sistolik: sistolik == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sistolik),
+      diastolik: diastolik == null && nullToAbsent
+          ? const Value.absent()
+          : Value(diastolik),
+      spo2: spo2 == null && nullToAbsent ? const Value.absent() : Value(spo2),
+      diproses: Value(diproses),
+    );
+  }
+
+  factory TabelEntriJamData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return TabelEntriJamData(
+      id: serializer.fromJson<int>(json['id']),
+      jenis: serializer.fromJson<int>(json['jenis']),
+      seq: serializer.fromJson<int>(json['seq']),
+      bootId: serializer.fromJson<int>(json['bootId']),
+      uptimeS: serializer.fromJson<int>(json['uptimeS']),
+      dariBuffer: serializer.fromJson<bool>(json['dariBuffer']),
+      waktuTidakPasti: serializer.fromJson<bool>(json['waktuTidakPasti']),
+      sesiId: serializer.fromJson<String?>(json['sesiId']),
+      indexSampel: serializer.fromJson<int?>(json['indexSampel']),
+      kodePeristiwa: serializer.fromJson<int?>(json['kodePeristiwa']),
+      payload: serializer.fromJson<int?>(json['payload']),
+      gulaDarah: serializer.fromJson<int?>(json['gulaDarah']),
+      detakJantung: serializer.fromJson<int?>(json['detakJantung']),
+      sistolik: serializer.fromJson<int?>(json['sistolik']),
+      diastolik: serializer.fromJson<int?>(json['diastolik']),
+      spo2: serializer.fromJson<int?>(json['spo2']),
+      diproses: serializer.fromJson<bool>(json['diproses']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'jenis': serializer.toJson<int>(jenis),
+      'seq': serializer.toJson<int>(seq),
+      'bootId': serializer.toJson<int>(bootId),
+      'uptimeS': serializer.toJson<int>(uptimeS),
+      'dariBuffer': serializer.toJson<bool>(dariBuffer),
+      'waktuTidakPasti': serializer.toJson<bool>(waktuTidakPasti),
+      'sesiId': serializer.toJson<String?>(sesiId),
+      'indexSampel': serializer.toJson<int?>(indexSampel),
+      'kodePeristiwa': serializer.toJson<int?>(kodePeristiwa),
+      'payload': serializer.toJson<int?>(payload),
+      'gulaDarah': serializer.toJson<int?>(gulaDarah),
+      'detakJantung': serializer.toJson<int?>(detakJantung),
+      'sistolik': serializer.toJson<int?>(sistolik),
+      'diastolik': serializer.toJson<int?>(diastolik),
+      'spo2': serializer.toJson<int?>(spo2),
+      'diproses': serializer.toJson<bool>(diproses),
+    };
+  }
+
+  TabelEntriJamData copyWith({
+    int? id,
+    int? jenis,
+    int? seq,
+    int? bootId,
+    int? uptimeS,
+    bool? dariBuffer,
+    bool? waktuTidakPasti,
+    Value<String?> sesiId = const Value.absent(),
+    Value<int?> indexSampel = const Value.absent(),
+    Value<int?> kodePeristiwa = const Value.absent(),
+    Value<int?> payload = const Value.absent(),
+    Value<int?> gulaDarah = const Value.absent(),
+    Value<int?> detakJantung = const Value.absent(),
+    Value<int?> sistolik = const Value.absent(),
+    Value<int?> diastolik = const Value.absent(),
+    Value<int?> spo2 = const Value.absent(),
+    bool? diproses,
+  }) => TabelEntriJamData(
+    id: id ?? this.id,
+    jenis: jenis ?? this.jenis,
+    seq: seq ?? this.seq,
+    bootId: bootId ?? this.bootId,
+    uptimeS: uptimeS ?? this.uptimeS,
+    dariBuffer: dariBuffer ?? this.dariBuffer,
+    waktuTidakPasti: waktuTidakPasti ?? this.waktuTidakPasti,
+    sesiId: sesiId.present ? sesiId.value : this.sesiId,
+    indexSampel: indexSampel.present ? indexSampel.value : this.indexSampel,
+    kodePeristiwa: kodePeristiwa.present
+        ? kodePeristiwa.value
+        : this.kodePeristiwa,
+    payload: payload.present ? payload.value : this.payload,
+    gulaDarah: gulaDarah.present ? gulaDarah.value : this.gulaDarah,
+    detakJantung: detakJantung.present ? detakJantung.value : this.detakJantung,
+    sistolik: sistolik.present ? sistolik.value : this.sistolik,
+    diastolik: diastolik.present ? diastolik.value : this.diastolik,
+    spo2: spo2.present ? spo2.value : this.spo2,
+    diproses: diproses ?? this.diproses,
+  );
+  TabelEntriJamData copyWithCompanion(TabelEntriJamCompanion data) {
+    return TabelEntriJamData(
+      id: data.id.present ? data.id.value : this.id,
+      jenis: data.jenis.present ? data.jenis.value : this.jenis,
+      seq: data.seq.present ? data.seq.value : this.seq,
+      bootId: data.bootId.present ? data.bootId.value : this.bootId,
+      uptimeS: data.uptimeS.present ? data.uptimeS.value : this.uptimeS,
+      dariBuffer: data.dariBuffer.present
+          ? data.dariBuffer.value
+          : this.dariBuffer,
+      waktuTidakPasti: data.waktuTidakPasti.present
+          ? data.waktuTidakPasti.value
+          : this.waktuTidakPasti,
+      sesiId: data.sesiId.present ? data.sesiId.value : this.sesiId,
+      indexSampel: data.indexSampel.present
+          ? data.indexSampel.value
+          : this.indexSampel,
+      kodePeristiwa: data.kodePeristiwa.present
+          ? data.kodePeristiwa.value
+          : this.kodePeristiwa,
+      payload: data.payload.present ? data.payload.value : this.payload,
+      gulaDarah: data.gulaDarah.present ? data.gulaDarah.value : this.gulaDarah,
+      detakJantung: data.detakJantung.present
+          ? data.detakJantung.value
+          : this.detakJantung,
+      sistolik: data.sistolik.present ? data.sistolik.value : this.sistolik,
+      diastolik: data.diastolik.present ? data.diastolik.value : this.diastolik,
+      spo2: data.spo2.present ? data.spo2.value : this.spo2,
+      diproses: data.diproses.present ? data.diproses.value : this.diproses,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TabelEntriJamData(')
+          ..write('id: $id, ')
+          ..write('jenis: $jenis, ')
+          ..write('seq: $seq, ')
+          ..write('bootId: $bootId, ')
+          ..write('uptimeS: $uptimeS, ')
+          ..write('dariBuffer: $dariBuffer, ')
+          ..write('waktuTidakPasti: $waktuTidakPasti, ')
+          ..write('sesiId: $sesiId, ')
+          ..write('indexSampel: $indexSampel, ')
+          ..write('kodePeristiwa: $kodePeristiwa, ')
+          ..write('payload: $payload, ')
+          ..write('gulaDarah: $gulaDarah, ')
+          ..write('detakJantung: $detakJantung, ')
+          ..write('sistolik: $sistolik, ')
+          ..write('diastolik: $diastolik, ')
+          ..write('spo2: $spo2, ')
+          ..write('diproses: $diproses')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    jenis,
+    seq,
+    bootId,
+    uptimeS,
+    dariBuffer,
+    waktuTidakPasti,
+    sesiId,
+    indexSampel,
+    kodePeristiwa,
+    payload,
+    gulaDarah,
+    detakJantung,
+    sistolik,
+    diastolik,
+    spo2,
+    diproses,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is TabelEntriJamData &&
+          other.id == this.id &&
+          other.jenis == this.jenis &&
+          other.seq == this.seq &&
+          other.bootId == this.bootId &&
+          other.uptimeS == this.uptimeS &&
+          other.dariBuffer == this.dariBuffer &&
+          other.waktuTidakPasti == this.waktuTidakPasti &&
+          other.sesiId == this.sesiId &&
+          other.indexSampel == this.indexSampel &&
+          other.kodePeristiwa == this.kodePeristiwa &&
+          other.payload == this.payload &&
+          other.gulaDarah == this.gulaDarah &&
+          other.detakJantung == this.detakJantung &&
+          other.sistolik == this.sistolik &&
+          other.diastolik == this.diastolik &&
+          other.spo2 == this.spo2 &&
+          other.diproses == this.diproses);
+}
+
+class TabelEntriJamCompanion extends UpdateCompanion<TabelEntriJamData> {
+  final Value<int> id;
+  final Value<int> jenis;
+  final Value<int> seq;
+  final Value<int> bootId;
+  final Value<int> uptimeS;
+  final Value<bool> dariBuffer;
+  final Value<bool> waktuTidakPasti;
+  final Value<String?> sesiId;
+  final Value<int?> indexSampel;
+  final Value<int?> kodePeristiwa;
+  final Value<int?> payload;
+  final Value<int?> gulaDarah;
+  final Value<int?> detakJantung;
+  final Value<int?> sistolik;
+  final Value<int?> diastolik;
+  final Value<int?> spo2;
+  final Value<bool> diproses;
+  const TabelEntriJamCompanion({
+    this.id = const Value.absent(),
+    this.jenis = const Value.absent(),
+    this.seq = const Value.absent(),
+    this.bootId = const Value.absent(),
+    this.uptimeS = const Value.absent(),
+    this.dariBuffer = const Value.absent(),
+    this.waktuTidakPasti = const Value.absent(),
+    this.sesiId = const Value.absent(),
+    this.indexSampel = const Value.absent(),
+    this.kodePeristiwa = const Value.absent(),
+    this.payload = const Value.absent(),
+    this.gulaDarah = const Value.absent(),
+    this.detakJantung = const Value.absent(),
+    this.sistolik = const Value.absent(),
+    this.diastolik = const Value.absent(),
+    this.spo2 = const Value.absent(),
+    this.diproses = const Value.absent(),
+  });
+  TabelEntriJamCompanion.insert({
+    this.id = const Value.absent(),
+    required int jenis,
+    required int seq,
+    required int bootId,
+    required int uptimeS,
+    required bool dariBuffer,
+    required bool waktuTidakPasti,
+    this.sesiId = const Value.absent(),
+    this.indexSampel = const Value.absent(),
+    this.kodePeristiwa = const Value.absent(),
+    this.payload = const Value.absent(),
+    this.gulaDarah = const Value.absent(),
+    this.detakJantung = const Value.absent(),
+    this.sistolik = const Value.absent(),
+    this.diastolik = const Value.absent(),
+    this.spo2 = const Value.absent(),
+    this.diproses = const Value.absent(),
+  }) : jenis = Value(jenis),
+       seq = Value(seq),
+       bootId = Value(bootId),
+       uptimeS = Value(uptimeS),
+       dariBuffer = Value(dariBuffer),
+       waktuTidakPasti = Value(waktuTidakPasti);
+  static Insertable<TabelEntriJamData> custom({
+    Expression<int>? id,
+    Expression<int>? jenis,
+    Expression<int>? seq,
+    Expression<int>? bootId,
+    Expression<int>? uptimeS,
+    Expression<bool>? dariBuffer,
+    Expression<bool>? waktuTidakPasti,
+    Expression<String>? sesiId,
+    Expression<int>? indexSampel,
+    Expression<int>? kodePeristiwa,
+    Expression<int>? payload,
+    Expression<int>? gulaDarah,
+    Expression<int>? detakJantung,
+    Expression<int>? sistolik,
+    Expression<int>? diastolik,
+    Expression<int>? spo2,
+    Expression<bool>? diproses,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (jenis != null) 'jenis': jenis,
+      if (seq != null) 'seq': seq,
+      if (bootId != null) 'boot_id': bootId,
+      if (uptimeS != null) 'uptime_s': uptimeS,
+      if (dariBuffer != null) 'dari_buffer': dariBuffer,
+      if (waktuTidakPasti != null) 'waktu_tidak_pasti': waktuTidakPasti,
+      if (sesiId != null) 'sesi_id': sesiId,
+      if (indexSampel != null) 'index_sampel': indexSampel,
+      if (kodePeristiwa != null) 'kode_peristiwa': kodePeristiwa,
+      if (payload != null) 'payload': payload,
+      if (gulaDarah != null) 'gula_darah': gulaDarah,
+      if (detakJantung != null) 'detak_jantung': detakJantung,
+      if (sistolik != null) 'sistolik': sistolik,
+      if (diastolik != null) 'diastolik': diastolik,
+      if (spo2 != null) 'spo2': spo2,
+      if (diproses != null) 'diproses': diproses,
+    });
+  }
+
+  TabelEntriJamCompanion copyWith({
+    Value<int>? id,
+    Value<int>? jenis,
+    Value<int>? seq,
+    Value<int>? bootId,
+    Value<int>? uptimeS,
+    Value<bool>? dariBuffer,
+    Value<bool>? waktuTidakPasti,
+    Value<String?>? sesiId,
+    Value<int?>? indexSampel,
+    Value<int?>? kodePeristiwa,
+    Value<int?>? payload,
+    Value<int?>? gulaDarah,
+    Value<int?>? detakJantung,
+    Value<int?>? sistolik,
+    Value<int?>? diastolik,
+    Value<int?>? spo2,
+    Value<bool>? diproses,
+  }) {
+    return TabelEntriJamCompanion(
+      id: id ?? this.id,
+      jenis: jenis ?? this.jenis,
+      seq: seq ?? this.seq,
+      bootId: bootId ?? this.bootId,
+      uptimeS: uptimeS ?? this.uptimeS,
+      dariBuffer: dariBuffer ?? this.dariBuffer,
+      waktuTidakPasti: waktuTidakPasti ?? this.waktuTidakPasti,
+      sesiId: sesiId ?? this.sesiId,
+      indexSampel: indexSampel ?? this.indexSampel,
+      kodePeristiwa: kodePeristiwa ?? this.kodePeristiwa,
+      payload: payload ?? this.payload,
+      gulaDarah: gulaDarah ?? this.gulaDarah,
+      detakJantung: detakJantung ?? this.detakJantung,
+      sistolik: sistolik ?? this.sistolik,
+      diastolik: diastolik ?? this.diastolik,
+      spo2: spo2 ?? this.spo2,
+      diproses: diproses ?? this.diproses,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (jenis.present) {
+      map['jenis'] = Variable<int>(jenis.value);
+    }
+    if (seq.present) {
+      map['seq'] = Variable<int>(seq.value);
+    }
+    if (bootId.present) {
+      map['boot_id'] = Variable<int>(bootId.value);
+    }
+    if (uptimeS.present) {
+      map['uptime_s'] = Variable<int>(uptimeS.value);
+    }
+    if (dariBuffer.present) {
+      map['dari_buffer'] = Variable<bool>(dariBuffer.value);
+    }
+    if (waktuTidakPasti.present) {
+      map['waktu_tidak_pasti'] = Variable<bool>(waktuTidakPasti.value);
+    }
+    if (sesiId.present) {
+      map['sesi_id'] = Variable<String>(sesiId.value);
+    }
+    if (indexSampel.present) {
+      map['index_sampel'] = Variable<int>(indexSampel.value);
+    }
+    if (kodePeristiwa.present) {
+      map['kode_peristiwa'] = Variable<int>(kodePeristiwa.value);
+    }
+    if (payload.present) {
+      map['payload'] = Variable<int>(payload.value);
+    }
+    if (gulaDarah.present) {
+      map['gula_darah'] = Variable<int>(gulaDarah.value);
+    }
+    if (detakJantung.present) {
+      map['detak_jantung'] = Variable<int>(detakJantung.value);
+    }
+    if (sistolik.present) {
+      map['sistolik'] = Variable<int>(sistolik.value);
+    }
+    if (diastolik.present) {
+      map['diastolik'] = Variable<int>(diastolik.value);
+    }
+    if (spo2.present) {
+      map['spo2'] = Variable<int>(spo2.value);
+    }
+    if (diproses.present) {
+      map['diproses'] = Variable<bool>(diproses.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TabelEntriJamCompanion(')
+          ..write('id: $id, ')
+          ..write('jenis: $jenis, ')
+          ..write('seq: $seq, ')
+          ..write('bootId: $bootId, ')
+          ..write('uptimeS: $uptimeS, ')
+          ..write('dariBuffer: $dariBuffer, ')
+          ..write('waktuTidakPasti: $waktuTidakPasti, ')
+          ..write('sesiId: $sesiId, ')
+          ..write('indexSampel: $indexSampel, ')
+          ..write('kodePeristiwa: $kodePeristiwa, ')
+          ..write('payload: $payload, ')
+          ..write('gulaDarah: $gulaDarah, ')
+          ..write('detakJantung: $detakJantung, ')
+          ..write('sistolik: $sistolik, ')
+          ..write('diastolik: $diastolik, ')
+          ..write('spo2: $spo2, ')
+          ..write('diproses: $diproses')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$BasisData extends GeneratedDatabase {
   _$BasisData(QueryExecutor e) : super(e);
   $BasisDataManager get managers => $BasisDataManager(this);
@@ -2590,6 +4007,8 @@ abstract class _$BasisData extends GeneratedDatabase {
   late final $TabelAnchorWaktuTable tabelAnchorWaktu = $TabelAnchorWaktuTable(
     this,
   );
+  late final $TabelKalibrasiTable tabelKalibrasi = $TabelKalibrasiTable(this);
+  late final $TabelEntriJamTable tabelEntriJam = $TabelEntriJamTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -2600,6 +4019,8 @@ abstract class _$BasisData extends GeneratedDatabase {
     tabelHasilDeteksi,
     tabelItemMakanan,
     tabelAnchorWaktu,
+    tabelKalibrasi,
+    tabelEntriJam,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -2634,6 +4055,7 @@ typedef $$TabelSesiTableCreateCompanionBuilder =
       required int waktuFoto,
       Value<int?> t0,
       required StatusSesi status,
+      Value<bool> waktuTidakPasti,
       Value<int> rowid,
     });
 typedef $$TabelSesiTableUpdateCompanionBuilder =
@@ -2643,6 +4065,7 @@ typedef $$TabelSesiTableUpdateCompanionBuilder =
       Value<int> waktuFoto,
       Value<int?> t0,
       Value<StatusSesi> status,
+      Value<bool> waktuTidakPasti,
       Value<int> rowid,
     });
 
@@ -2746,6 +4169,11 @@ class $$TabelSesiTableFilterComposer
         column: $table.status,
         builder: (column) => ColumnWithTypeConverterFilters(column),
       );
+
+  ColumnFilters<bool> get waktuTidakPasti => $composableBuilder(
+    column: $table.waktuTidakPasti,
+    builder: (column) => ColumnFilters(column),
+  );
 
   Expression<bool> tabelSampelRefs(
     Expression<bool> Function($$TabelSampelTableFilterComposer f) f,
@@ -2856,6 +4284,11 @@ class $$TabelSesiTableOrderingComposer
     column: $table.status,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<bool> get waktuTidakPasti => $composableBuilder(
+    column: $table.waktuTidakPasti,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$TabelSesiTableAnnotationComposer
@@ -2881,6 +4314,11 @@ class $$TabelSesiTableAnnotationComposer
 
   GeneratedColumnWithTypeConverter<StatusSesi, String> get status =>
       $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<bool> get waktuTidakPasti => $composableBuilder(
+    column: $table.waktuTidakPasti,
+    builder: (column) => column,
+  );
 
   Expression<T> tabelSampelRefs<T extends Object>(
     Expression<T> Function($$TabelSampelTableAnnotationComposer a) f,
@@ -2996,6 +4434,7 @@ class $$TabelSesiTableTableManager
                 Value<int> waktuFoto = const Value.absent(),
                 Value<int?> t0 = const Value.absent(),
                 Value<StatusSesi> status = const Value.absent(),
+                Value<bool> waktuTidakPasti = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TabelSesiCompanion(
                 id: id,
@@ -3003,6 +4442,7 @@ class $$TabelSesiTableTableManager
                 waktuFoto: waktuFoto,
                 t0: t0,
                 status: status,
+                waktuTidakPasti: waktuTidakPasti,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -3012,6 +4452,7 @@ class $$TabelSesiTableTableManager
                 required int waktuFoto,
                 Value<int?> t0 = const Value.absent(),
                 required StatusSesi status,
+                Value<bool> waktuTidakPasti = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TabelSesiCompanion.insert(
                 id: id,
@@ -3019,6 +4460,7 @@ class $$TabelSesiTableTableManager
                 waktuFoto: waktuFoto,
                 t0: t0,
                 status: status,
+                waktuTidakPasti: waktuTidakPasti,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -4617,6 +6059,644 @@ typedef $$TabelAnchorWaktuTableProcessedTableManager =
       TabelAnchorWaktuData,
       PrefetchHooks Function()
     >;
+typedef $$TabelKalibrasiTableCreateCompanionBuilder =
+    TabelKalibrasiCompanion Function({
+      Value<int> waktu,
+      required int sistolikReferensi,
+      required int diastolikReferensi,
+      required int sistolikJam,
+      required int diastolikJam,
+    });
+typedef $$TabelKalibrasiTableUpdateCompanionBuilder =
+    TabelKalibrasiCompanion Function({
+      Value<int> waktu,
+      Value<int> sistolikReferensi,
+      Value<int> diastolikReferensi,
+      Value<int> sistolikJam,
+      Value<int> diastolikJam,
+    });
+
+class $$TabelKalibrasiTableFilterComposer
+    extends Composer<_$BasisData, $TabelKalibrasiTable> {
+  $$TabelKalibrasiTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get waktu => $composableBuilder(
+    column: $table.waktu,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sistolikReferensi => $composableBuilder(
+    column: $table.sistolikReferensi,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get diastolikReferensi => $composableBuilder(
+    column: $table.diastolikReferensi,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sistolikJam => $composableBuilder(
+    column: $table.sistolikJam,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get diastolikJam => $composableBuilder(
+    column: $table.diastolikJam,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$TabelKalibrasiTableOrderingComposer
+    extends Composer<_$BasisData, $TabelKalibrasiTable> {
+  $$TabelKalibrasiTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get waktu => $composableBuilder(
+    column: $table.waktu,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sistolikReferensi => $composableBuilder(
+    column: $table.sistolikReferensi,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get diastolikReferensi => $composableBuilder(
+    column: $table.diastolikReferensi,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sistolikJam => $composableBuilder(
+    column: $table.sistolikJam,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get diastolikJam => $composableBuilder(
+    column: $table.diastolikJam,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$TabelKalibrasiTableAnnotationComposer
+    extends Composer<_$BasisData, $TabelKalibrasiTable> {
+  $$TabelKalibrasiTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get waktu =>
+      $composableBuilder(column: $table.waktu, builder: (column) => column);
+
+  GeneratedColumn<int> get sistolikReferensi => $composableBuilder(
+    column: $table.sistolikReferensi,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get diastolikReferensi => $composableBuilder(
+    column: $table.diastolikReferensi,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get sistolikJam => $composableBuilder(
+    column: $table.sistolikJam,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get diastolikJam => $composableBuilder(
+    column: $table.diastolikJam,
+    builder: (column) => column,
+  );
+}
+
+class $$TabelKalibrasiTableTableManager
+    extends
+        RootTableManager<
+          _$BasisData,
+          $TabelKalibrasiTable,
+          TabelKalibrasiData,
+          $$TabelKalibrasiTableFilterComposer,
+          $$TabelKalibrasiTableOrderingComposer,
+          $$TabelKalibrasiTableAnnotationComposer,
+          $$TabelKalibrasiTableCreateCompanionBuilder,
+          $$TabelKalibrasiTableUpdateCompanionBuilder,
+          (
+            TabelKalibrasiData,
+            BaseReferences<
+              _$BasisData,
+              $TabelKalibrasiTable,
+              TabelKalibrasiData
+            >,
+          ),
+          TabelKalibrasiData,
+          PrefetchHooks Function()
+        > {
+  $$TabelKalibrasiTableTableManager(_$BasisData db, $TabelKalibrasiTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TabelKalibrasiTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$TabelKalibrasiTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$TabelKalibrasiTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> waktu = const Value.absent(),
+                Value<int> sistolikReferensi = const Value.absent(),
+                Value<int> diastolikReferensi = const Value.absent(),
+                Value<int> sistolikJam = const Value.absent(),
+                Value<int> diastolikJam = const Value.absent(),
+              }) => TabelKalibrasiCompanion(
+                waktu: waktu,
+                sistolikReferensi: sistolikReferensi,
+                diastolikReferensi: diastolikReferensi,
+                sistolikJam: sistolikJam,
+                diastolikJam: diastolikJam,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> waktu = const Value.absent(),
+                required int sistolikReferensi,
+                required int diastolikReferensi,
+                required int sistolikJam,
+                required int diastolikJam,
+              }) => TabelKalibrasiCompanion.insert(
+                waktu: waktu,
+                sistolikReferensi: sistolikReferensi,
+                diastolikReferensi: diastolikReferensi,
+                sistolikJam: sistolikJam,
+                diastolikJam: diastolikJam,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$TabelKalibrasiTableProcessedTableManager =
+    ProcessedTableManager<
+      _$BasisData,
+      $TabelKalibrasiTable,
+      TabelKalibrasiData,
+      $$TabelKalibrasiTableFilterComposer,
+      $$TabelKalibrasiTableOrderingComposer,
+      $$TabelKalibrasiTableAnnotationComposer,
+      $$TabelKalibrasiTableCreateCompanionBuilder,
+      $$TabelKalibrasiTableUpdateCompanionBuilder,
+      (
+        TabelKalibrasiData,
+        BaseReferences<_$BasisData, $TabelKalibrasiTable, TabelKalibrasiData>,
+      ),
+      TabelKalibrasiData,
+      PrefetchHooks Function()
+    >;
+typedef $$TabelEntriJamTableCreateCompanionBuilder =
+    TabelEntriJamCompanion Function({
+      Value<int> id,
+      required int jenis,
+      required int seq,
+      required int bootId,
+      required int uptimeS,
+      required bool dariBuffer,
+      required bool waktuTidakPasti,
+      Value<String?> sesiId,
+      Value<int?> indexSampel,
+      Value<int?> kodePeristiwa,
+      Value<int?> payload,
+      Value<int?> gulaDarah,
+      Value<int?> detakJantung,
+      Value<int?> sistolik,
+      Value<int?> diastolik,
+      Value<int?> spo2,
+      Value<bool> diproses,
+    });
+typedef $$TabelEntriJamTableUpdateCompanionBuilder =
+    TabelEntriJamCompanion Function({
+      Value<int> id,
+      Value<int> jenis,
+      Value<int> seq,
+      Value<int> bootId,
+      Value<int> uptimeS,
+      Value<bool> dariBuffer,
+      Value<bool> waktuTidakPasti,
+      Value<String?> sesiId,
+      Value<int?> indexSampel,
+      Value<int?> kodePeristiwa,
+      Value<int?> payload,
+      Value<int?> gulaDarah,
+      Value<int?> detakJantung,
+      Value<int?> sistolik,
+      Value<int?> diastolik,
+      Value<int?> spo2,
+      Value<bool> diproses,
+    });
+
+class $$TabelEntriJamTableFilterComposer
+    extends Composer<_$BasisData, $TabelEntriJamTable> {
+  $$TabelEntriJamTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get jenis => $composableBuilder(
+    column: $table.jenis,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get seq => $composableBuilder(
+    column: $table.seq,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get bootId => $composableBuilder(
+    column: $table.bootId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get uptimeS => $composableBuilder(
+    column: $table.uptimeS,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get dariBuffer => $composableBuilder(
+    column: $table.dariBuffer,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get waktuTidakPasti => $composableBuilder(
+    column: $table.waktuTidakPasti,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sesiId => $composableBuilder(
+    column: $table.sesiId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get indexSampel => $composableBuilder(
+    column: $table.indexSampel,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get kodePeristiwa => $composableBuilder(
+    column: $table.kodePeristiwa,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get payload => $composableBuilder(
+    column: $table.payload,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get gulaDarah => $composableBuilder(
+    column: $table.gulaDarah,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get detakJantung => $composableBuilder(
+    column: $table.detakJantung,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sistolik => $composableBuilder(
+    column: $table.sistolik,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get diastolik => $composableBuilder(
+    column: $table.diastolik,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get spo2 => $composableBuilder(
+    column: $table.spo2,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get diproses => $composableBuilder(
+    column: $table.diproses,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$TabelEntriJamTableOrderingComposer
+    extends Composer<_$BasisData, $TabelEntriJamTable> {
+  $$TabelEntriJamTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get jenis => $composableBuilder(
+    column: $table.jenis,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get seq => $composableBuilder(
+    column: $table.seq,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get bootId => $composableBuilder(
+    column: $table.bootId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get uptimeS => $composableBuilder(
+    column: $table.uptimeS,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get dariBuffer => $composableBuilder(
+    column: $table.dariBuffer,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get waktuTidakPasti => $composableBuilder(
+    column: $table.waktuTidakPasti,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sesiId => $composableBuilder(
+    column: $table.sesiId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get indexSampel => $composableBuilder(
+    column: $table.indexSampel,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get kodePeristiwa => $composableBuilder(
+    column: $table.kodePeristiwa,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get payload => $composableBuilder(
+    column: $table.payload,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get gulaDarah => $composableBuilder(
+    column: $table.gulaDarah,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get detakJantung => $composableBuilder(
+    column: $table.detakJantung,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sistolik => $composableBuilder(
+    column: $table.sistolik,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get diastolik => $composableBuilder(
+    column: $table.diastolik,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get spo2 => $composableBuilder(
+    column: $table.spo2,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get diproses => $composableBuilder(
+    column: $table.diproses,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$TabelEntriJamTableAnnotationComposer
+    extends Composer<_$BasisData, $TabelEntriJamTable> {
+  $$TabelEntriJamTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get jenis =>
+      $composableBuilder(column: $table.jenis, builder: (column) => column);
+
+  GeneratedColumn<int> get seq =>
+      $composableBuilder(column: $table.seq, builder: (column) => column);
+
+  GeneratedColumn<int> get bootId =>
+      $composableBuilder(column: $table.bootId, builder: (column) => column);
+
+  GeneratedColumn<int> get uptimeS =>
+      $composableBuilder(column: $table.uptimeS, builder: (column) => column);
+
+  GeneratedColumn<bool> get dariBuffer => $composableBuilder(
+    column: $table.dariBuffer,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get waktuTidakPasti => $composableBuilder(
+    column: $table.waktuTidakPasti,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get sesiId =>
+      $composableBuilder(column: $table.sesiId, builder: (column) => column);
+
+  GeneratedColumn<int> get indexSampel => $composableBuilder(
+    column: $table.indexSampel,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get kodePeristiwa => $composableBuilder(
+    column: $table.kodePeristiwa,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get payload =>
+      $composableBuilder(column: $table.payload, builder: (column) => column);
+
+  GeneratedColumn<int> get gulaDarah =>
+      $composableBuilder(column: $table.gulaDarah, builder: (column) => column);
+
+  GeneratedColumn<int> get detakJantung => $composableBuilder(
+    column: $table.detakJantung,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get sistolik =>
+      $composableBuilder(column: $table.sistolik, builder: (column) => column);
+
+  GeneratedColumn<int> get diastolik =>
+      $composableBuilder(column: $table.diastolik, builder: (column) => column);
+
+  GeneratedColumn<int> get spo2 =>
+      $composableBuilder(column: $table.spo2, builder: (column) => column);
+
+  GeneratedColumn<bool> get diproses =>
+      $composableBuilder(column: $table.diproses, builder: (column) => column);
+}
+
+class $$TabelEntriJamTableTableManager
+    extends
+        RootTableManager<
+          _$BasisData,
+          $TabelEntriJamTable,
+          TabelEntriJamData,
+          $$TabelEntriJamTableFilterComposer,
+          $$TabelEntriJamTableOrderingComposer,
+          $$TabelEntriJamTableAnnotationComposer,
+          $$TabelEntriJamTableCreateCompanionBuilder,
+          $$TabelEntriJamTableUpdateCompanionBuilder,
+          (
+            TabelEntriJamData,
+            BaseReferences<_$BasisData, $TabelEntriJamTable, TabelEntriJamData>,
+          ),
+          TabelEntriJamData,
+          PrefetchHooks Function()
+        > {
+  $$TabelEntriJamTableTableManager(_$BasisData db, $TabelEntriJamTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TabelEntriJamTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$TabelEntriJamTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$TabelEntriJamTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int> jenis = const Value.absent(),
+                Value<int> seq = const Value.absent(),
+                Value<int> bootId = const Value.absent(),
+                Value<int> uptimeS = const Value.absent(),
+                Value<bool> dariBuffer = const Value.absent(),
+                Value<bool> waktuTidakPasti = const Value.absent(),
+                Value<String?> sesiId = const Value.absent(),
+                Value<int?> indexSampel = const Value.absent(),
+                Value<int?> kodePeristiwa = const Value.absent(),
+                Value<int?> payload = const Value.absent(),
+                Value<int?> gulaDarah = const Value.absent(),
+                Value<int?> detakJantung = const Value.absent(),
+                Value<int?> sistolik = const Value.absent(),
+                Value<int?> diastolik = const Value.absent(),
+                Value<int?> spo2 = const Value.absent(),
+                Value<bool> diproses = const Value.absent(),
+              }) => TabelEntriJamCompanion(
+                id: id,
+                jenis: jenis,
+                seq: seq,
+                bootId: bootId,
+                uptimeS: uptimeS,
+                dariBuffer: dariBuffer,
+                waktuTidakPasti: waktuTidakPasti,
+                sesiId: sesiId,
+                indexSampel: indexSampel,
+                kodePeristiwa: kodePeristiwa,
+                payload: payload,
+                gulaDarah: gulaDarah,
+                detakJantung: detakJantung,
+                sistolik: sistolik,
+                diastolik: diastolik,
+                spo2: spo2,
+                diproses: diproses,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required int jenis,
+                required int seq,
+                required int bootId,
+                required int uptimeS,
+                required bool dariBuffer,
+                required bool waktuTidakPasti,
+                Value<String?> sesiId = const Value.absent(),
+                Value<int?> indexSampel = const Value.absent(),
+                Value<int?> kodePeristiwa = const Value.absent(),
+                Value<int?> payload = const Value.absent(),
+                Value<int?> gulaDarah = const Value.absent(),
+                Value<int?> detakJantung = const Value.absent(),
+                Value<int?> sistolik = const Value.absent(),
+                Value<int?> diastolik = const Value.absent(),
+                Value<int?> spo2 = const Value.absent(),
+                Value<bool> diproses = const Value.absent(),
+              }) => TabelEntriJamCompanion.insert(
+                id: id,
+                jenis: jenis,
+                seq: seq,
+                bootId: bootId,
+                uptimeS: uptimeS,
+                dariBuffer: dariBuffer,
+                waktuTidakPasti: waktuTidakPasti,
+                sesiId: sesiId,
+                indexSampel: indexSampel,
+                kodePeristiwa: kodePeristiwa,
+                payload: payload,
+                gulaDarah: gulaDarah,
+                detakJantung: detakJantung,
+                sistolik: sistolik,
+                diastolik: diastolik,
+                spo2: spo2,
+                diproses: diproses,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$TabelEntriJamTableProcessedTableManager =
+    ProcessedTableManager<
+      _$BasisData,
+      $TabelEntriJamTable,
+      TabelEntriJamData,
+      $$TabelEntriJamTableFilterComposer,
+      $$TabelEntriJamTableOrderingComposer,
+      $$TabelEntriJamTableAnnotationComposer,
+      $$TabelEntriJamTableCreateCompanionBuilder,
+      $$TabelEntriJamTableUpdateCompanionBuilder,
+      (
+        TabelEntriJamData,
+        BaseReferences<_$BasisData, $TabelEntriJamTable, TabelEntriJamData>,
+      ),
+      TabelEntriJamData,
+      PrefetchHooks Function()
+    >;
 
 class $BasisDataManager {
   final _$BasisData _db;
@@ -4631,4 +6711,8 @@ class $BasisDataManager {
       $$TabelItemMakananTableTableManager(_db, _db.tabelItemMakanan);
   $$TabelAnchorWaktuTableTableManager get tabelAnchorWaktu =>
       $$TabelAnchorWaktuTableTableManager(_db, _db.tabelAnchorWaktu);
+  $$TabelKalibrasiTableTableManager get tabelKalibrasi =>
+      $$TabelKalibrasiTableTableManager(_db, _db.tabelKalibrasi);
+  $$TabelEntriJamTableTableManager get tabelEntriJam =>
+      $$TabelEntriJamTableTableManager(_db, _db.tabelEntriJam);
 }

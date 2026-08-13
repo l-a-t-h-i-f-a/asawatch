@@ -4,10 +4,16 @@ import 'package:provider/provider.dart';
 import 'controllers/sesi_makan_controller.dart';
 import 'models/sesi_makan.dart';
 import 'pemindaian_perangkat_page.dart';
+import 'services/izin_ble.dart';
 import 'utils/format_waktu.dart';
 
 class MenghubungkanPerangkatPage extends StatelessWidget {
-  const MenghubungkanPerangkatPage({super.key});
+  const MenghubungkanPerangkatPage({super.key, this.izin});
+
+  /// Diteruskan apa adanya ke [PemindaianPerangkatPage]; null berarti
+  /// `izinBleBawaan`. Ada di sini hanya supaya alur pemasangan bisa dites tanpa
+  /// saluran platform izin — lihat catatannya di halaman pemindaian.
+  final IzinBle? izin;
 
   @override
   Widget build(BuildContext context) {
@@ -41,7 +47,7 @@ class MenghubungkanPerangkatPage extends StatelessWidget {
               // Status jam apa adanya: tersambung, baterai, sinkronisasi
               // terakhir, dan berapa sampel yang masih tertahan di buffer jam
               // (§4.7).
-              const _StatusJam(),
+              _StatusJam(izin: izin),
               const SizedBox(height: 20),
 
               // 3-step diagram mockup (Matches mockup)
@@ -293,15 +299,16 @@ class MenghubungkanPerangkatPage extends StatelessWidget {
 /// keluar (putus/ganti). Semua jalur menuju [PemindaianPerangkatPage] — tidak
 /// ada penyambungan diam-diam di halaman ini.
 class _AksiPerangkat extends StatelessWidget {
-  const _AksiPerangkat({required this.status});
+  const _AksiPerangkat({required this.status, this.izin});
 
   final StatusPerangkat status;
+  final IzinBle? izin;
 
   Future<void> _bukaPemindaian(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
     final nama = await Navigator.push<String>(
       context,
-      MaterialPageRoute(builder: (_) => const PemindaianPerangkatPage()),
+      MaterialPageRoute(builder: (_) => PemindaianPerangkatPage(izin: izin)),
     );
     if (nama == null) return; // user mundur tanpa menyambung
 
@@ -382,7 +389,9 @@ class _AksiPerangkat extends StatelessWidget {
 /// Angkanya dibaca dari `SesiMakanController`, bukan literal — sampel yang
 /// tertahan adalah alasan sah kenapa data sesi bisa datang terlambat (§8).
 class _StatusJam extends StatelessWidget {
-  const _StatusJam();
+  const _StatusJam({this.izin});
+
+  final IzinBle? izin;
 
   @override
   Widget build(BuildContext context) {
@@ -504,7 +513,7 @@ class _StatusJam extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          _AksiPerangkat(status: status),
+          _AksiPerangkat(status: status, izin: izin),
         ],
       ),
     );

@@ -2,9 +2,17 @@
 
 Dokumen acuan untuk mengubah `asawatch` dari **prototipe UI** menjadi **aplikasi produksi**.
 
-Status: **Tahap A (§3) selesai seluruhnya — A1 sampai A4, diverifikasi di perangkat Android.**
-Riwayat sesi bertahan di SQLite, profil punya satu pintu, dan data contoh sudah keluar dari jalur
-produksi: pemasangan yang datanya dihapus benar-benar mulai kosong. Tahap B ke atas masih rencana.
+Status: **Tahap A (§3) selesai seluruhnya. Tahap B (§4) selesai di sisi aplikasi, menunggu
+firmware.** Riwayat sesi bertahan di SQLite, profil punya satu pintu, dan data contoh sudah keluar
+dari jalur produksi. Sejak Tahap B, jalur produksi memakai `BleAsliService` di atas
+`flutter_blue_plus`: seluruh protokol §2–§9 terpasang, izin platform dideklarasikan, sesi yang masih
+berjalan dipulihkan setelah aplikasi ditutup, dan sesi yang sampelnya tidak pernah datang berakhir
+`tidakLengkap` lewat tenggatnya sendiri. Tahap C ke atas masih rencana.
+
+> **Yang belum bisa diklaim selesai dari Tahap B: checklist integrasi.** Seluruh §11 protokol bagian
+> "Aplikasi" sudah terpenuhi dan diuji, tetapi keempat butir "Integrasi" — termasuk satu sesi penuh
+> dengan hardware sungguhan — menunggu firmware yang belum ada. Sampai itu dijalankan, yang terbukti
+> baru bahwa aplikasi menuruti dokumen protokol, bukan bahwa kedua sisi cocok.
 
 > Catatan untuk siapa pun yang menguji: menghapus kode penyemaian tidak menghapus baris yang
 > terlanjur tertulis. Perangkat yang pernah menjalankan build A2/A3 masih menyimpan riwayat contoh
@@ -35,15 +43,18 @@ Yang sudah benar dan **tidak boleh dibongkar**:
 Yang membuat aplikasi ini belum bisa dipakai orang sungguhan, berurutan dari yang paling
 mendasar:
 
-1. ~~**Tidak ada data yang bertahan.**~~ **Selesai (Tahap A).** Riwayat sesi bertahan di SQLite.
-   Yang masih hilang saat aplikasi ditutup hanya sesi yang sedang berjalan dan kalibrasi.
-2. **Tidak ada jam tangan.** `FakeBleService` mengarang sampel dan menekan tombolnya sendiri.
+1. ~~**Tidak ada data yang bertahan.**~~ **Selesai (Tahap A dan B).** Riwayat sesi, sesi yang masih
+   berjalan, dan kalibrasi semuanya bertahan di SQLite.
+2. ~~**Tidak ada jam tangan.**~~ **Selesai di sisi aplikasi (Tahap B).** `BleAsliService` yang dipakai
+   jalur produksi; `FakeBleService` tinggal di belakang `--dart-define=PAKAI_JAM_PALSU=true`.
+   Firmware-nya sendiri belum ada.
 3. **Tidak ada kamera dan tidak ada analisis nutrisi.** Preview kamera adalah gambar, dan
    `FakeNutrisiService` mengembalikan angka yang sama untuk foto apa pun.
 4. **Tidak ada akun.** Login hanya `validate()` lalu navigasi.
-5. **Tidak ada izin platform.** Manifest Android dan Info.plist tidak mendeklarasikan apa pun.
-6. **Tidak ada penanganan gagal.** Setiap operasi di prototipe selalu berhasil. Kegagalan
-   penyimpanan sudah ditangani (Tahap A); BLE, kamera, jaringan, dan izin belum.
+5. ~~**Tidak ada izin platform.**~~ **Selesai untuk Bluetooth (Tahap B).** Kamera dan notifikasi
+   menyusul bersama Tahap C dan E.
+6. **Tidak ada penanganan gagal.** Kegagalan penyimpanan (Tahap A), BLE, dan izin (Tahap B) sudah
+   ditangani. Kamera dan jaringan belum.
 
 ---
 
@@ -123,10 +134,12 @@ termasuk round-trip field demi field dan satu uji tutup-buka-ulang dengan berkas
 
 Dua hal yang dipindahkan keluar dari A2, dengan alasannya:
 
-- **Pemulihan sesi yang masih berjalan → Tahap B.** Menyimpannya mudah (skema sudah menampung
-  `draft`/`berjalan`), tetapi memulihkannya sekarang menghasilkan sesi yang **tidak akan pernah
-  selesai**: jadwal sampel hidup di jam, dan `FakeBleService` yang baru dibuat saat app start tidak
-  tahu apa-apa tentang sesi itu. Pemulihan baru bermakna setelah jam sungguhan punya buffer.
+- **Pemulihan sesi yang masih berjalan → Tahap B.** ✅ **Selesai di sana.** Alasan penundaannya
+  terbukti benar: yang membuat pemulihan bermakna adalah buffer jam sungguhan. Sesi aktif kini
+  ditulis sejak shutter ditekan dan pada tiap perubahan, dipisahkan dari riwayat oleh konstruktor
+  controller, dan jadwalnya dihitung ulang dari `t0` **absolut** — bukan dari sisa waktu. Sesi yang
+  dibatalkan dihapus (`SesiRepository.hapus`), supaya draft yang tidak jadi dijalani tidak hidup
+  kembali sebagai sesi aktif.
 - **Menghapus data contoh → tetap di A4**, bersama tampilan kosongnya. `benihiBilaKosong()` di
   [../lib/main.dart](../lib/main.dart) mengisi basis data kosong sekali saat pemasangan pertama,
   supaya A2 tidak diam-diam mengosongkan aplikasi yang layarnya belum siap kosong.
@@ -142,9 +155,11 @@ Sisa Tahap A:
 - [x] ~~Tambah `drift`~~ — terpasang, `drift` + `drift_flutter`, codegen lewat `build_runner`.
 - [x] ~~Tabel `sesi`, `sampel`, `hasil_deteksi`~~ — id memakai teks (`SesiMakan.id`), bukan
       autoincrement, sesuai K5.
-- [ ] Tabel `kalibrasi`. Sengaja belum: `kalibrasiTerakhir` masih hidup di memori controller dan
-      belum punya konsumen yang menuntutnya bertahan. Masuk bersama Tahap B, saat kalibrasi
-      benar-benar dikirim ke jam.
+- [x] ~~Tabel `kalibrasi`~~ — masuk di Tahap B (skema v3), persis seperti yang dijadwalkan: begitu
+      `SET_KALIBRASI` benar-benar sampai ke flash jam, aplikasi yang lupa pernah mengalibrasi
+      berbohong tentang keadaan jamnya sendiri. Disimpan sebagai riwayat, bukan satu baris yang
+      ditimpa — offset yang melonjak antar kalibrasi adalah tanda salah satunya keliru, dan itu hanya
+      terlihat bila yang lama masih ada.
 - [x] ~~Tabel `anchor_waktu`~~ — kolom `dibuat_pada` yang sempat direncanakan **dibuang**: ia tidak
       pernah bisa berbeda dari `epoch`, dan kolom yang selalu menduplikasi kolom lain pada akhirnya
       akan berselisih karena bug. Urutan anchor ditentukan `uptime_s`, bukan waktu penulisan —
@@ -190,20 +205,52 @@ exception atau kotak kosong tanpa penjelasan.
 
 ## 4. Tahap B — BLE sungguhan
 
+**✅ Selesai di sisi aplikasi.** Yang tersisa adalah integrasi dengan firmware yang belum ada —
+lihat catatan di puncak dokumen dan §11 protokol.
+
+Empat keputusan Tahap B yang tidak ada di rencana semula, karena baru terlihat saat menulisnya:
+
+- **`flutter_blue_plus` dipatok ke `^1.35.5`, bukan 2.x.** Versi 2 berpindah ke lisensi yang
+  **menuntut pembelian untuk penggunaan komersial**, dan AsaWatch adalah produk yang akan dijual
+  (§10). 1.35.x masih BSD 3-Clause. Bila lisensi komersialnya dibeli, naik ke 2.x hanya menuntut satu
+  argumen `license:` pada `connect()`.
+- **`permission_handler` dipatok ke `^12.0.1`, bukan 13.x.** 13.x menarik
+  `permission_handler_android` 14, yang menuntut `compileSdk 37`; Android Gradle Plugin di proyek ini
+  berhenti di 36 dan build-nya gagal. API yang dipakai `IzinBle` sama persis di kedua versi. Patokan
+  ini boleh dilepas begitu AGP-nya dinaikkan (§9.1).
+- **Id sesi menjadi UUID v4.** Protokol membawa `sesiId` sebagai 16 byte biner (§5.1), dan id lama
+  (`sesi-<mikrodetik>`) tidak muat. Sesi lama di riwayat tetap terbaca; ia hanya tidak pernah
+  dikirim ke jam lagi (`idSesiValid()`).
+- **Kontrak `BleService` berubah satu tempat**, sesuai izin yang tertulis di bawah: stream
+  `selesaiMakanDitekan` kini membawa `waktuTidakPasti` (§4.3 protokol). Tanpa itu, tidak ada jalan
+  bagi lapisan BLE memberitahu bahwa `t0` yang baru saja dikirimnya adalah tebakan.
+  `FakeBleService` dan seluruh test ikut diperbarui di commit yang sama.
+- **Pemindaian disaring ke AsaWatch saja, di level OS.** Rancangan semula menampilkan perangkat BLE
+  lain dengan `didukung: false` sebagai bukti murah bahwa pemindaiannya jalan; penyaringan di level
+  OS menghemat baterai dengan cara yang tidak bisa ditiru penyaringan di Dart. Bukti yang hilang
+  diganti kalimat di halaman pemindaian, dan syarat barunya jatuh ke firmware: service UUID **wajib**
+  ada di paket iklan, bukan scan response (protokol §2.2).
+- **Sesi butuh tenggat.** Sampai Tahap A, satu-satunya jalan sebuah sesi berakhir `tidakLengkap`
+  adalah user menekan "akhiri lebih awal". Dengan jam sungguhan itu tidak cukup: jam yang mati,
+  di-reboot, atau sensornya gagal meninggalkan sesi yang menunggu selamanya.
+  `SesiMakanController.tenggatSampelTerakhir` (30 menit setelah titik +2 jam) yang menutupnya.
+
 ### 4.1 Implementasi
 
-- [ ] Tambah `flutter_blue_plus`.
-- [ ] Buat `lib/services/ble_asli_service.dart` yang mengimplementasi `BleService`.
-      **Jangan ubah kontraknya** — bila terpaksa berubah, perbarui `FakeBleService` dan semua test
-      dalam commit yang sama.
-- [ ] Arahkan `buatControllerBawaan()` di [../lib/main.dart](../lib/main.dart) ke implementasi asli.
-      Pertimbangkan flag `--dart-define=PAKAI_JAM_PALSU=true` supaya demo tanpa hardware tetap bisa.
+- [x] ~~Tambah `flutter_blue_plus`~~ — plus `permission_handler` untuk §4.4.
+- [x] ~~Buat `lib/services/ble_asli_service.dart`~~ — codec protokolnya dipisah ke
+      [../lib/services/protokol_jam.dart](../lib/services/protokol_jam.dart), yang murni byte ↔ Dart
+      dan karena itu **satu-satunya bagian Tahap B yang bisa diuji tuntas tanpa hardware**
+      ([../test/protokol_jam_test.dart](../test/protokol_jam_test.dart), 36 test).
+- [x] ~~Arahkan `buatControllerBawaan()` ke implementasi asli~~ — dengan
+      `--dart-define=PAKAI_JAM_PALSU=true` sebagai jalan kembali ke jam palsu
+      ([../lib/konfigurasi.dart](../lib/konfigurasi.dart)). `FakeBleService` tidak pernah dihapus.
 
 Pemetaan per anggota kontrak:
 
 | Anggota | Catatan implementasi |
 |---|---|
-| `pindai()` | Filter berdasarkan service UUID AsaWatch. **Tetap `StreamController`, bukan `async*`** — membatalkan langganan harus menghentikan scan seketika (alasan asli di CLAUDE.md masih berlaku). Perangkat non-AsaWatch tetap ditampilkan dengan `didukung: false`, sesuai perilaku sekarang. |
+| `pindai()` | Filter service UUID AsaWatch **di level OS** (`startScan(withServices: …)`), demi baterai: iklan perangkat lain tidak pernah membangunkan proses aplikasi. Ini merevisi rencana semula yang menampilkan perangkat non-AsaWatch dengan `didukung: false` — lihat catatan revisi di protokol §2.2, termasuk syarat firmware yang menyertainya. **Tetap `StreamController`, bukan `async*`** — membatalkan langganan harus menghentikan scan seketika. |
 | `sambungkan()` | Simpan `idPerangkat` ke penyimpanan agar bertahan lintas start. Ini yang membuat `StatusPerangkat.namaPerangkat` bisa membedakan "belum pernah dipasangkan" dari "di luar jangkauan" — semantik yang sudah dipakai UI. |
 | `statusPerangkat` | Termasuk level baterai (characteristic Battery Service 0x180F) dan status koneksi. Emit segera saat berubah; `statusTerakhir` harus selalu terisi supaya UI tidak kosong. |
 | `sampelMasuk` | Notify characteristic. Parsing paket biner → `Sampel`. Pengiriman **at-least-once**, jadi duplikat itu normal — dedup `(sesiId, index)` di controller sudah menanganinya, jangan dedup dua kali. |
@@ -221,6 +268,10 @@ Dokumen itu normatif untuk UUID, format paket, sinkronisasi waktu, buffer, kode 
 status firmware — termasuk checklist kesesuaian yang harus dicentang kedua tim sebelum integrasi
 dinyatakan selesai.
 
+Sisi firmware-nya belum dimulai. Pengarahannya — stack (ESP32 + NimBLE), urutan pengerjaan F1–F5,
+dan jebakan yang khusus muncul di ESP32 — ada di [firmware-esp32.md](firmware-esp32.md), dirancang
+untuk disalin ke repo firmware sebagai `CLAUDE.md` bersama [protokol-jam.md](protokol-jam.md).
+
 Dua hal dari protokol yang mengubah rencana di sini:
 
 - **Ack hanya boleh dikirim setelah data tersimpan di DB** (protokol §6), sehingga Tahap A benar-benar
@@ -231,39 +282,58 @@ Dua hal dari protokol yang mengubah rencana di sini:
 
 ### 4.3 Ketahanan
 
-- [ ] Reconnect otomatis dengan backoff.
-- [ ] Perilaku saat koneksi putus **di tengah sesi**: sesi tidak boleh dibatalkan — sampel
-      menyusul lewat buffer. UI perlu menyatakan ini secara eksplisit di
-      [../lib/sesi_berjalan_page.dart](../lib/sesi_berjalan_page.dart).
-- [ ] Perilaku saat sampel tidak pernah datang: sesi berakhir `tidakLengkap` (jalur ini sudah
-      ada, diuji lewat `lewatkan` di `FakeBleService` — pastikan tetap tercapai dengan BLE asli).
-- [ ] Baterai jam habis di tengah sesi. Tanpa RTC, ini berarti sesi tidak bisa dilanjutkan sama
-      sekali (protokol §9): sesi berakhir `tidakLengkap`, dan sampel sebelum reboot tetap masuk dengan
-      waktu yang benar selama boot itu sempat punya anchor.
-- [ ] Sesi dengan flag `waktu_tidak_pasti` (protokol §4.3) ditangani sesuai keputusan UI-nya —
-      dikecualikan dari `sesiHariIni()`, `WaktuMakan`, dan `AnalisisSesi`.
+- [x] ~~Reconnect otomatis dengan backoff~~ — 1s → 2s → … → maks 60s (§8 protokol), ditambah satu
+      sinkronisasi paksa saat aplikasi kembali ke depan (`AppLifecycleState.resumed`).
+- [x] ~~Perilaku saat koneksi putus **di tengah sesi**~~ — sesi tidak disentuh, dan
+      [../lib/sesi_berjalan_page.dart](../lib/sesi_berjalan_page.dart) menyatakannya dengan kalimat
+      sendiri, bukan hanya lencana "Jam terputus". Yang terakhir itu wajar dibaca sebagai sesi gagal,
+      dan pengguna akan membatalkannya sendiri padahal datanya aman.
+- [x] ~~Perilaku saat sampel tidak pernah datang~~ — tenggat di controller (lihat catatan di atas),
+      diuji di [../test/pemulihan_sesi_test.dart](../test/pemulihan_sesi_test.dart).
+- [x] ~~Baterai jam habis di tengah sesi~~ — sampel dengan `boot_id` berbeda dari `t0`-nya dibuang
+      di `BleAsliService` (§5.3), sampel sebelum reboot tetap masuk, dan sesinya berakhir
+      `tidakLengkap` lewat tenggat.
+- [x] ~~Sesi dengan flag `waktu_tidak_pasti`~~ — `SesiMakan.waktuTidakPasti` (kolom, bukan turunan:
+      begitu sesinya berakhir tidak ada lagi jejak untuk menurunkannya). Dikecualikan dari
+      `sesiHariIni()`, `waktuMakan` menjadi null, dan `AnalisisSesi` tidak memasukkannya. Ditampilkan
+      apa adanya dengan penjelasan, bukan dibuang diam-diam.
 
 **Selesai bila:** satu sesi penuh (baseline → t0 → +1 jam → +2 jam) selesai dengan hardware
-sungguhan, termasuk satu kali HP sengaja dimatikan Bluetooth-nya di tengah sesi.
+sungguhan, termasuk satu kali HP sengaja dimatikan Bluetooth-nya di tengah sesi. **Belum tercapai —
+firmware-nya belum ada.** Yang sudah tercapai adalah seluruh butir "Aplikasi" di §11 protokol.
+
+Satu hal yang lahir di sini dan tidak diramalkan rencana: **kotak masuk entri jam**
+([../lib/repositories/entri_jam_repository.dart](../lib/repositories/entri_jam_repository.dart),
+tabel `tabel_entri_jam`, skema v3). Aturan protokol §6 "ack hanya setelah data tersimpan permanen"
+menuntut tempat menyimpan entri **sebelum** ia menjadi bagian sebuah sesi, karena jam menghapus
+miliknya begitu di-ack. Barisnya ditandai selesai di dalam transaksi yang sama dengan penulisan
+sesinya, dan yang tersisa saat aplikasi start diputar ulang seolah jam baru mengirimkannya.
 
 ### 4.4 Izin platform
 
 [../android/app/src/main/AndroidManifest.xml](../android/app/src/main/AndroidManifest.xml) dan
 [../ios/Runner/Info.plist](../ios/Runner/Info.plist) saat ini tidak mendeklarasikan izin apa pun.
 
-- [ ] Android: `BLUETOOTH_SCAN` (dengan `usesPermissionFlags="neverForLocation"` bila tidak
-      memakai lokasi), `BLUETOOTH_CONNECT`, `ACCESS_FINE_LOCATION` (hanya `maxSdkVersion="30"`),
-      `CAMERA`, `INTERNET`, `POST_NOTIFICATIONS`, dan `FOREGROUND_SERVICE` +
-      `FOREGROUND_SERVICE_CONNECTED_DEVICE` bila §7.1 dipakai.
-- [ ] iOS: `NSBluetoothAlwaysUsageDescription`, `NSCameraUsageDescription`,
-      `NSPhotoLibraryAddUsageDescription`, dan `UIBackgroundModes: [bluetooth-central]`.
-      Teks alasan ditulis dalam Bahasa Indonesia dan menjelaskan manfaat ke pengguna — App Review
-      menolak alasan generik.
-- [ ] Naikkan `minSdkVersion` ke 21+ (26+ bila ingin API BLE modern tanpa cabang).
-- [ ] Tambah `permission_handler` dan minta izin **di titik yang masuk akal** — saat menekan
-      "Pindai Perangkat", bukan saat app dibuka.
-- [ ] Tangani izin **ditolak permanen**: tampilkan jalan keluar ke Pengaturan sistem, jangan
-      menampilkan layar pemindaian yang tidak akan pernah menemukan apa pun.
+- [x] ~~Android: `BLUETOOTH_SCAN` (`neverForLocation`), `BLUETOOTH_CONNECT`, `ACCESS_FINE_LOCATION`
+      (`maxSdkVersion="30"`)~~ — plus `uses-feature bluetooth_le required="true"`, supaya Play Store
+      menyembunyikan aplikasi ini dari perangkat yang tidak punya BLE alih-alih membiarkannya
+      terpasang lalu gagal. `CAMERA` menyusul di Tahap C; `POST_NOTIFICATIONS` dan
+      `FOREGROUND_SERVICE*` di Tahap E; `INTERNET` di Tahap C/D, dan sampai saat itu ketiadaannya
+      adalah fitur, bukan kelalaian.
+- [x] ~~iOS: `NSBluetoothAlwaysUsageDescription` dan `UIBackgroundModes: [bluetooth-central]`~~ —
+      ditambah `NSBluetoothPeripheralUsageDescription` untuk iOS 12 ke bawah. Alasannya ditulis dalam
+      Bahasa Indonesia dan menyebut manfaatnya. Izin kamera menyusul di Tahap C.
+- [x] ~~Naikkan `minSdkVersion`~~ — ternyata tidak perlu dinaikkan: bawaan Flutter sudah **24**,
+      di atas 23 tempat izin runtime mulai ada. Menuliskannya sebagai angka justru berbahaya —
+      `flutter build` menjalankan migrasi yang menulis ulang baris itu kembali ke
+      `flutter.minSdkVersion` pada setiap build, jadi angka yang ditulis tangan hilang diam-diam.
+- [x] ~~Tambah `permission_handler` dan minta izin di titik yang masuk akal~~ —
+      [../lib/services/izin_ble.dart](../lib/services/izin_ble.dart), dipanggil dari
+      `PemindaianPerangkatPage` saat pemindaian benar-benar akan dimulai.
+- [x] ~~Tangani izin ditolak permanen~~ — tiga jalan buntu dibedakan (ditolak sekali, ditolak
+      permanen, Bluetooth mati), masing-masing dengan kalimat dan tombolnya sendiri. Yang permanen
+      menawarkan Pengaturan; dua lainnya menawarkan "Coba Lagi", karena tombol Pengaturan di kasus
+      itu justru menyesatkan.
 
 ---
 
@@ -306,6 +376,9 @@ dan mematikan jaringan menghasilkan pesan yang jelas, bukan spinner selamanya.
 
 ## 6. Tahap D — Akun dan backend
 
+> Bentuk backend-nya dirancang di [rancangan-api-laravel.md](rancangan-api-laravel.md) —
+> Laravel + Sanctum, mencakup §5.2 (proxy analisis nutrisi) sekaligus bagian ini.
+
 [../lib/login_page.dart](../lib/login_page.dart) dan [../lib/register_page.dart](../lib/register_page.dart)
 hanya menjalankan `validate()` lalu navigasi.
 
@@ -328,10 +401,12 @@ Sesi berlangsung ~2 jam. Pengguna pasti akan meninggalkan aplikasi.
 
 - [ ] Android: foreground service selama ada sesi aktif (`flutter_foreground_task`), dengan
       notifikasi persisten yang menampilkan hitung mundur ke sampel berikutnya.
-- [ ] iOS: tidak bisa menjaga proses hidup — andalkan buffer jam + `sinkronkan()` pada
-      `AppLifecycleState.resumed`. Ini membuat K3 menjadi persyaratan firmware, bukan preferensi.
-- [ ] Uji app di-kill paksa di tengah sesi: sesi harus dipulihkan dari DB (§3.1) saat dibuka lagi,
-      dengan jadwal dihitung ulang dari `t0` absolut — bukan dari sisa waktu.
+- [x] ~~iOS: andalkan buffer jam + `sinkronkan()` pada `AppLifecycleState.resumed`~~ — sudah
+      terpasang di Tahap B (`BleAsliService.kembaliKeDepan()`, dipanggil dari `MyApp`). Ini membuat
+      K3 menjadi persyaratan firmware, bukan preferensi.
+- [x] ~~Uji app di-kill paksa di tengah sesi~~ — dipulihkan dari DB dengan jadwal dihitung ulang dari
+      `t0` absolut, diuji di [../test/pemulihan_sesi_test.dart](../test/pemulihan_sesi_test.dart).
+      Yang tersisa di sini murni Android: foreground service.
 
 ### 7.2 Notifikasi
 
@@ -415,8 +490,8 @@ smartwatch non-invasif.
 
 | Tahap | Isi | Blokir | Boleh paralel dengan |
 |---|---|---|---|
-| A | Persistensi lokal (§3) | — | §10 (konsultasi regulasi), K1–K6 |
-| B | BLE sungguhan + izin (§4) | A | — |
+| ✅ A | Persistensi lokal (§3) | — | §10 (konsultasi regulasi), K1–K6 |
+| ✅ B | BLE sungguhan + izin (§4) | A | — |
 | C | Kamera + analisis nutrisi (§5) | A | B |
 | D | Akun & backend (§6) | A | B, C |
 | E | Latar belakang & notifikasi (§7) | B | D |

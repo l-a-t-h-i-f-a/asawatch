@@ -137,6 +137,7 @@ class SesiMakan {
     required this.sampel,
     this.t0,
     this.hasil,
+    this.waktuTidakPasti = false,
   });
 
   final String id;
@@ -147,11 +148,23 @@ class SesiMakan {
   final HasilDeteksi? hasil; // null bila analisis nutrisi belum selesai
   final List<Sampel> sampel; // selalu 4 elemen, index 0..3
 
+  /// Waktu sesi ini tidak diketahui dan tidak akan pernah diketahui
+  /// (docs/protokol-jam.md §4.3): jam menjalani satu boot penuh tanpa sekali pun
+  /// tersambung, jadi tidak ada anchor yang bisa menerjemahkan `uptime_s`-nya.
+  ///
+  /// Sesi seperti ini **tidak dibuang** — datanya nyata, bentuk kurvanya benar,
+  /// dan membuangnya diam-diam lebih buruk daripada menampilkannya apa adanya.
+  /// Yang dilarang adalah memperlakukan jamnya seolah benar: ia tidak ikut
+  /// [SesiMakanController.sesiHariIni], tidak punya [waktuMakan], dan tidak
+  /// masuk `AnalisisSesi`.
+  final bool waktuTidakPasti;
+
   SesiMakan salin({
     DateTime? t0,
     StatusSesi? status,
     HasilDeteksi? hasil,
     List<Sampel>? sampel,
+    bool? waktuTidakPasti,
   }) {
     return SesiMakan(
       id: id,
@@ -161,6 +174,7 @@ class SesiMakan {
       status: status ?? this.status,
       hasil: hasil ?? this.hasil,
       sampel: sampel ?? this.sampel,
+      waktuTidakPasti: waktuTidakPasti ?? this.waktuTidakPasti,
     );
   }
 
@@ -231,13 +245,23 @@ class SesiMakan {
 
   /// Waktu makan diturunkan dari jam t0 (jam foto bila t0 belum ada), bukan
   /// dipilih user — satu sesi tidak pernah perlu ditandai manual.
-  WaktuMakan get waktuMakan {
+  ///
+  /// null bila [waktuTidakPasti]: menyebut sesi yang jamnya tidak diketahui
+  /// sebagai "Sarapan" adalah menebak, dan tebakan itu akan terlihat persis
+  /// seperti fakta (protokol §4.3).
+  WaktuMakan? get waktuMakan {
+    if (waktuTidakPasti) return null;
     final jam = (t0 ?? waktuFoto).hour;
     if (jam >= 5 && jam < 11) return WaktuMakan.sarapan;
     if (jam >= 11 && jam < 15) return WaktuMakan.makanSiang;
     if (jam >= 17 && jam < 22) return WaktuMakan.makanMalam;
     return WaktuMakan.camilan;
   }
+
+  /// Label waktu makan yang selalu bisa ditampilkan, termasuk saat jamnya tidak
+  /// diketahui. Dipakai seluruh kartu sesi supaya tidak ada satu pun tempat yang
+  /// harus mengarang teks pengganti sendiri.
+  String get labelWaktuMakan => waktuMakan?.label ?? 'Waktu tidak pasti';
 
   /// Indikator respons untuk daftar Riwayat. Sesi yang datanya belum cukup
   /// dinyatakan `belumLengkap`, bukan dipaksa masuk salah satu kategori.

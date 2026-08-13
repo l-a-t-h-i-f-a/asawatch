@@ -70,17 +70,162 @@ void main() {
       expect(sesi.sampel[3].detikRelatifT0, 7200);
     });
 
+    test('ARM_SESI dikirim sebelum permintaan baseline', () async {
+      // Jam hanya melayani UKUR index 0 dalam status ARMED (§9). Permintaan
+      // baseline yang mendahului ARM ditolak diam-diam, dan akibatnya baru
+      // terlihat dua jam kemudian: ketiga titik lain masuk dengan benar, lalu
+      // sesinya menggantung menunggu baseline yang tidak akan pernah datang.
+      final ble = _BleUrutanPerintah();
+      final c = buatController(ble: ble);
+      addTearDown(c.dispose);
+
+      await c.mulaiDraft(contohFotoPath);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(ble.urutan, ['arm', 'ukur-0']);
+    });
+
+    test('baseline yang ditolak jam ditandai terlewat seketika', () async {
+      // Jam yang terputus menolak `UKUR` (§9), dan pengukuran itu tidak akan
+      // pernah datang. Menampilkannya sebagai "menunggu data" selama dua jam
+      // menjanjikan sesuatu yang sudah pasti tidak ada — dan menahan sesi tetap
+      // berjalan setengah jam setelah titik terakhir.
+      final ble = FakeBleService(
+        percepatan: 3600,
+        otomatisSelesaiMakan: null,
+        status: const StatusPerangkat(tersambung: false),
+      );
+      final c = buatController(ble: ble);
+      addTearDown(c.dispose);
+
+      await c.mulaiDraft(contohFotoPath);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(c.sesiAktif!.sampel[0].status, StatusSampel.terlewat);
+    });
+
+    test('baseline yang diterima jam tetap menunggu datanya', () async {
+      // Penjaga untuk perbaikan di atas: "ditolak" dan "belum datang" adalah dua
+      // hal berbeda, dan menandai keduanya terlewat akan membuang baseline yang
+      // sebenarnya sedang diukur.
+      final c = buatController();
+      addTearDown(c.dispose);
+
+      await c.mulaiDraft(contohFotoPath);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(c.sesiAktif!.sampel[0].status, StatusSampel.menunggu);
+
+      await c.batalkan();
+    });
+
+    test('notifikasi status berulang tidak memicu ARM_SESI berulang', () async {
+      // Jam sungguhan mengirim notifikasi Status setiap kali keadaannya
+      // berubah — termasuk saat ia berpindah ke ARMED karena ARM_SESI yang baru
+      // saja dikirim aplikasi. Menyiapkan jam pada setiap status berarti
+      // status → ARM_SESI → status → ARM_SESI → … selamanya, dengan radio
+      // menulis terus-menerus. Itu benar-benar terjadi di perangkat.
+      final ble = _BleHitungArm();
+      final c = buatController(ble: ble);
+      addTearDown(c.dispose);
+
+      await c.mulaiDraft(contohFotoPath);
+      await Future<void>.delayed(Duration.zero);
+      expect(ble.jumlahArm, 1);
+
+      // Sepuluh notifikasi status berturut-turut, seperti jam yang sibuk.
+      for (var i = 0; i < 10; i++) {
+        ble.perbaruiStatus(
+          StatusPerangkat(
+            tersambung: true,
+            baterai: 70 - i,
+            namaPerangkat: 'AsaWatch X1',
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      expect(ble.jumlahArm, 1);
+    });
+
+    test('jam yang tersambung kembali disiapkan ulang', () async {
+      // Penjaga di atas tidak boleh berubah menjadi "hanya sekali seumur sesi":
+      // jam yang sempat mati atau ARM-nya kedaluwarsa (4 jam, §5.1) harus
+      // di-ARM lagi begitu tersambung kembali.
+      final ble = _BleHitungArm();
+      final c = buatController(ble: ble);
+      addTearDown(c.dispose);
+
+      await c.mulaiDraft(contohFotoPath);
+      await Future<void>.delayed(Duration.zero);
+      expect(ble.jumlahArm, 1);
+
+      ble.perbaruiStatus(
+        const StatusPerangkat(tersambung: false, namaPerangkat: 'AsaWatch X1'),
+      );
+      await Future<void>.delayed(Duration.zero);
+      ble.perbaruiStatus(
+        const StatusPerangkat(tersambung: true, namaPerangkat: 'AsaWatch X1'),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(ble.jumlahArm, 2);
+    });
+
     test('t0 memakai waktu jam, bukan waktu HP saat pesannya sampai', () async {
       // Tombol bisa ditekan saat HP tidak tersambung; pesannya baru sampai
       // belakangan. Menghitung ulang t0 di HP akan menggeser seluruh jadwal.
       final c = buatController();
       addTearDown(c.dispose);
 
-      final ditekanPukul = DateTime.now().subtract(const Duration(hours: 3));
+      final ditekanPukul = DateTime.now().subtract(const Duration(hours: 1));
       await c.mulaiDraft(contohFotoPath);
       await tekanTombolJam(c, waktu: ditekanPukul);
 
       expect(c.sesiAktif!.t0, ditekanPukul);
+    });
+
+    test('t0 yang sudah lewat tenggat langsung ditutup tidak lengkap', () async {
+      // Jam mati, sensornya gagal, atau tombolnya ditekan lalu jamnya tidak
+      // pernah tersambung lagi: sampelnya tidak akan datang, dan tidak ada
+      // seorang pun yang akan menutup sesinya (§4.3 rencana produksi).
+      final c = buatController();
+      addTearDown(c.dispose);
+
+      await c.mulaiDraft(contohFotoPath);
+      await tekanTombolJam(
+        c,
+        waktu: DateTime.now().subtract(const Duration(hours: 5)),
+      );
+      await Future<void>.delayed(Duration.zero); // tenggat lewat microtask
+
+      expect(c.sesiAktif, isNull);
+      final sesi = c.sesiTerakhir!;
+      expect(sesi.status, StatusSesi.tidakLengkap);
+      expect(sesi.sampel[3].status, StatusSampel.terlewat);
+    });
+
+    test('sesi berwaktu tidak pasti tidak ikut hitungan berbasis kalender',
+        () async {
+      // Protokol §4.3: satu boot penuh tanpa pernah tersambung. Datanya nyata,
+      // jamnya tidak — jadi ia tidak boleh punya WaktuMakan, tidak masuk
+      // "hari ini", dan tidak ikut tren.
+      final c = buatController();
+      addTearDown(c.dispose);
+
+      await c.mulaiDraft(contohFotoPath);
+      (c.ble as FakeBleService).tekanSelesaiMakan(waktuTidakPasti: true);
+      await Future<void>.delayed(Duration.zero);
+
+      final sesi = c.sesiAktif!;
+      expect(sesi.waktuTidakPasti, isTrue);
+      expect(sesi.waktuMakan, isNull);
+      expect(sesi.labelWaktuMakan, 'Waktu tidak pasti');
+      expect(c.sesiHariIni(), isEmpty);
+
+      await c.akhiriLebihAwal();
+      expect(c.sesiTerakhir!.waktuTidakPasti, isTrue);
+      expect(c.sesiHariIni(), isEmpty);
     });
 
     test('jam terputus: sesi menunggu perangkat dan tombolnya belum menyala', () async {
@@ -251,4 +396,49 @@ class _BleTerkendali extends FakeBleService {
   _BleTerkendali() : super(percepatan: 3600, lewatkan: const {0, 1, 2, 3});
 
   void kirim(String sesiId, Sampel sampel) => kirimSampel(sesiId, sampel);
+}
+
+/// Jam palsu yang menghitung berapa kali tombolnya disiapkan.
+///
+/// Menghitung `ARM_SESI` adalah satu-satunya cara menangkap umpan balik
+/// status → ARM → status dari sisi test: gejalanya di perangkat adalah radio
+/// yang menulis tanpa henti, dan itu tidak punya wujud lain di dalam proses.
+class _BleHitungArm extends FakeBleService {
+  _BleHitungArm() : super(percepatan: 3600, otomatisSelesaiMakan: null);
+
+  /// Hanya yang **berhasil** dihitung. Penyiapan saat jam terputus ditolak
+  /// sebelum menyentuh radio (`siapkanSesi` mengembalikan false lebih dulu),
+  /// jadi ia bukan bagian dari lalu lintas yang sedang dijaga di sini — dan
+  /// menghitungnya akan membuat test ini mengunci detail yang tidak penting.
+  int jumlahArm = 0;
+
+  @override
+  Future<bool> siapkanSesi(String sesiId) async {
+    final berhasil = await super.siapkanSesi(sesiId);
+    if (berhasil) jumlahArm++;
+    return berhasil;
+  }
+}
+
+/// Jam palsu yang mencatat urutan perintah yang diterimanya.
+///
+/// Urutan adalah satu-satunya hal yang salah pada bug ini — kedua perintahnya
+/// terkirim, hanya saja yang satu terlalu cepat. Test yang cuma memeriksa
+/// "keduanya dipanggil" akan tetap hijau sementara baseline tetap hilang.
+class _BleUrutanPerintah extends FakeBleService {
+  _BleUrutanPerintah() : super(percepatan: 3600, otomatisSelesaiMakan: null);
+
+  final List<String> urutan = [];
+
+  @override
+  Future<bool> siapkanSesi(String sesiId) {
+    urutan.add('arm');
+    return super.siapkanSesi(sesiId);
+  }
+
+  @override
+  Future<bool> mintaUkur(String sesiId, int index) {
+    urutan.add('ukur-$index');
+    return super.mintaUkur(sesiId, index);
+  }
 }

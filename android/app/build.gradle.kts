@@ -19,6 +19,14 @@ android {
         applicationId = "com.example.asawatch"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
+        // Dibiarkan mengikuti Flutter, yang saat ini memberi **24** — sudah di
+        // atas 23, batas tempat izin runtime mulai ada, dan seluruh alur
+        // pemasangan jam bergantung pada izin runtime (rencana-produksi.md §4.4).
+        //
+        // Jangan menuliskannya sebagai angka di sini: `flutter build` menjalankan
+        // migrasi "Upgrading build.gradle.kts" yang menulis ulang baris ini
+        // menjadi `flutter.minSdkVersion` setiap kali. Angka yang ditulis tangan
+        // akan hilang diam-diam pada build berikutnya.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

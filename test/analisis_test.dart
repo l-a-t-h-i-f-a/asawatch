@@ -42,6 +42,21 @@ void main() {
       expect(a.sesi.length, 6);
     });
 
+    test('sesi berwaktu tidak pasti tidak ikut dianalisis', () {
+      // docs/protokol-jam.md §4.3. Bentuk kurvanya benar, tetapi seluruh isi
+      // AnalisisSesi adalah pertanyaan "membaik atau tidak" — dan itu pertanyaan
+      // tentang urutan waktu. Sesi yang posisinya di kalender tidak diketahui
+      // akan menyisip di tempat yang salah.
+      final riwayat = contohRiwayatSesi();
+      final a = AnalisisSesi([
+        ...riwayat,
+        riwayat.first.salin(waktuTidakPasti: true),
+      ]);
+
+      expect(a.sesi.length, riwayat.length);
+      expect(a.titikSebaran.length, AnalisisSesi(riwayat).titikSebaran.length);
+    });
+
     test('tren naik dan korelasinya kuat pada data contoh', () {
       final tren = AnalisisSesi(contohRiwayatSesi()).tren!;
 

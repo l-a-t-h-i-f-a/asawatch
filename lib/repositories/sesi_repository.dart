@@ -18,13 +18,21 @@ abstract class SesiRepository {
   /// memuat" demi pembacaan yang berlangsung milidetik.
   Future<List<SesiMakan>> muatSemua();
 
-  /// Menyimpan satu sesi yang sudah berakhir.
+  /// Menyimpan satu sesi, berakhir maupun **masih berjalan** (Tahap B).
   ///
-  /// Dipanggil tepat sekali per sesi, saat sesi masuk riwayat. Sesi yang masih
-  /// aktif belum ikut disimpan — pemulihan sesi berjalan setelah aplikasi
-  /// ditutup adalah pekerjaan tersendiri (rencana-produksi.md §7.1), bukan
-  /// bagian dari seam ini.
+  /// Dipanggil berkali-kali seumur sesi: saat draft dibuat, saat jam mengirim
+  /// t0, dan pada tiap sampel yang masuk. Sesi yang sudah ada ditimpa. Itulah
+  /// yang membuat aplikasi boleh mati di tengah sesi tanpa kehilangan apa pun,
+  /// dan yang menutup lingkaran ack protokol §6.
   Future<void> simpan(SesiMakan sesi);
+
+  /// Menghapus satu sesi berikut seluruh anaknya.
+  ///
+  /// Hanya untuk sesi yang **dibatalkan user**: ia sudah pernah ditulis sebagai
+  /// draft, dan sesi yang tidak jadi dijalani tidak boleh muncul kembali sebagai
+  /// sesi aktif saat aplikasi dibuka lagi. Riwayat tidak pernah dihapus dari
+  /// sini.
+  Future<void> hapus(String sesiId);
 }
 
 /// Riwayat yang hidup di memori saja.
@@ -51,5 +59,10 @@ class SesiRepositoryMemori implements SesiRepository {
     } else {
       _riwayat.insert(0, sesi);
     }
+  }
+
+  @override
+  Future<void> hapus(String sesiId) async {
+    _riwayat.removeWhere((s) => s.id == sesiId);
   }
 }

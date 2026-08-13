@@ -284,7 +284,7 @@ class JudulSesi extends StatelessWidget {
             const SizedBox(width: 6),
             Expanded(
               child: Text(
-                '${sesi.waktuMakan.label} · '
+                '${sesi.labelWaktuMakan} · '
                 '${sesi.hasil?.ringkasanNama ?? 'Makanan'}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,

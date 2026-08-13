@@ -13,7 +13,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:asawatch/models/anchor_waktu.dart';
 import 'package:asawatch/models/contoh_sesi.dart';
 import 'package:asawatch/repositories/anchor_repository.dart';
+import 'package:asawatch/models/sesi_makan.dart';
 import 'package:asawatch/repositories/basis_data.dart';
+import 'package:asawatch/repositories/kalibrasi_repository.dart';
 import 'package:asawatch/repositories/sesi_repository_drift.dart';
 
 void main() {
@@ -133,38 +135,88 @@ void main() {
     });
   });
 
-  group('Migrasi skema v1 → v2', () {
-    test('basis data v1 naik ke v2 tanpa kehilangan sesi', () async {
-      // Perangkat yang sudah memakai skema v1 (Tahap A2) harus bisa dibuka oleh
-      // aplikasi v2. Jalur `onUpgrade` yang tidak pernah dijalankan satu test
-      // pun adalah jalur yang akan patah di perangkat pengguna.
-      final dir = await Directory.systemTemp.createTemp('asawatch_migrasi');
-      addTearDown(() => dir.delete(recursive: true));
+  group('Migrasi skema', () {
+    // Jalur `onUpgrade` yang tidak pernah dijalankan satu test pun adalah jalur
+    // yang akan patah di perangkat pengguna — dan ia baru patah setelah aplikasi
+    // terpasang, saat data yang hilang adalah data sungguhan.
+    //
+    // Basis data versi lama dibuat dengan cara **menurunkan** yang sekarang:
+    // tabel dan kolom yang lahir belakangan dibuang, lalu `user_version`
+    // dikembalikan. Itu memakai satu asumsi yang layak disebut: turunan itu
+    // harus benar-benar menyerupai skema lamanya.
+
+    late Directory dir;
+
+    setUp(() async {
+      dir = await Directory.systemTemp.createTemp('asawatch_migrasi');
+    });
+
+    tearDown(() => dir.delete(recursive: true));
+
+    Future<File> siapkanBerkasVersi(int versi, SesiMakan sesi) async {
       final berkas = File('${dir.path}/sesi.sqlite');
+      final db = BasisData(NativeDatabase(berkas));
+      await SesiRepositoryDrift(db).simpan(sesi);
 
-      // Membuat basis data v1 dengan cara menurunkan yang v2: tabel anchor
-      // dibuang dan penanda versinya dikembalikan ke 1.
+      if (versi < 3) {
+        await db.customStatement('DROP TABLE tabel_entri_jam');
+        await db.customStatement('DROP TABLE tabel_kalibrasi');
+        await db.customStatement(
+          'ALTER TABLE tabel_sesi DROP COLUMN waktu_tidak_pasti',
+        );
+      }
+      if (versi < 2) {
+        await db.customStatement('DROP TABLE tabel_anchor_waktu');
+      }
+      await db.customStatement('PRAGMA user_version = $versi');
+      await db.close();
+      return berkas;
+    }
+
+    test('basis data v1 naik ke v3 tanpa kehilangan sesi', () async {
       final sesi = contohRiwayatSesi().first;
-      final dbV1 = BasisData(NativeDatabase(berkas));
-      await SesiRepositoryDrift(dbV1).simpan(sesi);
-      await dbV1.customStatement('DROP TABLE tabel_anchor_waktu');
-      await dbV1.customStatement('PRAGMA user_version = 1');
-      await dbV1.close();
+      final berkas = await siapkanBerkasVersi(1, sesi);
 
-      // Membuka dengan skema v2 harus menjalankan migrasinya.
-      final dbV2 = BasisData(NativeDatabase(berkas));
-      addTearDown(dbV2.close);
+      final db = BasisData(NativeDatabase(berkas));
+      addTearDown(db.close);
 
-      final anchor = AnchorRepositoryDrift(dbV2);
+      // Kedua langkah migrasi harus benar-benar berjalan berurutan, bukan
+      // dilompati: pemasangan yang lama tidak dibuka melewati beberapa versi
+      // sekaligus.
+      final anchor = AnchorRepositoryDrift(db);
       await anchor.simpan(
         AnchorWaktu(bootId: 1, uptimeS: 10, epoch: DateTime(2026, 8, 10, 8)),
       );
-
       expect((await anchor.terbaruUntuk(1))!.uptimeS, 10);
-      // Dan sesi yang sudah ada sebelum migrasi tetap utuh.
-      final riwayat = await SesiRepositoryDrift(dbV2).muatSemua();
+
+      final riwayat = await SesiRepositoryDrift(db).muatSemua();
       expect(riwayat.single.id, sesi.id);
       expect(riwayat.single.puncakGulaDarah, sesi.puncakGulaDarah);
+      // Kolom yang lahir di v3 punya nilai bawaan yang benar untuk baris lama:
+      // sesi yang direkam sebelum Tahap B jelas bukan sesi berwaktu tidak pasti.
+      expect(riwayat.single.waktuTidakPasti, isFalse);
+    });
+
+    test('basis data v2 naik ke v3 dan bisa menyimpan kalibrasi', () async {
+      final sesi = contohRiwayatSesi().first;
+      final berkas = await siapkanBerkasVersi(2, sesi);
+
+      final db = BasisData(NativeDatabase(berkas));
+      addTearDown(db.close);
+
+      final kalibrasi = KalibrasiRepositoryDrift(db);
+      await kalibrasi.simpan(
+        Kalibrasi(
+          waktu: DateTime(2026, 8, 11, 9),
+          sistolikReferensi: 120,
+          diastolikReferensi: 80,
+          sistolikJam: 127,
+          diastolikJam: 84,
+        ),
+      );
+
+      expect((await kalibrasi.terbaru())!.offsetSistolik, -7);
+      expect((await SesiRepositoryDrift(db).muatSemua()).single.id, sesi.id);
     });
   });
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'
     show LicenseEntryWithLineBreaks, LicenseRegistry;
@@ -16,8 +18,14 @@ import 'package:asawatch/sesi_berjalan_page.dart';
 import 'package:asawatch/controllers/sesi_makan_controller.dart';
 import 'package:asawatch/models/sesi_makan.dart';
 import 'package:drift_flutter/drift_flutter.dart';
+import 'package:asawatch/konfigurasi.dart';
+import 'package:asawatch/repositories/anchor_repository.dart';
 import 'package:asawatch/repositories/basis_data.dart';
+import 'package:asawatch/repositories/entri_jam_repository.dart';
+import 'package:asawatch/repositories/kalibrasi_repository.dart';
+import 'package:asawatch/repositories/perangkat_repository.dart';
 import 'package:asawatch/repositories/sesi_repository_drift.dart';
+import 'package:asawatch/services/ble_asli_service.dart';
 import 'package:asawatch/services/ble_service.dart';
 import 'package:asawatch/services/nutrisi_service.dart';
 
@@ -46,21 +54,51 @@ Future<void> main() async {
   }
 }
 
-/// Selama Fase UI, jam dan analisis nutrisi dijalankan implementasi palsu
-/// (§12.5). `percepatan: 360` memampatkan jeda 1 jam menjadi 10 detik supaya
-/// siklus sesi bisa dilihat utuh tanpa menunggu dua jam.
+/// Merakit seluruh aplikasi: basis data, repository, jam, dan controller.
+///
+/// **Jam sungguhan adalah bawaannya sejak Tahap B.** Jam palsu tetap ada dan
+/// tidak akan pernah dihapus (§11 aturan 4), tetapi ia sekarang harus diminta:
+///
+/// ```bash
+/// flutter run --dart-define=PAKAI_JAM_PALSU=true
+/// ```
+///
+/// `percepatan: 360` pada jam palsu memampatkan jeda 1 jam menjadi 10 detik,
+/// supaya siklus sesi bisa dilihat utuh tanpa menunggu dua jam.
 ///
 /// Riwayat dimuat di sini, sebelum `runApp`, bukan di dalam controller — lihat
 /// `SesiRepository.muatSemua()`. Pembacaannya berlangsung milidetik, jadi tidak
-/// ada layar "sedang memuat" yang perlu dibayar seluruh permukaan sesi.
+/// ada layar "sedang memuat" yang perlu dibayar seluruh permukaan sesi. Yang
+/// **tidak** ditunggu di sini adalah radio BLE: `BleAsliService.mulai()` berjalan
+/// di belakang, karena menunggu jam tersambung berarti layar putih beberapa
+/// detik setiap kali aplikasi dibuka.
 Future<SesiMakanController> buatControllerBawaan() async {
-  final repo = SesiRepositoryDrift(BasisData(driftDatabase(name: 'asawatch')));
+  final db = BasisData(driftDatabase(name: 'asawatch'));
+  final repo = SesiRepositoryDrift(db);
+  final repoKalibrasi = KalibrasiRepositoryDrift(db);
+
+  final BleService ble;
+  if (pakaiJamPalsu) {
+    ble = FakeBleService();
+  } else {
+    final asli = BleAsliService(
+      anchorRepo: AnchorRepositoryDrift(db),
+      entriRepo: EntriJamRepositoryDrift(db),
+      perangkatRepo: PerangkatRepositoryPrefs(),
+    );
+    unawaited(asli.mulai());
+    ble = asli;
+  }
 
   return SesiMakanController(
-    ble: FakeBleService(),
+    ble: ble,
     nutrisi: const FakeNutrisiService(),
+    // Termasuk sesi yang masih berjalan: controller memisahkannya sendiri, dan
+    // jadwalnya dihitung ulang dari t0 absolut (Tahap B).
     riwayatAwal: await repo.muatSemua(),
     repo: repo,
+    repoKalibrasi: repoKalibrasi,
+    kalibrasiAwal: await repoKalibrasi.terbaru(),
   );
 }
 
@@ -135,12 +173,43 @@ class AplikasiGagalMulai extends StatelessWidget {
   }
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key, required this.controller});
 
   /// Dirakit di `main()` — dan di test, agar `FakeBleService` bisa
   /// dikendalikan (§11). Dimiliki pemanggil, bukan widget ini.
   final SesiMakanController controller;
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+/// Stateful hanya demi satu hal: mendengarkan daur hidup aplikasi.
+///
+/// Sesi berlangsung ~2 jam dan pengguna pasti meninggalkan aplikasi. Di iOS
+/// prosesnya bahkan tidak akan hidup selama itu, jadi menarik buffer jam saat
+/// aplikasi kembali ke depan bukan penyempurnaan — itulah satu-satunya jalan
+/// sampel yang terkumpul selama itu masuk (docs/protokol-jam.md §6,
+/// rencana-produksi.md §7.1).
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState keadaan) {
+    if (keadaan != AppLifecycleState.resumed) return;
+    final ble = widget.controller.ble;
+    if (ble is BleAsliService) unawaited(ble.kembaliKeDepan());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -172,7 +241,7 @@ class MyApp extends StatelessWidget {
     // Satu ChangeNotifierProvider di atas MaterialApp (§12.6). Controller
     // dimiliki pemanggil — `main()` atau test — jadi dipasang lewat .value agar
     // tidak ikut di-dispose di sini.
-    return ChangeNotifierProvider.value(value: controller, child: app);
+    return ChangeNotifierProvider.value(value: widget.controller, child: app);
   }
 }
 

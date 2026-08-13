@@ -21,22 +21,30 @@ class PetunjukTombolJam extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Tiga keadaan, bukan dua. Kalau tombol jamnya sudah ditekan, sesi sudah
+    // berjalan — mengulang "jam belum tersambung" di sana adalah kebohongan:
+    // sinyalnya justru baru saja sampai, dan sampel sedang ditulis.
+    final sudahMulai = status != StatusSesi.draft &&
+        status != StatusSesi.menungguPerangkat;
     final siap = status == StatusSesi.draft && perangkat.tersambung;
+    final hijau = siap || sudahMulai;
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: siap ? const Color(0xFFE2F6F0) : const Color(0xFFE2EBE8),
+        color: hijau ? const Color(0xFFE2F6F0) : const Color(0xFFE2EBE8),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
-            siap ? Icons.watch_rounded : Icons.watch_off_rounded,
+            sudahMulai
+                ? Icons.check_circle_rounded
+                : (siap ? Icons.watch_rounded : Icons.watch_off_rounded),
             size: 18,
-            color: siap ? const Color(0xFF0EAD69) : const Color(0xFF6B807B),
+            color: hijau ? const Color(0xFF0EAD69) : const Color(0xFF6B807B),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -44,24 +52,30 @@ class PetunjukTombolJam extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  siap
-                      ? 'Tekan tombol Selesai Makan di jam'
-                      : 'Jam belum tersambung',
+                  sudahMulai
+                      ? 'Tombol jam sudah ditekan'
+                      : (siap
+                            ? 'Tekan tombol Selesai Makan di jam'
+                            : 'Jam belum tersambung'),
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
-                    color: siap
+                    color: hijau
                         ? const Color(0xFF0EAD69)
                         : const Color(0xFF6B807B),
                   ),
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  siap
-                      ? 'Sesi dimulai begitu tombolnya ditekan, memakai waktu '
-                            'jam — bukan waktu HP.'
-                      : 'Tombol Selesai Makan di jam baru menyala setelah jam '
-                            'tersambung. Fotonya tetap tersimpan.',
+                  sudahMulai
+                      ? 'Sesi sudah berjalan memakai waktu jam. Pantau '
+                            'perkembangannya di layar Sesi Berjalan.'
+                      : (siap
+                            ? 'Sesi dimulai begitu tombolnya ditekan, memakai '
+                                  'waktu jam — bukan waktu HP.'
+                            : 'Tombol Selesai Makan di jam baru menyala '
+                                  'setelah jam tersambung. Fotonya tetap '
+                                  'tersimpan.'),
                   style: const TextStyle(
                     fontSize: 11,
                     color: Color(0xFF6B807B),

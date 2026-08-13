@@ -230,7 +230,7 @@ class _KartuHasil extends StatelessWidget {
                                 ? formatTanggal(sesi.waktuFoto)
                                 : '${formatJam(t0)} · '
                                       '${formatWaktuRelatif(t0)} · '
-                                      '${sesi.waktuMakan.label}',
+                                      '${sesi.labelWaktuMakan}',
                             style: const TextStyle(
                               fontSize: 11,
                               color: Color(0xFF6B807B),

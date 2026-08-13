@@ -67,6 +67,7 @@ class SesiRepositoryDrift implements SesiRepository {
           waktuFoto: _keWaktu(s.waktuFoto),
           t0: s.t0 == null ? null : _keWaktu(s.t0!),
           status: s.status,
+          waktuTidakPasti: s.waktuTidakPasti,
           sampel: _rakitSampel(sampelPerSesi[s.id] ?? const []),
           hasil: _rakitHasil(
             hasilPerSesi[s.id],
@@ -90,6 +91,7 @@ class SesiRepositoryDrift implements SesiRepository {
               waktuFoto: _keEpoch(sesi.waktuFoto),
               t0: Value(sesi.t0 == null ? null : _keEpoch(sesi.t0!)),
               status: sesi.status,
+              waktuTidakPasti: Value(sesi.waktuTidakPasti),
             ),
           );
 
@@ -158,7 +160,30 @@ class SesiRepositoryDrift implements SesiRepository {
           ]);
         }
       });
+
+      // Entri mentah yang membentuk sesi ini sekarang durabel di dalam sesinya,
+      // jadi ia tidak perlu diputar ulang saat aplikasi start
+      // (docs/protokol-jam.md §6, lihat `EntriJamRepository`). Ditandai **di
+      // dalam transaksi yang sama**: "sesinya tersimpan" dan "entrinya sudah
+      // diproses" harus benar atau salah bersama-sama, karena kalau tandanya
+      // duluan dan penulisannya gagal, entri itu hilang tanpa jejak.
+      await (db.update(db.tabelEntriJam)
+            ..where((t) => t.sesiId.equals(sesi.id) & t.diproses.equals(false)))
+          .write(const TabelEntriJamCompanion(diproses: Value(true)));
     });
+  }
+
+  @override
+  Future<void> hapus(String sesiId) async {
+    // Anak-anaknya ikut lewat `onDelete: cascade` — yang hanya benar-benar
+    // berjalan karena `PRAGMA foreign_keys = ON` dipasang di `beforeOpen`.
+    await (db.delete(db.tabelSesi)..where((t) => t.id.equals(sesiId))).go();
+
+    // Entri mentahnya tidak lagi akan ikut tersimpan di dalam sesi mana pun,
+    // jadi menandainya "diproses" adalah satu-satunya cara ia tidak diputar
+    // ulang selamanya setiap aplikasi start.
+    await (db.update(db.tabelEntriJam)..where((t) => t.sesiId.equals(sesiId)))
+        .write(const TabelEntriJamCompanion(diproses: Value(true)));
   }
 
   // --- Pemetaan ----------------------------------------------------------

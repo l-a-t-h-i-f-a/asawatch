@@ -9,11 +9,14 @@ import 'package:flutter/material.dart';
 
 import '../models/sesi_makan.dart';
 
-IconData ikonWaktuMakan(WaktuMakan waktu) => switch (waktu) {
+/// null berarti waktu sesi tidak diketahui (docs/protokol-jam.md §4.3) — ikon
+/// tanda tanya, bukan ikon salah satu waktu makan yang kebetulan dipilih.
+IconData ikonWaktuMakan(WaktuMakan? waktu) => switch (waktu) {
   WaktuMakan.sarapan => Icons.wb_twilight_rounded,
   WaktuMakan.makanSiang => Icons.light_mode_rounded,
   WaktuMakan.makanMalam => Icons.nightlight_round,
   WaktuMakan.camilan => Icons.cookie_rounded,
+  null => Icons.help_outline_rounded,
 };
 
 IconData ikonKualitasRespons(KualitasRespons kualitas) => switch (kualitas) {

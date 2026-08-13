@@ -37,6 +37,16 @@ class TabelSesi extends Table {
   IntColumn get t0 => integer().nullable()();
   TextColumn get status => textEnum<StatusSesi>()();
 
+  /// Sesi ini berasal dari boot jam yang tidak pernah punya anchor, sehingga
+  /// waktunya tidak diketahui dan tidak akan pernah bisa diketahui
+  /// (docs/protokol-jam.md §4.3).
+  ///
+  /// Disimpan, bukan dihitung: begitu sesinya berakhir, tidak ada lagi jejak
+  /// yang bisa dipakai menurunkan ulang fakta ini — anchor untuk boot itu tidak
+  /// akan pernah ada.
+  BoolColumn get waktuTidakPasti =>
+      boolean().withDefault(const Constant(false))();
+
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -132,6 +142,70 @@ class TabelAnchorWaktu extends Table {
   Set<Column> get primaryKey => {bootId, uptimeS};
 }
 
+/// Kalibrasi tekanan darah yang pernah dikirim ke jam (§5.1 `SET_KALIBRASI`).
+///
+/// Riwayat, bukan satu baris yang ditimpa: offset yang melonjak antar kalibrasi
+/// adalah tanda pengukuran yang salah satunya keliru, dan itu hanya terlihat
+/// bila yang lama masih ada. Yang dipakai aplikasi tetap yang terbaru.
+///
+/// Jam sendiri menyimpan offsetnya di flash, jadi tabel ini bukan sumber
+/// kebenaran bagi jam — ia sumber kebenaran bagi **aplikasi**, yang tanpa ini
+/// lupa pernah mengalibrasi setiap kali ditutup.
+class TabelKalibrasi extends Table {
+  IntColumn get waktu => integer()();
+  IntColumn get sistolikReferensi => integer()();
+  IntColumn get diastolikReferensi => integer()();
+  IntColumn get sistolikJam => integer()();
+  IntColumn get diastolikJam => integer()();
+
+  @override
+  Set<Column> get primaryKey => {waktu};
+}
+
+/// Entri mentah yang datang dari jam, sebelum jadi bagian sebuah sesi —
+/// docs/protokol-jam.md §6.
+///
+/// Alasannya satu kalimat di protokol: **ack hanya boleh dikirim setelah data
+/// tersimpan permanen**, karena jam menghapus entrinya begitu di-ack. Tanpa
+/// tabel ini, satu-satunya tempat sampel tersimpan sebelum ack adalah memori,
+/// dan aplikasi yang mati sedetik setelah ack kehilangannya untuk selamanya.
+///
+/// Kolomnya sengaja primitif — `jenis` dan `kodePeristiwa` adalah **angka
+/// protokol**, bukan `textEnum`. Nilai-nilainya sudah dikunci dokumen protokol
+/// dan tidak boleh ikut berubah saat sebuah enum Dart diganti namanya, berbeda
+/// dari `StatusSesi` di [TabelSesi] yang memang milik aplikasi.
+class TabelEntriJam extends Table {
+  /// Kunci lokal, bukan `seq`: `seq` berputar 1..255 (§6 aturan 1) dan karena
+  /// itu tidak unik bahkan dalam satu boot.
+  IntColumn get id => integer().autoIncrement()();
+
+  /// 0 = sampel (§5.2), 1 = peristiwa (§5.4).
+  IntColumn get jenis => integer()();
+
+  IntColumn get seq => integer()();
+  IntColumn get bootId => integer()();
+  IntColumn get uptimeS => integer()();
+  BoolColumn get dariBuffer => boolean()();
+  BoolColumn get waktuTidakPasti => boolean()();
+
+  TextColumn get sesiId => text().nullable()();
+  IntColumn get indexSampel => integer().nullable()();
+  IntColumn get kodePeristiwa => integer().nullable()();
+  IntColumn get payload => integer().nullable()();
+
+  IntColumn get gulaDarah => integer().nullable()();
+  IntColumn get detakJantung => integer().nullable()();
+  IntColumn get sistolik => integer().nullable()();
+  IntColumn get diastolik => integer().nullable()();
+  IntColumn get spo2 => integer().nullable()();
+
+  /// Entri sudah ikut tersimpan di dalam sesinya, jadi tidak perlu diputar
+  /// ulang saat aplikasi start. Ditandai oleh `SesiRepositoryDrift.simpan()`
+  /// **di dalam transaksi yang sama** dengan penulisan sesinya: "sudah
+  /// diproses" dan "sesinya durabel" harus benar atau salah bersama-sama.
+  BoolColumn get diproses => boolean().withDefault(const Constant(false))();
+}
+
 @DriftDatabase(
   tables: [
     TabelSesi,
@@ -139,13 +213,15 @@ class TabelAnchorWaktu extends Table {
     TabelHasilDeteksi,
     TabelItemMakanan,
     TabelAnchorWaktu,
+    TabelKalibrasi,
+    TabelEntriJam,
   ],
 )
 class BasisData extends _$BasisData {
   BasisData(super.e);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -167,6 +243,10 @@ class BasisData extends _$BasisData {
         switch (v) {
           case 1: // v1 → v2: anchor waktu jam tangan (protokol-jam.md §4)
             await m.createTable(tabelAnchorWaktu);
+          case 2: // v2 → v3: BLE sungguhan (Tahap B)
+            await m.addColumn(tabelSesi, tabelSesi.waktuTidakPasti);
+            await m.createTable(tabelKalibrasi);
+            await m.createTable(tabelEntriJam);
           default:
             throw UnsupportedError(
               'Belum ada migrasi dari skema v$v ke v${v + 1}. '

@@ -3,11 +3,19 @@
 Kontrak antara firmware jam tangan dan aplikasi Flutter. Dokumen ini **normatif**: bila kode dan
 dokumen ini berbeda, salah satunya bug.
 
-Status: **rancangan v1, belum diimplementasikan di kedua sisi.**
+Status: **v1.1 — terimplementasi di sisi aplikasi (Tahap B), firmware menyusul.**
+Riwayat perubahan versi ada di §12; naikkan `versi_minor` setiap kali perilaku kawat berubah.
+Codec-nya ada di [../lib/services/protokol_jam.dart](../lib/services/protokol_jam.dart) dan diuji
+offset demi offset di [../test/protokol_jam_test.dart](../test/protokol_jam_test.dart); yang memakai
+kabelnya adalah [../lib/services/ble_asli_service.dart](../lib/services/ble_asli_service.dart).
 
 Konteks: [rencana-produksi.md](rencana-produksi.md) §4 (Tahap B) dan
 [rancangan-ui-sesi-makan.md](rancangan-ui-sesi-makan.md) §12. Firmware dikembangkan sendiri
 (keputusan K1), sehingga skema di bawah didikte dari kebutuhan aplikasi, bukan sebaliknya.
+
+Pengarahan untuk mengerjakan sisi firmware-nya — stack, urutan, dan jebakan khusus ESP32 — ada di
+[firmware-esp32.md](firmware-esp32.md). Berkas itu **tidak** mengulang tabel paket mana pun dari
+sini; dokumen ini tetap satu-satunya sumber kebenaran untuk byte.
 
 **Batasan perangkat keras yang membentuk seluruh dokumen ini: jam tidak punya RTC.** Ia tidak
 punya cara apa pun untuk mengetahui jam berapa sekarang, dan kehilangan seluruh pengetahuan waktu
@@ -70,10 +78,22 @@ Battery Level memakai standar `0x180F` / `0x2A19`, bukan karakteristik kustom �
 
 Paket iklan **wajib** memuat:
 
+- Complete List of 128-bit Service UUIDs: service AsaWatch di atas. **Wajib di paket iklan itu
+  sendiri, bukan di scan response** — lihat kotak di bawah.
 - Complete Local Name: `AsaWatch <4 hex terakhir serial>` — mis. `AsaWatch 3F1A`.
-- Complete List of 128-bit Service UUIDs: service AsaWatch di atas.
 - Manufacturer Specific Data: 1 byte versi protokol mayor (§3), agar app bisa menandai firmware
   yang terlalu tua **sebelum** menyambung.
+
+> **Ketiganya tidak muat dalam satu paket iklan legacy.** Batasnya 31 byte, sedangkan UUID 128-bit
+> memakan 18 byte (2 header + 16 data), nama `AsaWatch 3F1A` 15 byte, dan manufacturer data 5 byte —
+> total 38. Nama dan manufacturer data karena itu **harus pindah ke scan response**; UUID-nya yang
+> tetap tinggal di paket iklan.
+>
+> Urutan ini tidak bisa dibalik: aplikasi memakai filter service UUID di level OS
+> (`FlutterBluePlus.startScan(withServices: …)`), dan filter itu bekerja pada paket iklan. Jam yang
+> menaruh UUID-nya di scan response **tidak akan pernah terlihat sama sekali** — bukan muncul lalu
+> ditolak, melainkan tidak muncul, dengan gejala yang di layar tidak bisa dibedakan dari jam yang
+> mati.
 
 `pindai()` di [../lib/services/ble_service.dart](../lib/services/ble_service.dart) memetakan hasil
 scan ke `PerangkatDitemukan`:
@@ -82,9 +102,17 @@ scan ke `PerangkatDitemukan`:
   tidak boleh diasumsikan stabil lintas platform**).
 - `nama` = Complete Local Name.
 - `kekuatanSinyal` = RSSI.
-- `didukung` = true **hanya** bila service UUID AsaWatch ada di iklan. Perangkat BLE lain tetap
-  ditampilkan dengan `didukung: false`, sesuai perilaku UI sekarang: pengguna perlu bukti bahwa
-  pemindaiannya jalan.
+- `didukung` = true **hanya** bila service UUID AsaWatch ada di iklan.
+
+**Revisi Tahap B: perangkat non-AsaWatch tidak lagi ditampilkan sama sekali.** Rancangan awal
+menampilkannya dengan `didukung: false` supaya pengguna punya bukti bahwa pemindaiannya jalan.
+Penyaringan kini dilakukan di level OS demi baterai: paket iklan headset, TV, dan jam tetangga tidak
+pernah membangunkan proses aplikasi, dan penghematan itu tidak bisa ditiru dengan menyaring di Dart.
+
+Bukti yang hilang itu **wajib diganti dengan kalimat**, bukan dibiarkan hilang — halaman pemindaian
+menyatakan bahwa hanya AsaWatch yang dicari, baik saat daftarnya kosong maupun tidak. Tanpa itu,
+layar kosong terbaca sebagai aplikasi yang rusak. `PerangkatDitemukan.didukung` tetap dihitung dari
+iklan dan tetap mengunci tombolnya, sebagai jaring kedua bila filternya suatu hari dilonggarkan.
 
 Interval iklan: 100 ms selama 60 detik pertama setelah tombol pairing ditekan, lalu 1000 ms.
 
@@ -175,11 +203,15 @@ tidak ada di dunia ini yang tahu.
 Jam menandainya sendiri: entri dari boot yang `flag` anchor-nya 0 dikirim dengan **flag bit1
 (`waktu_tidak_pasti`)**.
 
-- [ ] Perilaku UI wajib ditetapkan sebelum implementasi. Rekomendasi: sesi yang `t0`-nya
-      `waktu_tidak_pasti` berakhir **`tidakLengkap` dengan penjelasan eksplisit**, bukan dibuang
-      diam-diam, dan bukan pula ditampilkan seolah waktunya benar. Ia tidak boleh ikut
-      `sesiHariIni()`, tidak boleh mendapat `WaktuMakan` (yang diturunkan dari jam `t0`), dan tidak
-      boleh masuk perhitungan tren di `AnalisisSesi`.
+- [x] **Ditetapkan dan terpasang (Tahap B).** `SesiMakan.waktuTidakPasti` menandainya, dan tiga
+      pengecualian di rekomendasi dijalankan apa adanya: tidak ikut `sesiHariIni()`, `waktuMakan`
+      menjadi **null** (bukan tebakan), dan `AnalisisSesi` tidak memasukkannya. Satu penyimpangan
+      dari rekomendasi, dengan alasan: sesinya **tidak** otomatis berakhir `tidakLengkap`. Waktu yang
+      tidak diketahui tidak membuat sampelnya hilang — kurvanya tetap benar karena `detikRelatifT0`
+      hanya selisih dua pencacah (§5.3). Sesi seperti itu berjalan dan selesai seperti biasa, dengan
+      penjelasan eksplisit di layar sesi berjalan bahwa waktunya tidak bisa dipastikan.
+      `waktuTidakPasti` disimpan sebagai kolom, bukan dihitung: begitu sesinya berakhir, tidak ada
+      lagi jejak yang bisa dipakai menurunkannya — anchor untuk boot itu tidak akan pernah ada.
 
 Peluangnya kecil — perlu jam kehabisan daya, boot lagi, dipakai penuh satu sesi, lalu mati lagi,
 semuanya tanpa HP pernah mendekat. Tapi ia harus punya jalur yang benar, bukan diserahkan ke
@@ -201,12 +233,16 @@ baris per boot, agar penyempurnaannya nanti tidak menuntut migrasi.
 
 ### 4.5 Konsekuensi untuk sisi aplikasi
 
-- [ ] Anchor disimpan di DB lokal (Tahap A), bukan di memori. Anchor yang hilang saat app restart
-      akan membuat seluruh buffer jam menjadi `waktu_tidak_pasti` tanpa alasan.
-- [ ] Tabel `anchor_waktu`: `boot_id`, `uptime_s`, `epoch_s`, `dibuat_pada`.
-- [ ] Konversi dilakukan **satu kali** saat entri masuk, lalu disimpan sebagai waktu absolut. Jangan
-      mengonversi ulang setiap render.
-- [ ] Jam tangan yang dipakai lintas HP tidak didukung di v1 — anchor hidup di satu HP saja.
+- [x] ~~Anchor disimpan di DB lokal (Tahap A), bukan di memori.~~
+- [x] ~~Tabel `anchor_waktu`~~ — tanpa `dibuat_pada`: kolom itu tidak pernah bisa berbeda dari
+      `epoch`, dan kolom yang selalu menduplikasi kolom lain pada akhirnya akan berselisih karena bug.
+- [x] ~~Konversi dilakukan satu kali saat entri masuk, lalu disimpan sebagai waktu absolut.~~
+      `t0` disimpan sebagai `DateTime`, dan `detikRelatifT0` tiap sampel dihitung sebagai selisih
+      `uptime_s` — bukan selisih dua waktu kalender, supaya bentuk kurvanya kebal terhadap anchor
+      yang meleset (§5.3). Pasangan `(boot_id, uptime_s)` milik `t0` dibaca ulang dari kotak masuk
+      saat aplikasi start, sehingga perhitungan itu tetap benar setelah restart.
+- [x] ~~Jam tangan yang dipakai lintas HP tidak didukung di v1~~ — id perangkat yang disimpan pun
+      berbeda per platform (MAC di Android, UUID di iOS), jadi ia tidak boleh ikut disinkronkan.
 
 ---
 
@@ -217,6 +253,21 @@ baris per boot, agar penyempurnaannya nanti tidak menuntut migrasi.
 Byte 0 = opcode, sisanya payload. Jam membalas lewat karakteristik Peristiwa dengan `ACK` atau
 `NAK` yang membawa opcode asal — bukan lewat write response, karena beberapa perintah butuh waktu
 (mis. pengukuran).
+
+**Aplikasi tidak boleh menulis ke Kontrol sebelum langganan Peristiwa selesai** (CCCD ditulis).
+Balasan datang sebagai notifikasi, dan notifikasi yang dikirim ke karakteristik yang belum
+dilanggani lenyap tanpa jejak — `ACK`/`NAK` tidak masuk buffer dan tidak pernah dikirim ulang (§6).
+Perintah yang balasannya hilang akan diulang tiga kali lalu menyerah, padahal jam sudah
+menjalankannya sejak percobaan pertama.
+
+Urutan yang benar setelah koneksi terbentuk: baca Info (§3) → langgani Peristiwa, Sampel, dan Status
+→ **baru** `ANCHOR_WAKTU` dan perintah lain.
+
+**Kecualinya tepat satu: `ACK_EVENT` (`0x08`) tidak pernah dibalas.** Meng-ack sebuah ack adalah
+regresi tak berujung, dan menunggu balasannya akan menambah satu perjalanan pulang-pergi untuk
+**setiap** entri yang masuk — pada buffer 64 entri yang baru tersinkronisasi, itu 64 perjalanan
+tambahan berturut-turut. Jaminannya tidak hilang: `ACK_EVENT` yang lenyap di udara berarti jam
+mengirim entrinya lagi, dan duplikat memang perilaku normal (§1 aturan 5).
 
 | Opcode | Nama | Payload | Kontrak Dart |
 |---|---|---|---|
@@ -246,7 +297,16 @@ Catatan per opcode:
   referensi tensimeter tidak perlu diketahui firmware. Offset disimpan di flash agar bertahan
   melewati boot.
 - **`UKUR` dipakai untuk baseline (index 0)** saat shutter kamera ditekan — sebelum `t0` ada. Karena
-  itu ia membawa `sesiId` yang sama dengan `ARM_SESI` yang menyusul.
+  itu ia membawa `sesiId` yang sama dengan `ARM_SESI`.
+  **`ARM_SESI` harus mendahuluinya**, bukan menyusul: jam hanya melayani `UKUR` dalam status ARMED
+  (§9), dan permintaan baseline yang tiba selagi jam masih IDLE ditolak. Kegagalan itu tidak
+  bergema — ketiga titik lain tetap masuk dengan benar, dan sesinya baru terlihat salah dua jam
+  kemudian, saat ia menggantung menunggu baseline yang tidak akan pernah datang.
+- **`UKUR_SEKARANG` dijawab dengan paket Sampel biasa** (§5.2), dengan `sesiId` **16 byte nol** dan
+  `index` 0. Ia memang terjadi di luar sesi mana pun — alur kalibrasi tekanan darah, bukan sesi
+  makan. Aplikasi memperlakukan `sesiId` nol sebagai "bukan sesi": sampelnya diteruskan ke pemanggil
+  `ukurSekarang()`, tetapi tidak pernah menunggu ada sesi yang memilikinya.
+  ACK untuk opcode ini tetap dikirim seperti biasa, mendahului paket Sampel-nya.
 
 ### 5.2 Sampel (`A5A70005`, Notify) — 31 byte
 
@@ -346,6 +406,17 @@ Mengisi `StatusPerangkat.sampelTertunda`, yang sudah ditampilkan apa adanya di
 Jam menyimpan **ring buffer 64 entri di flash** (event + sampel bercampur, satu ruang seq).
 Ukurannya menjawab K3: 64 entri cukup untuk ~16 sesi penuh tanpa sinkronisasi sama sekali.
 
+> **`ACK` dan `NAK` tidak pernah masuk ring buffer.** Kalimat "event + sampel bercampur" di atas
+> pernah terbaca seolah mencakup keduanya, dan bacaan itu merusak: ACK yang menunggu di-`ACK_EVENT`
+> tidak akan pernah dibersihkan aplikasi — aplikasi memang tidak meng-ack balasan — sehingga buffer
+> 64 entri terisi penuh oleh ACK basi dan mulai membuang **sampel sungguhan**. Gejalanya baru muncul
+> setelah puluhan perintah, jauh dari penyebabnya.
+>
+> ACK/NAK adalah percakapan sesaat, bukan riwayat. Ia dikirim langsung, sekali, dan tidak pernah
+> dikirim ulang: balasan yang tiba berjam-jam kemudian lewat buffer tidak punya siapa pun yang masih
+> menunggunya. `seq`-nya diisi **0**, yang §6 aturan 1 memang sudah sisihkan sebagai "bukan entri
+> buffer".
+
 **Flash, bukan RAM** — dan tanpa RTC ini menjadi lebih penting, bukan kurang: buffer adalah satu-satunya
 hal yang menyeberangi batas boot.
 
@@ -367,6 +438,17 @@ Aturan:
 **Aplikasi hanya boleh meng-ack setelah data tersimpan permanen di DB lokal**, bukan saat notifikasi
 diterima. Ack sebelum menulis berarti kehilangan data bila aplikasi crash di antara keduanya —
 inilah alasan Tahap A (persistensi) dikerjakan sebelum Tahap B.
+
+**Satu pengecualian: entri yang tidak bisa dibaca sama sekali tetap di-ack lalu dibuang.** Kegagalan
+decode bersifat tetap — byte yang sama akan gagal dibaca dengan cara yang sama selamanya. Menahan
+ack-nya berarti jam menyimpannya seumur hidup, mengirimnya ulang pada setiap sinkronisasi, dan satu
+slot buffer hilang permanen; kalau cukup banyak terkumpul, entri yang **sah** yang mulai terbuang.
+`seq` tetap terbaca pada offset 0 meski sisa paketnya tidak, jadi ack-nya selalu bisa dikirim.
+Byte mentahnya wajib dicatat sebelum dibuang.
+
+Ini **tidak** berlaku untuk kegagalan *menyimpan* (basis data penuh, terkunci). Yang itu bersifat
+sesaat, entrinya masih punya harapan diproses pada percobaan berikutnya, dan karena itu tetap tidak
+boleh di-ack.
 
 Duplikat tetap mungkin (ack hilang di udara). Itu normal; dedup `(sesiId, index)` di controller
 menanganinya.
@@ -397,9 +479,26 @@ Semua write memakai timeout 5 detik dan maksimal 3 percobaan, kecuali yang dilar
 |---|---|---|
 | MTU | minta 185, terima ≥ 35 | Sampel butuh 31 byte dalam satu notifikasi. |
 | Connection interval | 30–50 ms saat sesi berjalan, 200–500 ms saat idle | Hemat baterai di luar sesi. |
-| Bonding | Wajib, LE Secure Connections | Data kesehatan; lihat §10 rencana produksi. |
+| Bonding | Wajib, LE Secure Connections, **Just Works** | Data kesehatan; lihat §10 rencana produksi dan kotak di bawah. |
 | Enkripsi | Wajib pada semua karakteristik kustom | — |
 | Reconnect | Backoff 1s → 2s → 4s → … → maks 60s | — |
+
+> **Kenapa Just Works, bukan passkey.** Jam tidak punya layar, jadi satu-satunya passkey yang bisa
+> dipakainya adalah angka yang dipatok di firmware. Angka seperti itu **bukan perlindungan MITM,
+> melainkan tampilannya saja**: ia tertulis di firmware, di dokumen ini, dan di setiap salinan
+> keduanya. Yang dibelinya hanya satu dialog tambahan yang tidak dipahami pengguna, dengan imbalan
+> jaminan yang tidak benar-benar ada.
+>
+> Just Works menyatakan dengan jujur apa yang sebenarnya didapat: **tautan terenkripsi dan bonding
+> yang bertahan, tanpa perlindungan terhadap MITM pada saat pairing.** Itu keadaan yang bisa ditulis
+> apa adanya di inventaris data §10, dan yang tidak diam-diam salah.
+>
+> Yang **tidak** ikut turun: bonding tetap wajib, LE Secure Connections tetap wajib, dan enkripsi
+> tetap wajib di kelima karakteristik kustom. Yang dilepas hanya otentikasi pairing-nya.
+>
+> Ini bisa ditinjau ulang **hanya bila jam punya layar** — passkey acak yang ditampilkan di jam
+> memberi perlindungan sungguhan. Sampai saat itu, jangan "memperbaiki" ini kembali menjadi passkey
+> tetap: hasilnya lebih buruk, bukan lebih baik.
 
 Jam **tidak** memutus koneksi sendiri saat idle — biarkan OS mengelolanya. Setiap koneksi yang
 terbentuk adalah kesempatan memasang anchor, jadi koneksi yang sering justru menguntungkan.
@@ -463,7 +562,19 @@ Dipakai kedua tim sebelum integrasi dinyatakan selesai.
 
 **Firmware**
 
+- [ ] Setiap opcode dibalas `ACK`/`NAK` lewat karakteristik Peristiwa — **kecuali `ACK_EVENT`, yang
+      tidak dibalas sama sekali** (§5.1). Perintah yang tidak dibalas membuat aplikasi mengulanginya
+      tiga kali lalu menyerah, dan di layar itu terlihat seperti jam yang tidak merespons.
+- [ ] `ACK`/`NAK` **tidak masuk ring buffer**, ber-`seq` 0, dan tidak pernah dikirim ulang (§6).
+- [ ] Pengurasan buffer **baru dimulai setelah aplikasi berlangganan** karakteristik Sampel dan
+      Peristiwa (CCCD ditulis), bukan begitu koneksi terbentuk. Notifikasi yang dikirim sebelum itu
+      hilang tanpa jejak, dan entri yang terlanjur ditandai "sudah dikirim" tidak akan datang lagi
+      sampai ada `SINKRON` berikutnya.
+- [ ] `UKUR_SEKARANG` dijawab paket Sampel ber-`sesiId` 16 byte nol, `index` 0 (§5.1).
 - [ ] Iklan memuat service UUID, nama, dan versi mayor.
+- [ ] **Service UUID ada di paket iklan, bukan di scan response** (§2.2). Ini butir paling mudah
+      dilewatkan dan paling mahal akibatnya: jam yang salah menaruhnya tidak akan pernah terlihat
+      oleh aplikasi, dan gejalanya sama persis dengan jam yang mati.
 - [ ] Handshake mengembalikan 20 byte sesuai §3.
 - [ ] `boot_id` naik satu setiap boot dan bertahan di flash.
 - [ ] Tidak ada satu pun paket yang memuat wall clock.
@@ -479,20 +590,29 @@ Dipakai kedua tim sebelum integrasi dinyatakan selesai.
 - [ ] Metrik gagal dikirim sebagai `0`, bukan nilai terakhir yang diketahui.
 - [ ] Buffer penuh mengirim `BUFFER_PENUH`, bukan diam-diam menimpa.
 - [ ] Offset kalibrasi bertahan melewati boot.
+- [ ] Pairing memakai **Just Works** dengan LE Secure Connections — bukan passkey tetap (§8).
 
-**Aplikasi**
+**Aplikasi** — seluruhnya selesai di Tahap B; yang di dalam kurung adalah tempat pembuktiannya.
 
-- [ ] Menolak versi mayor yang tidak cocok dengan pesan yang bisa dipahami pengguna.
-- [ ] `ANCHOR_WAKTU` dikirim pada setiap koneksi, sebelum perintah lain.
-- [ ] Anchor disimpan di DB, bukan memori, dan bertahan melewati restart aplikasi.
-- [ ] Konversi `uptime_s` → epoch benar untuk entri **sebelum** anchor dipasang (selisih negatif).
-- [ ] Entri `waktu_tidak_pasti` tidak masuk `sesiHariIni()`, `WaktuMakan`, maupun `AnalisisSesi`.
-- [ ] Sampel dengan `boot_id` berbeda dari `t0`-nya dibuang, sesi jadi `tidakLengkap`.
-- [ ] Sentinel `0` dikonversi ke `null` sebelum meninggalkan layer BLE.
-- [ ] `detikRelatifT0` dihitung dari selisih `uptime_s`, termasuk baseline yang negatif.
-- [ ] Ack dikirim **setelah** menulis ke DB.
-- [ ] Duplikat sampel tidak menghasilkan entri ganda.
-- [ ] Putus koneksi di tengah sesi tidak membatalkan sesi.
+- [x] Menolak versi mayor yang tidak cocok dengan pesan yang bisa dipahami pengguna
+      (`InfoJam.periksaVersi`, `protokol_jam_test.dart`).
+- [x] `ANCHOR_WAKTU` dikirim pada setiap koneksi, sebelum perintah lain
+      (`BleAsliService._sambungkan`).
+- [x] Anchor disimpan di DB, bukan memori, dan bertahan melewati restart aplikasi
+      (`AnchorRepositoryDrift`, `anchor_repository_test.dart`).
+- [x] Konversi `uptime_s` → epoch benar untuk entri **sebelum** anchor dipasang (selisih negatif).
+- [x] Entri `waktu_tidak_pasti` tidak masuk `sesiHariIni()`, `WaktuMakan`, maupun `AnalisisSesi`
+      (`sesi_makan_controller_test.dart`, `analisis_test.dart`).
+- [x] Sampel dengan `boot_id` berbeda dari `t0`-nya dibuang (`BleAsliService._emitSampel`); sesinya
+      berakhir `tidakLengkap` lewat tenggat di controller, bukan dibatalkan dari layer BLE.
+- [x] Sentinel `0` dikonversi ke `null` sebelum meninggalkan layer BLE (`bacaSampel`).
+- [x] `detikRelatifT0` dihitung dari selisih `uptime_s`, termasuk baseline yang negatif.
+- [x] Ack dikirim **setelah** menulis ke DB (`BleAsliService._simpanLaluAck`,
+      `entri_jam_repository_test.dart`). Gagal menulis berarti **tidak** meng-ack: entrinya tetap di
+      buffer jam dan dikirim lagi.
+- [x] Duplikat sampel tidak menghasilkan entri ganda (dedup `(sesiId, index)` di controller, ikut
+      dipulihkan setelah restart — `pemulihan_sesi_test.dart`).
+- [x] Putus koneksi di tengah sesi tidak membatalkan sesi, dan layar sesi berjalan mengatakannya.
 
 **Integrasi**
 
@@ -504,3 +624,39 @@ Dipakai kedua tim sebelum integrasi dinyatakan selesai.
 - [ ] Jam kehabisan daya, boot, dipakai satu sesi penuh, mati lagi, baru tersambung → sesi itu
       ditandai `waktu_tidak_pasti` dan diperlakukan sesuai §4.3.
 - [ ] Aplikasi di-kill paksa di tengah sesi → sesi dipulihkan dari DB dengan `t0` yang sama.
+
+---
+
+## 12. Riwayat versi
+
+`versi_minor` dinaikkan setiap kali perilaku kawat berubah **setelah** implementasi salah satu sisi
+dimulai — aturannya ada di [rencana-produksi.md](rencana-produksi.md) §4.2. Firmware melaporkan versi
+yang diimplementasikannya di byte 0–1 handshake (§3).
+
+Bagian ini adalah satu-satunya tempat yang memberi arti pada angka itu. Tanpanya, `versi_minor` cuma
+bilangan yang naik.
+
+### v1.1
+
+Tiga perubahan, semuanya lahir dari implementasi pertama di kedua sisi — dan ketiganya adalah
+**penajaman hal yang sebelumnya ambigu**, bukan penambahan fitur. Kompatibel mundur dari sudut
+pandang aplikasi: tidak ada satu pun yang membuatnya salah membaca firmware v1.0.
+
+| Perubahan | Bagian |
+|---|---|
+| `ACK_EVENT` (`0x08`) tidak pernah dibalas. Meng-ack sebuah ack adalah regresi tak berujung, dan menunggunya menambah satu perjalanan pulang-pergi untuk setiap entri. | §5.1 |
+| `ACK`/`NAK` tidak masuk ring buffer, ber-`seq` 0, tidak pernah dikirim ulang. Sebelumnya §6 terbaca seolah keduanya ikut menunggu di-`ACK_EVENT` — dan aplikasi tidak pernah meng-ack balasan, sehingga buffer akan terisi penuh oleh ACK basi lalu membuang sampel sungguhan. | §6 |
+| `UKUR_SEKARANG` (`0x05`) dijawab paket Sampel ber-`sesiId` 16 byte nol, `index` 0. Sebelumnya bentuk balasannya tidak didefinisikan sama sekali. | §5.1 |
+
+Aplikasi **tidak** membaca `seq` pada paket ACK/NAK — keduanya dialihkan ke jalur balasan internal
+sebelum menyentuh jalur simpan-lalu-ack. Karena itu firmware v1.0 yang mengirim ACK ber-`seq` 1..255
+tetap bekerja dengan aplikasi v1.1; yang rusak hanya buffer-nya sendiri, dan hanya setelah puluhan
+perintah.
+
+Perubahan pairing (passkey tetap → Just Works, §8) **tidak** menaikkan `versi_minor`: ia tidak
+mengubah satu byte pun di kawat, dan ketidakcocokannya — bila ada — ditangani stack Bluetooth OS,
+bukan protokol ini.
+
+### v1.0
+
+Rancangan awal. Belum pernah ada firmware v1.0 di tangan siapa pun.

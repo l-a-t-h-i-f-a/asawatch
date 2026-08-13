@@ -26,6 +26,27 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!--
+		Izin Bluetooth — docs/rencana-produksi.md §4.4.
+
+		Alasannya ditulis dalam Bahasa Indonesia dan menyebut manfaatnya bagi
+		pengguna, bukan nama teknis API-nya: App Review menolak alasan generik,
+		dan kalimat inilah yang muncul di dialog izin.
+	-->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>AsaWatch memakai Bluetooth untuk menyambung ke jam tangan Anda dan mengambil hasil pengukuran gula darah, detak jantung, serta tekanan darah selama sesi makan.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>AsaWatch memakai Bluetooth untuk menyambung ke jam tangan Anda dan mengambil hasil pengukuran selama sesi makan.</string>
+	<!--
+		Sesi berlangsung ~2 jam dan pengguna pasti meninggalkan aplikasi. iOS
+		tidak bisa menjaga proses tetap hidup selama itu; mode ini yang
+		memungkinkan jam tersambung kembali dan buffer-nya ditarik saat aplikasi
+		kembali ke depan (docs/protokol-jam.md §6).
+	-->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-central</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

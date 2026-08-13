@@ -15,7 +15,15 @@ abstract class BleService {
   /// tombolnya bisa ditekan saat HP tidak tersambung, dan peristiwanya baru
   /// sampai belakangan lewat buffer. Menghitung ulang t0 di HP saat pesannya
   /// tiba akan menggeser seluruh jadwal sesi.
-  Stream<({String sesiId, DateTime t0})> get selesaiMakanDitekan;
+  ///
+  /// `waktuTidakPasti` true berarti `t0` adalah **tebakan terbaik, bukan fakta**:
+  /// jam tidak punya RTC, dan boot asal peristiwa ini tidak punya anchor yang
+  /// bisa menerjemahkan `uptime_s`-nya (docs/protokol-jam.md §4.3). Bentuk
+  /// kurvanya tetap benar — ia hanya selisih dua pencacah — tetapi posisinya di
+  /// kalender tidak. Sesi seperti itu dikecualikan dari hitungan yang memakai
+  /// jam dinding.
+  Stream<({String sesiId, DateTime t0, bool waktuTidakPasti})>
+  get selesaiMakanDitekan;
 
   /// Status terakhir yang diketahui, agar UI tidak kosong sebelum stream
   /// mengirim nilai pertamanya.
@@ -42,7 +50,14 @@ abstract class BleService {
   /// sehingga penyiapannya belum sampai.
   Future<bool> siapkanSesi(String sesiId);
 
-  Future<void> mintaUkur(String sesiId, int index); // baseline
+  /// Meminta jam mengukur satu titik — dipakai untuk baseline (index 0).
+  ///
+  /// Mengembalikan false bila jam **menolak atau tidak menerima** permintaannya:
+  /// belum di-ARM, tidak tersambung, sensor gagal. Nilainya bukan hiasan —
+  /// pemanggil memakainya untuk menandai titik itu `terlewat` seketika, alih-alih
+  /// menampilkannya sebagai "menunggu data" selama dua jam untuk pengukuran yang
+  /// sudah pasti tidak akan pernah datang.
+  Future<bool> mintaUkur(String sesiId, int index); // baseline
   Future<void> batalkanSesi(String sesiId);
   Future<void> sinkronkan(); // tarik buffer jam
 
@@ -94,8 +109,9 @@ class FakeBleService implements BleService {
   final _pengendaliStatus = StreamController<StatusPerangkat>.broadcast();
   final _pengendaliSampel =
       StreamController<({String sesiId, Sampel sampel})>.broadcast();
-  final _pengendaliT0 =
-      StreamController<({String sesiId, DateTime t0})>.broadcast();
+  final _pengendaliT0 = StreamController<
+    ({String sesiId, DateTime t0, bool waktuTidakPasti})
+  >.broadcast();
   final _timer = <Timer>[];
 
   /// Sesi yang tombol "Selesai Makan"-nya sedang menyala di jam. null berarti
@@ -113,8 +129,8 @@ class FakeBleService implements BleService {
       _pengendaliSampel.stream;
 
   @override
-  Stream<({String sesiId, DateTime t0})> get selesaiMakanDitekan =>
-      _pengendaliT0.stream;
+  Stream<({String sesiId, DateTime t0, bool waktuTidakPasti})>
+  get selesaiMakanDitekan => _pengendaliT0.stream;
 
   @override
   StatusPerangkat get statusTerakhir => _status;
@@ -140,13 +156,22 @@ class FakeBleService implements BleService {
   /// Ditolak diam-diam bila jam belum disiapkan (belum ada foto) atau sudah
   /// pernah ditekan untuk sesi ini — dua hal yang di jam sungguhan diurus
   /// firmware, bukan aplikasi.
-  bool tekanSelesaiMakan({DateTime? waktu}) {
+  /// [waktuTidakPasti] mensimulasikan boot jam yang tidak pernah punya anchor
+  /// (protokol §4.3) — keadaan yang di jam sungguhan tidak bisa dipesan, tetapi
+  /// tetap harus punya jalur yang benar di aplikasi.
+  bool tekanSelesaiMakan({DateTime? waktu, bool waktuTidakPasti = false}) {
     final sesiId = _sesiSiap;
     if (sesiId == null || _sudahDitekan) return false;
     _sudahDitekan = true;
 
     final t0 = waktu ?? DateTime.now();
-    if (!_pengendaliT0.isClosed) _pengendaliT0.add((sesiId: sesiId, t0: t0));
+    if (!_pengendaliT0.isClosed) {
+      _pengendaliT0.add((
+        sesiId: sesiId,
+        t0: t0,
+        waktuTidakPasti: waktuTidakPasti,
+      ));
+    }
 
     // Sejak tombolnya ditekan, jam sendiri yang menjadwalkan sisa sampelnya.
     for (final index in const [1, 2, 3]) {
@@ -166,14 +191,20 @@ class FakeBleService implements BleService {
   }
 
   @override
-  Future<void> mintaUkur(String sesiId, int index) async {
-    if (lewatkan.contains(index)) return;
+  Future<bool> mintaUkur(String sesiId, int index) async {
+    // Jam sungguhan menolak `UKUR` selama belum di-ARM (§9), dan jam yang
+    // terputus tidak menerimanya sama sekali. Jam palsu meniru keduanya supaya
+    // jalur "baseline tidak akan pernah datang" benar-benar terlewati di test.
+    if (!_status.tersambung || _sesiSiap != sesiId) return false;
+    if (lewatkan.contains(index)) return false;
+
     // Pengukuran atas permintaan tetap butuh waktu di jam sungguhan.
     _timer.add(
       Timer(_jeda(20), () {
         _kirim(sesiId, _buatSampel(index, index == 0 ? -1500 : 0));
       }),
     );
+    return true;
   }
 
   @override
@@ -195,8 +226,13 @@ class FakeBleService implements BleService {
     await Future<void>.delayed(_jeda(10));
   }
 
-  /// Katalog jam palsu yang "terlihat" saat memindai. Perangkat asing ikut
-  /// masuk daftar supaya UI-nya harus benar-benar menangani yang tak didukung.
+  /// Katalog perangkat yang "ada di sekitar" saat memindai.
+  ///
+  /// Perangkat asing tetap ada di sini meskipun tidak pernah sampai ke
+  /// pemanggil: ia mewakili udara yang sebenarnya, dan penyaringannya di
+  /// [pindai] adalah tiruan dari filter yang sama di level OS pada
+  /// `BleAsliService`. Menghapusnya dari katalog akan membuat penyaringan itu
+  /// tidak terlihat sedang menyaring apa pun.
   static const _katalog = <PerangkatDitemukan>[
     PerangkatDitemukan(id: 'AW-X1-0A73', nama: 'AsaWatch X1', kekuatanSinyal: -48),
     PerangkatDitemukan(id: 'AW-S2-19C4', nama: 'AsaWatch S2', kekuatanSinyal: -74),
@@ -217,19 +253,27 @@ class FakeBleService implements BleService {
     final timers = <Timer>[];
     late final StreamController<PerangkatDitemukan> pengendali;
 
+    // Hanya AsaWatch yang keluar, meniru filter service UUID di level OS yang
+    // dipakai `BleAsliService`. Perangkat lain memang ada di udara — ia hanya
+    // tidak pernah sampai ke aplikasi.
+    final terlihat = [
+      for (final p in _katalog)
+        if (p.didukung) p,
+    ];
+
     pengendali = StreamController<PerangkatDitemukan>(
       onListen: () {
         // Jeda antar-temuan ikut dipercepat, jadi test tidak menunggu detik
         // nyata.
-        for (var i = 0; i < _katalog.length; i++) {
+        for (var i = 0; i < terlihat.length; i++) {
           timers.add(
             Timer(_jeda(2 * (i + 1)), () {
-              if (!pengendali.isClosed) pengendali.add(_katalog[i]);
+              if (!pengendali.isClosed) pengendali.add(terlihat[i]);
             }),
           );
         }
         timers.add(
-          Timer(_jeda(2 * (_katalog.length + 1)), () {
+          Timer(_jeda(2 * (terlihat.length + 1)), () {
             if (!pengendali.isClosed) pengendali.close();
           }),
         );

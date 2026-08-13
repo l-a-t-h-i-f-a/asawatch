@@ -188,32 +188,21 @@ class _IsiSesi extends StatelessWidget {
           ),
           const SizedBox(height: 16),
 
-          // Kejujuran soal keterlambatan data (§8).
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFE8F8F5),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Row(
-              children: const [
-                Icon(
-                  Icons.info_outline_rounded,
-                  color: Color(0xFF0EAD69),
-                  size: 18,
-                ),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Jam menyimpan sampel di buffer. Data bisa datang '
-                    'terlambat — sesi tidak gagal hanya karena telat.',
-                    style: TextStyle(fontSize: 11, color: Color(0xFF6B807B)),
-                  ),
-                ),
-              ],
-            ),
+          // Kejujuran soal keterlambatan data (§8), dan — sejak jam sungguhan
+          // menempel — soal koneksi yang putus di tengah sesi
+          // (rencana-produksi.md §4.3). Yang terakhir wajib dinyatakan
+          // eksplisit: melihat "Jam terputus" di tengah sesi dua jam, tanpa
+          // kalimat ini, wajar dibaca sebagai sesi yang sudah gagal, dan
+          // pengguna akan membatalkannya sendiri padahal datanya aman.
+          _KartuInfo(
+            terputusDiTengahSesi: t0 != null && !controller.statusPerangkat.tersambung,
           ),
           const SizedBox(height: 20),
+
+          if (sesi.waktuTidakPasti) ...[
+            const _KartuWaktuTidakPasti(),
+            const SizedBox(height: 20),
+          ],
 
           if (sesi.t0 == null) ...[
             PetunjukTombolJam(
@@ -299,6 +288,102 @@ class _IsiSesi extends StatelessWidget {
     if (jadi != true) return;
     await controller.batalkan();
     navigator.pop(true);
+  }
+}
+
+/// Apa yang sedang terjadi dengan data yang belum sampai.
+///
+/// Dua kalimat berbeda untuk dua keadaan berbeda: jam yang tersambung tetapi
+/// sampelnya belum jatuh tempo, dan jam yang **terputus di tengah sesi**. Yang
+/// kedua tampak seperti kegagalan padahal bukan — sampel terus diukur di
+/// pergelangan tangan dan menunggu di buffer jam (docs/protokol-jam.md §6).
+class _KartuInfo extends StatelessWidget {
+  const _KartuInfo({required this.terputusDiTengahSesi});
+
+  final bool terputusDiTengahSesi;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: terputusDiTengahSesi
+            ? const Color(0xFFE2EBE8)
+            : const Color(0xFFE8F8F5),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            terputusDiTengahSesi
+                ? Icons.cloud_off_rounded
+                : Icons.info_outline_rounded,
+            color: terputusDiTengahSesi
+                ? const Color(0xFF6B807B)
+                : const Color(0xFF0EAD69),
+            size: 18,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              terputusDiTengahSesi
+                  ? 'Jam terputus, tetapi sesi ini tetap berjalan. Jam terus '
+                        'mengukur sendiri dan menyimpan hasilnya; sampelnya '
+                        'menyusul begitu jam tersambung lagi. Tidak perlu '
+                        'membatalkan sesi.'
+                  : 'Jam menyimpan sampel di buffer. Data bisa datang '
+                        'terlambat — sesi tidak gagal hanya karena telat.',
+              style: const TextStyle(
+                fontSize: 11,
+                color: Color(0xFF6B807B),
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Sesi yang jam dindingnya tidak diketahui (docs/protokol-jam.md §4.3).
+///
+/// Ditampilkan, bukan disembunyikan: datanya nyata dan bentuk kurvanya benar.
+/// Yang tidak boleh adalah membiarkan pengguna mengira waktunya juga benar.
+class _KartuWaktuTidakPasti extends StatelessWidget {
+  const _KartuWaktuTidakPasti();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFDF6E3),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFEFE0B8), width: 1),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: const [
+          Icon(Icons.schedule_rounded, color: Color(0xFFB98B00), size: 18),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Jam tidak tersambung sepanjang sesi ini, sehingga waktunya tidak '
+              'bisa dipastikan. Hasil pengukurannya tetap benar, tetapi sesi ini '
+              'tidak dihitung sebagai sesi hari ini dan tidak ikut analisis '
+              'tren.',
+              style: TextStyle(
+                fontSize: 11,
+                color: Color(0xFF7A6420),
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

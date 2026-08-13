@@ -38,6 +38,9 @@ class _RiwayatTabState extends State<RiwayatTab> {
 
   List<SesiMakan> _saring(List<SesiMakan> semua) {
     return semua.where((s) {
+      // Sesi berwaktu tidak pasti punya `waktuMakan` null, jadi ia jatuh dari
+      // setiap filter waktu makan dengan sendirinya (protokol §4.3) — dan tetap
+      // terlihat selama filter itu tidak dipasang.
       if (_filterWaktu != null && s.waktuMakan != _filterWaktu) return false;
       if (_filterKualitas != null && s.kualitasRespons != _filterKualitas) {
         return false;
@@ -408,7 +411,7 @@ class _EntriSesi extends StatelessWidget {
                       Expanded(
                         child: Text(
                           [
-                            sesi.waktuMakan.label,
+                            sesi.labelWaktuMakan,
                             // Nutrisi yang belum dianalisis ditulis apa
                             // adanya (§8).
                             kalori == null

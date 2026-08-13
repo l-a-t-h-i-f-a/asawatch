@@ -12,6 +12,7 @@ import 'package:asawatch/models/contoh_sesi.dart';
 import 'package:asawatch/models/sesi_makan.dart';
 import 'package:asawatch/pemindaian_perangkat_page.dart';
 import 'package:asawatch/profil_tab.dart';
+import 'package:asawatch/services/izin_ble.dart';
 
 import 'helpers.dart';
 
@@ -128,6 +129,12 @@ void main() {
       expect(c.sesiAktif!.t0, isNotNull);
       expect(c.sesiAktif!.status, StatusSesi.berjalan);
 
+      // Setelah sinyal jam sampai, kartunya tidak boleh berbalik bilang jamnya
+      // putus: sesi justru sedang berjalan dan sampelnya ditulis.
+      await tester.pump();
+      expect(find.text('Jam belum tersambung'), findsNothing);
+      expect(find.text('Tombol jam sudah ditekan'), findsOneWidget);
+
       await hentikanSesi(tester, c);
     });
 
@@ -227,7 +234,7 @@ void main() {
       final c = buatControllerUji(status: contohPerangkatTerputus);
       await pumpHalaman(
         tester,
-        const MenghubungkanPerangkatPage(),
+        const MenghubungkanPerangkatPage(izin: IzinBleSelaluBoleh()),
         controller: c,
       );
       await tester.pumpAndSettle();
@@ -245,7 +252,7 @@ void main() {
       final c = buatControllerUji();
       await pumpHalaman(
         tester,
-        const MenghubungkanPerangkatPage(),
+        const MenghubungkanPerangkatPage(izin: IzinBleSelaluBoleh()),
         controller: c,
       );
       await tester.pumpAndSettle();
@@ -262,7 +269,7 @@ void main() {
       final c = buatControllerUji(status: contohPerangkatTerputus);
       await pumpHalaman(
         tester,
-        const MenghubungkanPerangkatPage(),
+        const MenghubungkanPerangkatPage(izin: IzinBleSelaluBoleh()),
         controller: c,
       );
       await tester.pumpAndSettle();
@@ -284,7 +291,7 @@ void main() {
       final c = buatControllerUji(status: contohPerangkatBelumDipasangkan);
       await pumpHalaman(
         tester,
-        const MenghubungkanPerangkatPage(),
+        const MenghubungkanPerangkatPage(izin: IzinBleSelaluBoleh()),
         controller: c,
       );
       await tester.pumpAndSettle();
@@ -301,7 +308,7 @@ void main() {
       final c = buatControllerUji(status: contohPerangkatTersambung);
       await pumpHalaman(
         tester,
-        const MenghubungkanPerangkatPage(),
+        const MenghubungkanPerangkatPage(izin: IzinBleSelaluBoleh()),
         controller: c,
       );
       await tester.pumpAndSettle();
@@ -324,7 +331,7 @@ void main() {
       final c = buatControllerUji(status: contohPerangkatBelumDipasangkan);
       await pumpHalaman(
         tester,
-        const MenghubungkanPerangkatPage(),
+        const MenghubungkanPerangkatPage(izin: IzinBleSelaluBoleh()),
         controller: c,
       );
       await tester.pumpAndSettle();
@@ -335,9 +342,11 @@ void main() {
       expect(find.byType(PemindaianPerangkatPage), findsOneWidget);
       expect(find.text('AsaWatch X1'), findsOneWidget);
       expect(find.text('AsaWatch S2'), findsOneWidget);
-      // Perangkat asing ikut terlihat, tetapi tidak bisa dipilih.
-      expect(find.text('Tidak didukung aplikasi ini'), findsOneWidget);
-      expect(find.text('3 perangkat ditemukan'), findsOneWidget);
+      // Perangkat asing ada di udara (lihat katalog `FakeBleService`) tetapi
+      // disaring service UUID di level OS, jadi ia tidak pernah sampai ke
+      // aplikasi sama sekali.
+      expect(find.text('Perangkat BLE tidak dikenal'), findsNothing);
+      expect(find.text('2 perangkat ditemukan'), findsOneWidget);
 
       await tester.tap(find.text('AsaWatch X1'));
       await tester.pumpAndSettle();
@@ -349,18 +358,98 @@ void main() {
       expect(find.text('Tersambung ke AsaWatch X1'), findsOneWidget);
     });
 
-    testWidgets('perangkat tak didukung tidak bisa disambungkan', (
+    testWidgets('perangkat non-AsaWatch tidak pernah sampai ke daftar', (
+      tester,
+    ) async {
+      // Penyaringan service UUID dilakukan di level OS (protokol §2.2), jadi
+      // yang diuji bukan lagi "tidak bisa dipilih" melainkan "tidak pernah ada".
+      // Katalog `FakeBleService` tetap memuat perangkat asing itu supaya
+      // penyaringannya benar-benar terlihat sedang menyaring sesuatu.
+      final c = buatControllerUji(status: contohPerangkatBelumDipasangkan);
+      await pumpHalaman(
+        tester,
+        const PemindaianPerangkatPage(izin: IzinBleSelaluBoleh()),
+        controller: c,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Perangkat BLE tidak dikenal'), findsNothing);
+      expect(find.text('Tidak didukung aplikasi ini'), findsNothing);
+      expect(c.statusPerangkat.tersambung, isFalse);
+    });
+
+    testWidgets('halaman menjelaskan bahwa hanya AsaWatch yang dicari', (
+      tester,
+    ) async {
+      // Kompensasi atas hilangnya bukti murah bahwa radionya bekerja: sebelum
+      // penyaringan ini ada, headset tetangga yang ikut muncul sudah cukup
+      // menjadi bukti. Sekarang halamannya harus mengatakannya sendiri, atau
+      // daftar kosong akan terbaca sebagai aplikasi yang rusak.
+      final c = buatControllerUji(status: contohPerangkatBelumDipasangkan);
+      await pumpHalaman(
+        tester,
+        const PemindaianPerangkatPage(izin: IzinBleSelaluBoleh()),
+        controller: c,
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('Hanya jam AsaWatch yang dicari'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('izin ditolak permanen menawarkan Pengaturan, bukan spinner', (
+      tester,
+    ) async {
+      // rencana-produksi.md §4.4. Pemindaian tanpa izin di Android tidak
+      // melempar apa pun — ia hanya tidak menemukan apa-apa, dan layar yang
+      // diam terbaca persis seperti jam yang mati.
+      final c = buatControllerUji(status: contohPerangkatBelumDipasangkan);
+      await pumpHalaman(
+        tester,
+        const PemindaianPerangkatPage(
+          izin: _IzinPalsu(HasilIzinBle.ditolakPermanen),
+        ),
+        controller: c,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Buka Pengaturan'), findsOneWidget);
+      expect(find.text('AsaWatch X1'), findsNothing);
+      expect(find.text('Tidak ada perangkat ditemukan'), findsNothing);
+    });
+
+    testWidgets('izin ditolak sekali menawarkan coba lagi', (tester) async {
+      final c = buatControllerUji(status: contohPerangkatBelumDipasangkan);
+      await pumpHalaman(
+        tester,
+        const PemindaianPerangkatPage(izin: _IzinPalsu(HasilIzinBle.ditolak)),
+        controller: c,
+      );
+      await tester.pumpAndSettle();
+
+      // Penolakan sekali masih bisa dibalik tanpa meninggalkan aplikasi, jadi
+      // tombol Pengaturan di sini justru menyesatkan.
+      expect(find.text('Coba Lagi'), findsOneWidget);
+      expect(find.text('Buka Pengaturan'), findsNothing);
+    });
+
+    testWidgets('bluetooth mati dijelaskan sebagai bluetooth mati', (
       tester,
     ) async {
       final c = buatControllerUji(status: contohPerangkatBelumDipasangkan);
-      await pumpHalaman(tester, const PemindaianPerangkatPage(), controller: c);
+      await pumpHalaman(
+        tester,
+        const PemindaianPerangkatPage(
+          izin: _IzinPalsu(HasilIzinBle.bluetoothMati),
+        ),
+        controller: c,
+      );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Perangkat BLE tidak dikenal'));
-      await tester.pumpAndSettle();
-
-      expect(find.byType(PemindaianPerangkatPage), findsOneWidget);
-      expect(c.statusPerangkat.tersambung, isFalse);
+      expect(find.textContaining('Nyalakan Bluetooth'), findsOneWidget);
+      expect(find.text('Buka Pengaturan'), findsNothing);
     });
   });
 
@@ -378,4 +467,18 @@ void main() {
       expect(find.byType(KalibrasiTekananDarahPage), findsOneWidget);
     });
   });
+}
+
+/// Izin dengan hasil yang sudah ditentukan — satu-satunya cara menguji ketiga
+/// jalan buntu izin tanpa saluran platform.
+class _IzinPalsu implements IzinBle {
+  const _IzinPalsu(this.hasil);
+
+  final HasilIzinBle hasil;
+
+  @override
+  Future<HasilIzinBle> minta() async => hasil;
+
+  @override
+  Future<bool> bukaPengaturan() async => true;
 }

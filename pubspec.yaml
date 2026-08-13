@@ -41,6 +41,14 @@ dependencies:
   provider: ^6.1.2
   drift: ^2.34.3
   drift_flutter: ^0.3.1
+  # Dipatok ke 1.x dengan sengaja: 2.x berpindah ke lisensi yang menuntut
+  # pembelian untuk penggunaan komersial, dan AsaWatch adalah produk yang akan
+  # dijual (rencana-produksi.md §10). 1.35.x masih BSD 3-Clause.
+  flutter_blue_plus: ^1.35.5
+  # Dipatok ke 12.x: 13.x menarik permission_handler_android 14 yang menuntut
+  # compileSdk 37, sementara Android Gradle Plugin di proyek ini berhenti di 36.
+  # 12.x memberi API yang persis sama untuk keperluan IzinBle.
+  permission_handler: ^12.0.1
 
 dev_dependencies:
   flutter_test:

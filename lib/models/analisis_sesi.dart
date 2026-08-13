@@ -64,8 +64,14 @@ class AnalisisSesi {
   AnalisisSesi(List<SesiMakan> sesi)
     : sesi = [
         // Sesi yang masih berjalan belum punya kesimpulan apa pun.
+        //
+        // Sesi berwaktu tidak pasti juga tidak ikut (docs/protokol-jam.md §4.3).
+        // Bentuk kurvanya benar, tetapi seluruh isi kelas ini adalah pertanyaan
+        // "membaik atau tidak" — dan itu pertanyaan tentang urutan waktu.
+        // Sesi yang posisinya di kalender tidak diketahui akan menyisip di
+        // tempat yang salah dan mengubah kesimpulannya.
         for (final s in sesi)
-          if (!s.status.sedangAktif) s,
+          if (!s.status.sedangAktif && !s.waktuTidakPasti) s,
       ];
 
   final List<SesiMakan> sesi;
