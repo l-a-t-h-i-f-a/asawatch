@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'informasi_pribadi_page.dart';
 import 'kalibrasi_tekanan_darah_page.dart';
 import 'menghubungkan_perangkat_page.dart';
+import 'pindai_kesehatan_page.dart';
 import 'tujuan_kesehatan_page.dart';
 
 import 'repositories/profil_repository.dart';
@@ -42,7 +43,11 @@ class _ProfilTabState extends State<ProfilTab> {
         automaticallyImplyLeading: false,
         title: const Text(
           'Profil Pengguna',
-          style: TextStyle(color: Color(0xFF1E3A34), fontWeight: FontWeight.bold, fontSize: 18),
+          style: TextStyle(
+            color: Color(0xFF1E3A34),
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
         ),
         centerTitle: true,
       ),
@@ -63,7 +68,10 @@ class _ProfilTabState extends State<ProfilTab> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
+                      border: Border.all(
+                        color: const Color(0xFFE2EBE8),
+                        width: 1.5,
+                      ),
                     ),
                     child: Row(
                       children: [
@@ -145,60 +153,80 @@ class _ProfilTabState extends State<ProfilTab> {
                     onTap: () async {
                       final updated = await Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const InformasiPribadiPage()),
+                        MaterialPageRoute(
+                          builder: (context) => const InformasiPribadiPage(),
+                        ),
                       );
                       if (updated == true) {
                         _loadProfileData();
                       }
                     },
                   ),
-            _buildProfileMenu(
-              icon: Icons.track_changes_rounded,
-              title: 'Tujuan Kesehatan',
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const TujuanKesehatanPage()),
-                );
-              },
-            ),
-            _buildProfileMenu(
-              icon: Icons.watch_rounded,
-              title: 'Status Perangkat',
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const MenghubungkanPerangkatPage(),
+                  _buildProfileMenu(
+                    icon: Icons.track_changes_rounded,
+                    title: 'Tujuan Kesehatan',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const TujuanKesehatanPage(),
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
-            _buildProfileMenu(
-              icon: Icons.tune_rounded,
-              title: 'Kalibrasi Tekanan Darah',
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const KalibrasiTekananDarahPage(),
+                  _buildProfileMenu(
+                    icon: Icons.watch_rounded,
+                    title: 'Status Perangkat',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              const MenghubungkanPerangkatPage(),
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
+                  _buildProfileMenu(
+                    icon: Icons.monitor_heart_rounded,
+                    title: 'Pindai Kesehatan',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const PindaiKesehatanPage(),
+                        ),
+                      );
+                    },
+                  ),
+                  _buildProfileMenu(
+                    icon: Icons.tune_rounded,
+                    title: 'Kalibrasi Tekanan Darah',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              const KalibrasiTekananDarahPage(),
+                        ),
+                      );
+                    },
+                  ),
+                  _buildProfileMenu(
+                    icon: Icons.logout_rounded,
+                    title: 'Keluar',
+                    color: Colors.redAccent,
+                    onTap: () {
+                      // Logout to Welcome Page
+                      Navigator.of(
+                        context,
+                      ).pushNamedAndRemoveUntil('/welcome', (route) => false);
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                ],
+              ),
             ),
-            _buildProfileMenu(
-              icon: Icons.logout_rounded,
-              title: 'Keluar',
-              color: Colors.redAccent,
-              onTap: () {
-                // Logout to Welcome Page
-                Navigator.of(context).pushNamedAndRemoveUntil('/welcome', (route) => false);
-              },
-            ),
-            const SizedBox(height: 24),
-          ],
-        ),
-      ),
     );
   }
 
@@ -232,7 +260,10 @@ class _ProfilTabState extends State<ProfilTab> {
               color: color,
             ),
           ),
-          trailing: Icon(Icons.chevron_right_rounded, color: color.withValues(alpha: 0.5)),
+          trailing: Icon(
+            Icons.chevron_right_rounded,
+            color: color.withValues(alpha: 0.5),
+          ),
         ),
       ),
     );

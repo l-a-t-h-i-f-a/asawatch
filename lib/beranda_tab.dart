@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'controllers/sesi_makan_controller.dart';
 import 'models/sesi_makan.dart';
 import 'models/target_harian.dart';
+import 'pindai_kesehatan_page.dart';
 import 'repositories/profil_repository.dart';
 import 'ringkasan_sesi_page.dart';
 import 'sesi_berjalan_page.dart';
@@ -15,6 +16,7 @@ import 'widgets/petunjuk_tombol_jam.dart';
 import 'widgets/ringkasan_nutrisi.dart';
 import 'widgets/sparkline.dart';
 import 'widgets/timeline_sampel.dart';
+import 'widgets/tombol_sinkron.dart';
 
 /// Beranda menjawab "sesi kamu sampai mana", bukan lagi "bagaimana kondisimu
 /// sekarang" (§3). Kartu vital "sekarang" sudah dihapus: jam hanya mengukur
@@ -132,31 +134,17 @@ class _BerandaTabState extends State<BerandaTab> {
                     ],
                   ),
                 ),
-                // Notification and Badge
-                Stack(
-                  children: [
-                    IconButton(
-                      icon: const Icon(
-                        Icons.notifications_none_rounded,
-                        color: Color(0xFF1E3A34),
-                        size: 28,
-                      ),
-                      onPressed: () {},
-                    ),
-                    Positioned(
-                      right: 12,
-                      top: 12,
-                      child: Container(
-                        width: 8,
-                        height: 8,
-                        decoration: const BoxDecoration(
-                          color: Colors.redAccent,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                // Lonceng notifikasi dihapus bersama titik merahnya, karena
+                // keduanya berbohong: `onPressed` kosong, dan titiknya
+                // di-hardcode menyala sehingga selalu mengaku ada pemberitahuan
+                // belum dibaca. Aplikasi ini tidak punya notifikasi sama sekali.
+                //
+                // Kalau kelak dibuat sungguhan, pemicunya sudah jelas dan bukan
+                // ini: titik ukur +1 jam dan +2 jam sebuah sesi, serta
+                // `tenggatSampelTerakhir` yang menutup sesi jadi `tidakLengkap`.
+                // Sesi berlangsung ~2 jam dan pengguna pasti meninggalkan
+                // aplikasi, jadi saat ini tak satu pun dari ketiganya
+                // diberitahukan.
               ],
             ),
             const SizedBox(height: 16),
@@ -168,6 +156,14 @@ class _BerandaTabState extends State<BerandaTab> {
 
             // Tiga wajah sesi.
             const _AreaSesi(),
+            const SizedBox(height: 20),
+
+            // Di bawah area sesi, bukan di atasnya: Beranda menjawab "sesi kamu
+            // sampai mana" lebih dulu (§3), dan pindai lepas adalah tindakan
+            // sampingan. Tetap di Beranda — bukan hanya di Profil — karena ia
+            // dipakai saat seseorang merasa ada yang tidak beres, dan pada saat
+            // itu ia tidak akan mencarinya di dalam menu.
+            const _KartuPindaiKesehatan(),
             const SizedBox(height: 16),
           ],
         ),
@@ -187,12 +183,13 @@ class _StatusJamHeader extends StatelessWidget {
     return Row(
       children: [
         Expanded(child: StatusPerangkatBar(perangkat: p)),
-        const SizedBox(width: 10),
-        IconButton(
-          onPressed: controller.sinkronkan,
-          tooltip: 'Sinkronkan',
-          icon: const Icon(Icons.sync_rounded, color: Color(0xFF0EAD69)),
-        ),
+        // Tanpa jam yang pernah dipasangkan tidak ada apa pun untuk ditarik,
+        // jadi tombolnya tidak ada sama sekali — bukan ada tapi mati. Aturan
+        // yang sama dipakai kartu status di MenghubungkanPerangkatPage.
+        if (!p.belumDipasangkan) ...[
+          const SizedBox(width: 10),
+          TombolSinkron(aktif: p.tersambung, ringkas: true),
+        ],
       ],
     );
   }
@@ -239,10 +236,100 @@ class _PeringatanPenyimpanan extends StatelessWidget {
             onTap: controller.buangGalatPenyimpanan,
             child: const Padding(
               padding: EdgeInsets.only(left: 8),
-              child: Icon(Icons.close_rounded, size: 18, color: Color(0xFFB4761E)),
+              child: Icon(
+                Icons.close_rounded,
+                size: 18,
+                color: Color(0xFFB4761E),
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Pintu masuk pindai kesehatan atas permintaan.
+///
+/// Kalimat pendukungnya berubah menurut keadaan jam, bukan hanya tombolnya yang
+/// mati: kartu yang terlihat sama persis baik jam tersambung maupun tidak
+/// membuat ketukan yang tidak menghasilkan apa-apa terbaca sebagai aplikasi yang
+/// rusak. Kartunya tetap **bisa diketuk** meski jam sedang terputus — halaman
+/// tujuannya justru yang menerangkan sebabnya dan menawarkan jalan keluarnya.
+class _KartuPindaiKesehatan extends StatelessWidget {
+  const _KartuPindaiKesehatan();
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.watch<SesiMakanController>().statusPerangkat;
+    final keterangan = p.belumDipasangkan
+        ? 'Perlu jam AsaWatch yang sudah dipasangkan'
+        : !p.tersambung
+        ? 'Jam belum tersambung — dekatkan ke ponsel'
+        : 'Ukur sekali jalan tanpa menunggu jam makan';
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const PindaiKesehatanPage()),
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE2F6F0),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.monitor_heart_rounded,
+                  size: 22,
+                  color: Color(0xFF0EAD69),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Pindai Kesehatan',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1E3A34),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      keterangan,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF7E9A94),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right_rounded,
+                size: 20,
+                color: Color(0xFF8FA7A1),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -332,6 +419,7 @@ class _KartuSesiBerjalan extends StatelessWidget {
             sampel: sesi.sampel,
             t0: sesi.t0,
             indexBerikutnya: sesi.sampelBerikutnya?.index,
+            kemampuan: controller.statusPerangkat.metrikTampil,
           ),
         ),
         const SizedBox(height: 16),
@@ -676,10 +764,7 @@ class _KartuSesiTerakhir extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const JudulBagian(
-          ikon: Icons.history_rounded,
-          judul: 'Sesi Terakhir',
-        ),
+        const JudulBagian(ikon: Icons.history_rounded, judul: 'Sesi Terakhir'),
         GestureDetector(
           onTap: () => Navigator.push(
             context,

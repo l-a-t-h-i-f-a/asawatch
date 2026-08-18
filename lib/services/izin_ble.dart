@@ -47,7 +47,8 @@ extension PesanIzinBle on HasilIzinBle {
       'Izin Bluetooth ditolak permanen, jadi jam tidak bisa ditemukan. Buka '
           'Pengaturan aplikasi untuk mengizinkannya.',
     HasilIzinBle.bluetoothMati =>
-      'Bluetooth ponsel sedang mati. Nyalakan Bluetooth, lalu pindai lagi.',
+      'Bluetooth ponsel sedang mati, jadi jam tidak bisa ditemukan. Nyalakan '
+          'Bluetooth, lalu pindai lagi.',
   };
 
   /// Hanya penolakan permanen yang butuh tombol ke Pengaturan; sisanya cukup
@@ -55,9 +56,57 @@ extension PesanIzinBle on HasilIzinBle {
   bool get butuhPengaturan => this == HasilIzinBle.ditolakPermanen;
 }
 
+/// Hasil permintaan menyalakan Bluetooth.
+///
+/// Bukan `bool`, dengan alasan yang sama seperti [HasilSambung] dan
+/// [HasilMasuk]: tiap sebab menuntut hal yang berbeda dari halaman. Pengguna
+/// yang menekan "Jangan" pada dialog sistem sudah tahu apa yang terjadi dan
+/// tidak perlu dimarahi; perangkat yang tidak mendukungnya sama sekali harus
+/// diberi tahu bahwa Pengaturan adalah satu-satunya jalan.
+enum HasilNyalakanBluetooth {
+  /// Radionya sudah menyala sekarang.
+  menyala,
+
+  /// Pengguna menolak dialog sistem, atau menutupnya tanpa menjawab.
+  ditolakPengguna,
+
+  /// Platformnya tidak mengizinkan aplikasi menyalakan radio sendiri — iOS
+  /// tidak punya padanan `ACTION_REQUEST_ENABLE` dan tidak akan pernah punya.
+  tidakDidukung,
+
+  /// Permintaannya sampai, tetapi radionya tidak juga menyala.
+  gagal,
+}
+
+extension PesanNyalakanBluetooth on HasilNyalakanBluetooth {
+  String? get pesan => switch (this) {
+    HasilNyalakanBluetooth.menyala => null,
+    HasilNyalakanBluetooth.ditolakPengguna =>
+      'Bluetooth masih mati. Nyalakan untuk mencari jam.',
+    HasilNyalakanBluetooth.tidakDidukung =>
+      'Bluetooth harus dinyalakan lewat Pengaturan ponsel.',
+    HasilNyalakanBluetooth.gagal =>
+      'Bluetooth gagal dinyalakan. Coba nyalakan lewat Pengaturan ponsel.',
+  };
+}
+
 /// Meminta izin yang dibutuhkan pemindaian, sesuai versi platformnya.
 abstract class IzinBle {
   Future<HasilIzinBle> minta();
+
+  /// Apakah aplikasi boleh menawarkan tombol "Nyalakan Bluetooth" sama sekali.
+  ///
+  /// Android saja. Menawarkannya di tempat yang tidak bisa memenuhinya hanya
+  /// memindahkan kebuntuan satu ketukan lebih jauh.
+  bool get bisaMenyalakanBluetooth;
+
+  /// Meminta sistem menyalakan Bluetooth.
+  ///
+  /// Bukan "menyalakan sendiri diam-diam": sejak Android 13 `enable()` dicabut,
+  /// jadi yang terjadi adalah dialog sistem yang tetap dijawab pengguna. Yang
+  /// dihemat adalah perjalanan ke Pengaturan dan kembali lagi — bukan
+  /// persetujuannya, yang memang bukan milik aplikasi ini.
+  Future<HasilNyalakanBluetooth> nyalakanBluetooth();
 
   /// Membuka halaman Pengaturan aplikasi. Dipakai hanya saat izinnya ditolak
   /// permanen.
@@ -109,6 +158,32 @@ class IzinBlePermissionHandler implements IzinBle {
   }
 
   @override
+  bool get bisaMenyalakanBluetooth =>
+      defaultTargetPlatform == TargetPlatform.android;
+
+  @override
+  Future<HasilNyalakanBluetooth> nyalakanBluetooth() async {
+    if (!bisaMenyalakanBluetooth) return HasilNyalakanBluetooth.tidakDidukung;
+    try {
+      // `turnOn()` menunggu sampai radionya benar-benar `on`, bukan sampai
+      // dialognya dijawab — jadi begitu ini selesai, pemindaian boleh langsung
+      // dimulai tanpa menunggu `adapterState` lagi.
+      await FlutterBluePlus.turnOn();
+      return HasilNyalakanBluetooth.menyala;
+    } on FlutterBluePlusException catch (galat) {
+      // Menolak dialog bukan kesalahan aplikasi dan kalimatnya pun berbeda.
+      // Batas waktu (dialog yang tidak pernah dijawab) diperlakukan sama:
+      // keduanya berakhir dengan radio yang masih mati atas kemauan pengguna.
+      return galat.code == FbpErrorCode.userRejected.index ||
+              galat.code == FbpErrorCode.timeout.index
+          ? HasilNyalakanBluetooth.ditolakPengguna
+          : HasilNyalakanBluetooth.gagal;
+    } catch (_) {
+      return HasilNyalakanBluetooth.gagal;
+    }
+  }
+
+  @override
   Future<bool> bukaPengaturan() => openAppSettings();
 }
 
@@ -119,6 +194,13 @@ class IzinBleSelaluBoleh implements IzinBle {
 
   @override
   Future<HasilIzinBle> minta() async => HasilIzinBle.diberikan;
+
+  @override
+  bool get bisaMenyalakanBluetooth => false;
+
+  @override
+  Future<HasilNyalakanBluetooth> nyalakanBluetooth() async =>
+      HasilNyalakanBluetooth.menyala;
 
   @override
   Future<bool> bukaPengaturan() async => false;

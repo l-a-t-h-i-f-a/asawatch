@@ -164,9 +164,7 @@ class _RiwayatTabState extends State<RiwayatTab> {
         setState(() => _filterKualitas = nilai);
         Navigator.pop(context);
       },
-      ikon: nilai == null
-          ? Icons.done_all_rounded
-          : ikonKualitasRespons(nilai),
+      ikon: nilai == null ? Icons.done_all_rounded : ikonKualitasRespons(nilai),
     );
   }
 

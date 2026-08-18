@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/analisis_sesi.dart';
+import 'kurva_sampel.dart' show fontPainter;
 
 /// Sebaran karbohidrat terdeteksi vs kenaikan gula darah — satu titik per sesi
 /// (§4.3). Ini pertanyaan terkuat yang bisa dijawab aplikasi, dan datanya nyata
@@ -36,7 +37,11 @@ class SebaranKarboGula extends StatelessWidget {
               child: Text(
                 'Butuh minimal dua sesi untuk melihat hubungannya',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: Color(0xFF8FA7A1)),
+                style: TextStyle(
+                  fontFamily: fontPainter,
+                  fontSize: 12,
+                  color: Color(0xFF8FA7A1),
+                ),
               ),
             )
           : CustomPaint(
@@ -92,7 +97,11 @@ class SebaranKarboPainter extends CustomPainter {
         canvas,
         '+${nilai.round()}',
         Offset(0, y - 6),
-        const TextStyle(fontSize: 9, color: Color(0xFF9CB1AC)),
+        const TextStyle(
+          fontFamily: fontPainter,
+          fontSize: 9,
+          color: Color(0xFF9CB1AC),
+        ),
       );
     }
 
@@ -103,7 +112,11 @@ class SebaranKarboPainter extends CustomPainter {
         canvas,
         '${karbo.round()} g',
         Offset(xDari(karbo), size.height - _padBawah + 4),
-        const TextStyle(fontSize: 9, color: Color(0xFF9CB1AC)),
+        const TextStyle(
+          fontFamily: fontPainter,
+          fontSize: 9,
+          color: Color(0xFF9CB1AC),
+        ),
         pusatDiX: true,
         batasKanan: size.width,
       );
@@ -112,7 +125,11 @@ class SebaranKarboPainter extends CustomPainter {
       canvas,
       'karbohidrat →',
       Offset(area.right, size.height - 12),
-      const TextStyle(fontSize: 9, color: Color(0xFF9CB1AC)),
+      const TextStyle(
+        fontFamily: fontPainter,
+        fontSize: 9,
+        color: Color(0xFF9CB1AC),
+      ),
       rataKanan: true,
     );
 
@@ -132,11 +149,7 @@ class SebaranKarboPainter extends CustomPainter {
     for (final p in titik) {
       final pusat = Offset(xDari(p.karbohidrat), yDari(p.delta.toDouble()));
       if (p.andal) {
-        canvas.drawCircle(
-          pusat,
-          5,
-          Paint()..color = const Color(0xFF0EAD69),
-        );
+        canvas.drawCircle(pusat, 5, Paint()..color = const Color(0xFF0EAD69));
       } else {
         // Keyakinan rendah: lingkaran kosong, tidak ikut garis tren.
         canvas.drawCircle(

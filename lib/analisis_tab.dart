@@ -380,6 +380,15 @@ class _PintuDetailMetrik extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Metrik yang jam ini tidak punya tidak diberi pintu: halamannya hanya akan
+    // berisi `—` dari atas ke bawah, dan itu terbaca sebagai aplikasi yang rusak
+    // atau pengukuran yang gagal — bukan sebagai sensor yang memang tidak ada
+    // (docs/protokol-jam.md §3).
+    final kemampuan = context
+        .watch<SesiMakanController>()
+        .statusPerangkat
+        .metrikTampil;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -387,20 +396,22 @@ class _PintuDetailMetrik extends StatelessWidget {
           ikon: Icons.travel_explore_rounded,
           judul: 'Telusuri per Metrik',
         ),
-        _baris(
-          context,
-          ikon: ikonGulaDarah,
-          judul: 'Gula Darah',
-          keterangan: 'Kurva respons semua sesi dan rata-rata puncak',
-          halaman: () => const GulaDarahDetailPage(),
-        ),
-        _baris(
-          context,
-          ikon: ikonTekananDarah,
-          judul: 'Tekanan Darah',
-          keterangan: 'Tren per sesi dan status kalibrasi',
-          halaman: () => const TekananDarahDetailPage(),
-        ),
+        if (kemampuan.gulaDarah)
+          _baris(
+            context,
+            ikon: ikonGulaDarah,
+            judul: 'Gula Darah',
+            keterangan: 'Kurva respons semua sesi dan rata-rata puncak',
+            halaman: () => const GulaDarahDetailPage(),
+          ),
+        if (kemampuan.tekananDarah)
+          _baris(
+            context,
+            ikon: ikonTekananDarah,
+            judul: 'Tekanan Darah',
+            keterangan: 'Tren per sesi dan status kalibrasi',
+            halaman: () => const TekananDarahDetailPage(),
+          ),
         _baris(
           context,
           ikon: ikonDetakJantung,
@@ -469,10 +480,7 @@ class _PintuDetailMetrik extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(
-                Icons.chevron_right_rounded,
-                color: Color(0xFF8FA7A1),
-              ),
+              const Icon(Icons.chevron_right_rounded, color: Color(0xFF8FA7A1)),
             ],
           ),
         ),

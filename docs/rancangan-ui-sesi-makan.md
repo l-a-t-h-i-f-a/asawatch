@@ -186,7 +186,7 @@ kini benar-benar bisa dilacak, bukan dekoratif. Sambungkan ke ringkasan harian d
 |---|---|
 | `SesiBerjalanPage` | Tampilan penuh sesi aktif: timeline 4 titik, foto, nutrisi, status jam, opsi batalkan sesi. |
 | `RingkasanSesiPage` | Hasil satu sesi: kurva respons, puncak, delta dari baseline, waktu pemulihan, verdict berbahasa Indonesia. |
-| `KalibrasiTekananDarahPage` | User memasukkan hasil tensimeter, aplikasi meminta jam mengukur bersamaan, lalu mengirim koefisien kalibrasi ke jam. |
+| `KalibrasiTekananDarahPage` | Prosedur bertahap: persiapan + pilih pergelangan → tiga putaran (manset di lengan seberang, diukur bersamaan dengan jam, jeda 60 detik antar putaran) → ringkasan, lalu median selisihnya dikirim ke jam. Pembacaan jam disembunyikan sampai hasil tensimeter diketik. Kalibrasi berlaku 4 minggu. |
 
 ---
 
@@ -199,17 +199,35 @@ di [main.dart](../lib/main.dart) (index 2 melakukan `push`, bukan berpindah tab,
 | Status sesi | Tombol tengah |
 |---|---|
 | Idle | "Foto Makanan" → `DeteksiMakananPage` |
-| Foto sudah diambil, t0 belum diset | Membuka `SesiBerjalanPage`, yang menerangkan bahwa t0 ditunggu dari tombol di jam |
+| Foto sudah diambil, t0 belum diset | Membuka `SesiBerjalanPage`, yang menawarkan tombol "Saya Sudah Selesai Makan" dan menerangkan bahwa tombol di jam melakukan hal yang sama |
 | Sesi berjalan | Membuka `SesiBerjalanPage`; memulai sesi baru menawarkan "akhiri sesi berjalan" lebih dulu |
 
 Hanya satu sesi aktif pada satu waktu.
 
-**t0 tidak pernah ditetapkan dari app.** Tombol tengah karena itu hanya punya dua aksi
-(foto / buka sesi), dan permukaan mana pun yang dulu menawarkan "Selesai Makan & Pantau"
-sekarang memakai `PetunjukTombolJam`
-([lib/widgets/petunjuk_tombol_jam.dart](../lib/widgets/petunjuk_tombol_jam.dart)) yang
-menerangkan apa yang sedang ditunggu — termasuk jujur menyebut kalau jam belum tersambung
-sehingga tombolnya belum menyala.
+**t0 tidak pernah *dihitung* di app** — dan itu tetap berlaku, tetapi bentuknya di layar
+sudah berubah dua kali; yang di bawah ini yang berlaku sekarang.
+
+Mula-mula tombol "Selesai Makan & Pantau" dihapus seluruhnya dan diganti `PetunjukTombolJam`
+([lib/widgets/petunjuk_tombol_jam.dart](../lib/widgets/petunjuk_tombol_jam.dart)), karena
+t0 hanya boleh datang dari jam. Itu benar soal t0-nya, tetapi **terlalu jauh soal tombolnya**:
+pengguna yang sedang memegang ponselnya jadi harus mengingat tombol mana di jam yang harus
+ditekan, untuk sesuatu yang layarnya sedang menunggu.
+
+Sekarang widget yang sama memuat **keduanya**: kalimat tentang tombol jam, dan tombol
+"Saya Sudah Selesai Makan" di bawahnya. Yang membuat itu tidak melanggar aturan t0 adalah
+bentuk perintahnya — `MULAI_SESI` (docs/protokol-jam.md §5.1) berisi `sesiId` saja, **tanpa
+waktu sama sekali**. Jam yang membaca pencacahnya sendiri lalu mengirim
+`TOMBOL_SELESAI_MAKAN` seperti biasa, jadi yang ditambahkan bukan sumber t0 kedua melainkan
+cara kedua menekan tombol yang sama. Sesi baru berpindah ke `berjalan` saat peristiwa itu
+sampai, bukan saat tombolnya diketuk.
+
+Tombol jam **tetap disebut lebih dulu dan tidak boleh dihapus**: ia satu-satunya yang bekerja
+saat ponselnya tidak dipegang — keadaan yang justru paling lazim saat orang sedang makan.
+Kejujuran soal jam yang belum tersambung juga tetap, dan sekarang ia sekaligus mematikan
+tombol di layar: perintahnya berjalan lewat BLE, jadi tanpa tautan tidak ada tombol mana pun
+yang bisa dipakai.
+
+Tombol tengah tetap hanya punya dua aksi (foto / buka sesi).
 
 ---
 
@@ -298,7 +316,14 @@ Ini restrukturisasi arsitektur informasi, **bukan** redesign visual.
    tetap ikut diplot di Analisis (§4.3).
 7. ~~Kalibrasi tekanan darah & status perangkat~~ **selesai** —
    [lib/kalibrasi_tekanan_darah_page.dart](../lib/kalibrasi_tekanan_darah_page.dart) mengunci
-   urutan tensimeter → jam → kirim koefisien (`BleService.ukurSekarang` dan `kirimKalibrasi`);
+   urutan tensimeter → jam → kirim koefisien (`BleService.ukurSekarang` dan `kirimKalibrasi`).
+   **Metodenya kemudian disamakan dengan alat sejenis (Samsung Health Monitor):** manset di lengan
+   yang berlawanan dengan jam dan keduanya diukur **bersamaan**, tiga putaran dengan jeda 60 detik,
+   koreksi diambil median, putaran yang saling bertentangan ditolak, dan kalibrasi kedaluwarsa
+   setelah 4 minggu serta terikat pada satu pergelangan. Karena pengukurannya bersamaan, urutan
+   "tensimeter dulu" tidak lagi bisa dipakai untuk mencegah user menyesuaikan angka; penggantinya
+   adalah menyembunyikan pembacaan jam sampai angka tensimeter masuk.
+   Rinciannya di CLAUDE.md dan di komentar `Kalibrasi`;
    [menghubungkan_perangkat_page.dart](../lib/menghubungkan_perangkat_page.dart) menampilkan
    baterai, sinkronisasi terakhir, dan jumlah sampel tertahan di buffer; Profil menautkan
    keduanya. Kalibrasi tersimpan di memori controller — belum ada penyimpanan untuk data
@@ -448,10 +473,13 @@ abstract class BleService {
   Stream<StatusPerangkat> get statusPerangkat; // tersambung, baterai, sampelTertunda
   Stream<({String sesiId, Sampel sampel})> get sampelMasuk;
 
-  // Tombol "Selesai Makan" di jam ditekan; t0 memakai jam milik jam tangan.
+  // Tombol "Selesai Makan" ditekan; t0 memakai jam milik jam tangan. Sumbernya
+  // bisa tombol fisik atau MULAI_SESI dari app — tidak dibedakan, dan memang
+  // tidak boleh dibedakan.
   Stream<({String sesiId, DateTime t0})> get selesaiMakanDitekan;
 
   Future<bool> siapkanSesi(String sesiId);          // nyalakan tombol di jam
+  Future<bool> mulaiSesi(String sesiId);            // tekan tombol jam dari app
   Future<void> mintaUkur(String sesiId, int index); // baseline
   Future<void> batalkanSesi(String sesiId);
   Future<void> sinkronkan();                        // tarik buffer jam
@@ -496,7 +524,9 @@ Aturan yang mengikat:
   "akhiri sesi berjalan" lebih dulu (§6).
 - **t0 dipakai apa adanya dari jam.** Peristiwa tombolnya bisa sampai berjam-jam
   belakangan lewat buffer; menghitung ulang t0 dengan jam HP saat pesannya tiba akan
-  menggeser seluruh jadwal sesi (§8).
+  menggeser seluruh jadwal sesi (§8). Ini **tidak berubah** ketika tombolnya ditekan dari
+  app: `mulaiSesiDariApp()` mengirim `MULAI_SESI` lalu tidak menyentuh `_sesiAktif` sama
+  sekali — yang memulai sesi tetap peristiwa balasan dari jam.
 - **Jam disiapkan saat draft dibuat, dan disiapkan ulang tiap kali jam tersambung
   kembali.** Selama penyiapannya belum sampai, sesi berdiri di `menungguPerangkat` dan
   tombol di jam tetap menolak — itulah yang menjamin sesi tidak pernah mulai tanpa foto.

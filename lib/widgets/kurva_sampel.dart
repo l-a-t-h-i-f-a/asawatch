@@ -2,6 +2,17 @@ import 'package:flutter/material.dart';
 
 import '../models/sesi_makan.dart';
 
+/// Font untuk teks yang digambar `CustomPainter`.
+///
+/// **Wajib disebut di setiap `TextStyle` milik painter.** `TextPainter` tidak
+/// mewarisi apa pun dari pohon widget, jadi gaya tanpa `fontFamily` diam-diam
+/// memakai font bawaan platform (Roboto di Android) — sementara seluruh sisa
+/// aplikasi memakai Montserrat lewat `ThemeData.fontFamily`. Akibatnya setiap
+/// label di dalam grafik memakai huruf yang berbeda dari label tepat di
+/// sebelahnya, dan itu tidak terlihat di code review maupun di golden test
+/// (keduanya jatuh ke font cadangan yang sama).
+const String fontPainter = 'Montserrat';
+
 /// Satu garis pada grafik: metrik mana yang diambil dari tiap [Sampel].
 ///
 /// Dipakai untuk menyatukan seluruh grafik data dalam satu painter, sehingga
@@ -13,12 +24,23 @@ class SeriMetrik {
     required this.ambil,
     this.satuan = '',
     this.isiGradien = false,
+    this.rentangMinimum = 20,
   });
 
   final String label;
   final Color warna;
   final int? Function(Sampel) ambil;
   final String satuan;
+
+  /// Lebar sumbu y terkecil yang masih masuk akal untuk metrik ini.
+  ///
+  /// Sumbu diskalakan dari datanya, jadi tanpa lantai ini sesi yang angkanya
+  /// nyaris rata akan digambar sebagai gelombang dramatis dari selisih 2 mg/dL.
+  /// Tetapi lantai yang sama untuk semua metrik salah ke arah sebaliknya: SpO2
+  /// sehat bergerak di 95–100, dan memaksakan lebar 20 ke sana meratakan
+  /// satu-satunya hal yang ingin dilihat — penurunannya. Karena itu angkanya
+  /// milik metriknya, bukan milik painter.
+  final int rentangMinimum;
 
   /// Isi gradien di bawah garis; hanya masuk akal untuk grafik satu garis.
   final bool isiGradien;
@@ -60,6 +82,18 @@ const SeriMetrik seriDiastolik = SeriMetrik(
   satuan: 'mmHg',
 );
 
+/// SpO2 punya rentang wajar yang jauh lebih sempit dari metrik lain: 95–100
+/// pada orang sehat, dan turun di bawah 95 sudah berarti sesuatu. `20` akan
+/// meratakan seluruh grafiknya menjadi garis lurus.
+const SeriMetrik seriSpo2 = SeriMetrik(
+  label: 'Oksigen (SpO₂)',
+  warna: Color(0xFF0EAD69),
+  ambil: ambilSpo2,
+  satuan: '%',
+  isiGradien: true,
+  rentangMinimum: 8,
+);
+
 /// Grafik satu sesi: 4 titik dalam ~2,5 jam, bukan kurva harian.
 ///
 /// Sumbu x memakai `detikRelatifT0` tiap sampel, jadi jarak antar titik
@@ -87,9 +121,8 @@ class KurvaSampel extends StatelessWidget {
   final double tinggi;
   final String pesanKosong;
 
-  bool get _adaData => sampel.any(
-    (s) => s.terisi && seri.any((m) => m.ambil(s) != null),
-  );
+  bool get _adaData =>
+      sampel.any((s) => s.terisi && seri.any((m) => m.ambil(s) != null));
 
   @override
   Widget build(BuildContext context) {
@@ -114,7 +147,11 @@ class KurvaSampel extends StatelessWidget {
           : Center(
               child: Text(
                 pesanKosong,
-                style: const TextStyle(fontSize: 12, color: Color(0xFF8FA7A1)),
+                style: const TextStyle(
+                  fontFamily: fontPainter,
+                  fontSize: 12,
+                  color: Color(0xFF8FA7A1),
+                ),
               ),
             ),
     );
@@ -157,7 +194,11 @@ class KurvaTumpukSesi extends StatelessWidget {
           ? const Center(
               child: Text(
                 'Belum ada sesi dengan baseline terukur',
-                style: TextStyle(fontSize: 12, color: Color(0xFF8FA7A1)),
+                style: TextStyle(
+                  fontFamily: fontPainter,
+                  fontSize: 12,
+                  color: Color(0xFF8FA7A1),
+                ),
               ),
             )
           : CustomPaint(
@@ -205,7 +246,12 @@ class KurvaTumpukPainter extends CustomPainter {
     yMax = yMax + 12;
     yMin = yMin - 12;
 
-    final area = Rect.fromLTRB(0, _padAtas, size.width, size.height - _padBawah);
+    final area = Rect.fromLTRB(
+      0,
+      _padAtas,
+      size.width,
+      size.height - _padBawah,
+    );
     double xDari(int detik) =>
         area.left + (detik - xMin) / (xMax - xMin) * area.width;
     double yDari(double delta) =>
@@ -224,7 +270,11 @@ class KurvaTumpukPainter extends CustomPainter {
       canvas,
       'baseline',
       Offset(area.left, y0 + 2),
-      const TextStyle(fontSize: 9, color: Color(0xFF9CB1AC)),
+      const TextStyle(
+        fontFamily: fontPainter,
+        fontSize: 9,
+        color: Color(0xFF9CB1AC),
+      ),
     );
 
     final paintTipis = Paint()
@@ -234,8 +284,7 @@ class KurvaTumpukPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
 
     for (final titik in garis) {
-      final path = Path()
-        ..moveTo(xDari(titik.first.x), yDari(titik.first.y));
+      final path = Path()..moveTo(xDari(titik.first.x), yDari(titik.first.y));
       for (var i = 1; i < titik.length; i++) {
         _sambung(
           path,
@@ -292,6 +341,7 @@ class KurvaTumpukPainter extends CustomPainter {
           '${t.y >= 0 ? '+' : ''}${t.y.round()}',
           Offset(pusat.dx, pusat.dy - 22),
           const TextStyle(
+            fontFamily: fontPainter,
             fontSize: 9,
             fontWeight: FontWeight.bold,
             color: Color(0xFF1E3A34),
@@ -308,7 +358,11 @@ class KurvaTumpukPainter extends CustomPainter {
         canvas,
         labelTitikSampel[t.index],
         Offset(xDari(t.x), size.height - _padBawah + 4),
-        const TextStyle(fontSize: 9, color: Color(0xFF6B807B)),
+        const TextStyle(
+          fontFamily: fontPainter,
+          fontSize: 9,
+          color: Color(0xFF6B807B),
+        ),
         pusatDiX: true,
         batasKanan: size.width,
       );
@@ -357,7 +411,21 @@ class KurvaSampelPainter extends CustomPainter {
   final int? garisAcuan;
   final String? labelAcuan;
 
-  static const double _padBawah = 22;
+  /// Cukup untuk **dua baris** label sumbu x: yang berdesakan turun satu baris,
+  /// dan titik yang terlewat menulis namanya di atas tanda `—`.
+  static const double _padBawah = 32;
+
+  static const TextStyle _gayaAcuan = TextStyle(
+    fontFamily: fontPainter,
+    fontSize: 9,
+    color: Color(0xFF9CB1AC),
+  );
+
+  /// Lebar teks sebelum digambar, untuk memutuskan tata letaknya.
+  double _ukur(String teks, TextStyle gaya) => (TextPainter(
+    text: TextSpan(text: teks, style: gaya),
+    textDirection: TextDirection.ltr,
+  )..layout()).width;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -378,9 +446,16 @@ class KurvaSampelPainter extends CustomPainter {
         if (v > nilaiMax) nilaiMax = v;
       }
     }
-    if (nilaiMax - nilaiMin < 20) {
-      nilaiMin -= 10;
-      nilaiMax += 10;
+    // Lantai rentang milik metriknya (lihat `SeriMetrik.rentangMinimum`); bila
+    // beberapa garis berbagi satu sumbu, yang terlebar yang menang.
+    var rentangMinimum = 0;
+    for (final m in seri) {
+      if (m.rentangMinimum > rentangMinimum) rentangMinimum = m.rentangMinimum;
+    }
+    if (nilaiMax - nilaiMin < rentangMinimum) {
+      final pad = (rentangMinimum / 2).ceil();
+      nilaiMin -= pad;
+      nilaiMax += pad;
     } else {
       nilaiMin -= 12;
       nilaiMax += 12;
@@ -414,11 +489,15 @@ class KurvaSampelPainter extends CustomPainter {
           ..color = const Color(0xFF9CB1AC)
           ..strokeWidth = 1.2,
       );
+      // Ditempel di **kanan**, bukan kiri. Titik paling awal sebuah sesi selalu
+      // baseline, jadi ia duduk di ujung kiri bersama label nilainya sendiri —
+      // dan "baseline 92" di sana menimpanya persis.
+      final teksAcuan = labelAcuan ?? 'baseline $acuan';
       _teks(
         canvas,
-        labelAcuan ?? 'baseline $acuan',
-        Offset(area.left, y - 14),
-        const TextStyle(fontSize: 9, color: Color(0xFF9CB1AC)),
+        teksAcuan,
+        Offset(area.right - _ukur(teksAcuan, _gayaAcuan), y - 14),
+        _gayaAcuan,
       );
     }
 
@@ -427,22 +506,56 @@ class KurvaSampelPainter extends CustomPainter {
       for (final s in sampel) {
         final v = s.terisi ? m.ambil(s) : null;
         if (v == null) continue;
-        titik.add(_Titik(s.index, Offset(xDari(s.detikRelatifT0), yDari(v)), v));
+        titik.add(
+          _Titik(s.index, Offset(xDari(s.detikRelatifT0), yDari(v)), v),
+        );
       }
-      _gambarSeri(canvas, size, area, m, titik, tampilkanNilai: seri.length == 1);
+      _gambarSeri(
+        canvas,
+        size,
+        area,
+        m,
+        titik,
+        tampilkanNilai: seri.length == 1,
+      );
     }
 
     // Label sumbu x memakai nama titik pengukuran, bukan jam harian.
+    //
+    // **Yang berdesakan turun satu baris.** Sumbu x memakai `detikRelatifT0`
+    // supaya jaraknya mencerminkan jadwal sebenarnya, dan justru itu yang
+    // membuat dua titik pertama berdempetan: baseline diukur beberapa menit
+    // sebelum t0, sementara dua titik berikutnya berjarak satu dan dua jam.
+    // "Baseline" dan "Selesai makan" karena itu saling menimpa di ujung kiri —
+    // terbaca sebagai satu kata rusak. Membuang salah satunya berarti membuang
+    // titik yang justru paling berarti, jadi keduanya tetap ditulis, hanya tidak
+    // sebaris.
+    final kananBaris = <double>[-1e9, -1e9];
     for (final s in sampel) {
       final adaNilai = s.terisi && seri.any((m) => m.ambil(s) != null);
+      final teks = adaNilai ? s.label : '${s.label}\n—';
+      final gaya = TextStyle(
+        fontFamily: fontPainter,
+        fontSize: 9,
+        color: adaNilai ? const Color(0xFF6B807B) : const Color(0xFF9CB1AC),
+      );
+
+      final lebar = _ukur(teks, gaya);
+      final kiri = (xDari(s.detikRelatifT0) - lebar / 2).clamp(
+        0.0,
+        (size.width - lebar).clamp(0.0, size.width),
+      );
+      final baris = kiri >= kananBaris[0] + 6 ? 0 : 1;
+      kananBaris[baris] = kiri + lebar;
+
       _teks(
         canvas,
-        adaNilai ? s.label : '${s.label}\n—',
-        Offset(xDari(s.detikRelatifT0), size.height - _padBawah + 4),
-        TextStyle(
-          fontSize: 9,
-          color: adaNilai ? const Color(0xFF6B807B) : const Color(0xFF9CB1AC),
+        teks,
+        Offset(
+          xDari(s.detikRelatifT0),
+          size.height - _padBawah + 4 + baris * 11,
         ),
+        gaya,
         pusatDiX: true,
         batasKanan: size.width,
       );
@@ -512,6 +625,7 @@ class KurvaSampelPainter extends CustomPainter {
         '${t.nilai}',
         Offset(t.posisi.dx, t.posisi.dy - 24),
         const TextStyle(
+          fontFamily: fontPainter,
           fontSize: 10,
           fontWeight: FontWeight.bold,
           color: Color(0xFF1E3A34),
@@ -530,7 +644,11 @@ class KurvaSampelPainter extends CustomPainter {
         canvas,
         m.label,
         Offset(dx + 12, 0),
-        const TextStyle(fontSize: 9, color: Color(0xFF6B807B)),
+        const TextStyle(
+          fontFamily: fontPainter,
+          fontSize: 9,
+          color: Color(0xFF6B807B),
+        ),
       );
       dx += 12 + pelukis + 14;
     }

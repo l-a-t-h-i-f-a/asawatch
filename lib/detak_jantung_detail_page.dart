@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'controllers/sesi_makan_controller.dart';
-import 'gula_darah_detail_page.dart' show BarisNilaiSampel, JudulSesi, PesanTanpaSesi;
+import 'gula_darah_detail_page.dart'
+    show BarisNilaiSampel, JudulSesi, PesanTanpaSesi;
 import 'models/sesi_makan.dart';
 import 'utils/format_waktu.dart';
 import 'widgets/judul_bagian.dart';
@@ -42,9 +43,12 @@ class DetakJantungDetailPage extends StatelessWidget {
         ),
         centerTitle: true,
       ),
-      body: sesiTampil == null
-          ? const PesanTanpaSesi()
-          : _IsiDetakJantung(sesi: sesiTampil),
+      body: SafeArea(
+        top: false,
+        child: sesiTampil == null
+            ? const PesanTanpaSesi()
+            : _IsiDetakJantung(sesi: sesiTampil),
+      ),
     );
   }
 }

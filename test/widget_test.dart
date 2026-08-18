@@ -15,7 +15,9 @@ import 'package:asawatch/models/sesi_makan.dart';
 import 'package:asawatch/sesi_berjalan_page.dart';
 import 'package:asawatch/welcome_page.dart';
 import 'package:asawatch/login_page.dart';
+import 'package:asawatch/register_page.dart';
 import 'package:asawatch/deteksi_makanan_page.dart';
+import 'package:asawatch/services/auth_service.dart';
 
 import 'helpers.dart';
 
@@ -24,13 +26,25 @@ import 'helpers.dart';
 ///
 /// Controller-nya disuntikkan agar jam palsu bisa dikendalikan dan riwayatnya
 /// tidak bergantung pada data bawaan aplikasi (§11).
-Future<void> pumpApp(WidgetTester tester, {SesiMakanController? controller}) async {
+///
+/// [auth] wajib disuntikkan dengan alasan yang sama seperti `izin:` pada alur
+/// pemindaian: bawaan `MyApp` adalah `AuthHttpService`, dan sebuah permintaan
+/// HTTP di dalam `flutter_test` tidak gagal dengan jelas — ia menggantung
+/// sampai batas waktunya habis.
+Future<void> pumpApp(
+  WidgetTester tester, {
+  SesiMakanController? controller,
+  AuthService? auth,
+}) async {
   pakaiLayarPonsel(tester);
 
   final c = controller ?? buatControllerUji(riwayatAwal: contohRiwayatSesi());
   addTearDown(c.dispose);
 
-  await tester.pumpWidget(MyApp(controller: c));
+  final a = auth ?? FakeAuthService();
+  addTearDown(a.dispose);
+
+  await tester.pumpWidget(MyApp(controller: c, auth: a));
   await tester.pumpAndSettle();
 }
 
@@ -38,11 +52,15 @@ Future<void> pumpApp(WidgetTester tester, {SesiMakanController? controller}) asy
 Future<void> pumpHome(WidgetTester tester, {SesiMakanController? controller}) async {
   await pumpApp(tester, controller: controller);
 
-  await tester.tap(find.text('Mulai Sekarang'));
+  await tester.tap(find.text('Masuk ke Akun'));
   await tester.pumpAndSettle();
 
-  await tester.enterText(find.byType(TextFormField).at(0), 'lathifa21@email.com');
-  await tester.enterText(find.byType(TextFormField).at(1), 'rahasia123');
+  // Akun demo `FakeAuthService`. Sejak `terimaSemua` bawaannya false, kredensial
+  // yang dipakai di sini harus benar-benar cocok — auth palsu tidak lagi
+  // meloloskan apa pun yang tidak kosong.
+  final akun = FakeAuthService.akunDemo.first;
+  await tester.enterText(find.byType(TextFormField).at(0), akun.identifier);
+  await tester.enterText(find.byType(TextFormField).at(1), akun.kataSandi);
 
   await tester.tap(find.widgetWithText(ElevatedButton, 'Masuk'));
   await tester.pumpAndSettle();
@@ -67,10 +85,22 @@ void main() {
       expect(find.text('Masuk ke Akun'), findsOneWidget);
     });
 
-    testWidgets('"Mulai Sekarang" opens the login page', (tester) async {
+    // Kedua tombol dulu membuka halaman yang sama; "Mulai Sekarang" kini
+    // mengikuti teksnya dan membuka pendaftaran.
+    testWidgets('"Mulai Sekarang" opens the register page', (tester) async {
       await pumpApp(tester);
 
       await tester.tap(find.text('Mulai Sekarang'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(RegisterPage), findsOneWidget);
+      expect(find.byType(LoginPage), findsNothing);
+    });
+
+    testWidgets('"Masuk ke Akun" opens the login page', (tester) async {
+      await pumpApp(tester);
+
+      await tester.tap(find.text('Masuk ke Akun'));
       await tester.pumpAndSettle();
 
       expect(find.byType(LoginPage), findsOneWidget);
@@ -80,7 +110,7 @@ void main() {
   group('LoginPage', () {
     testWidgets('empty fields fail validation and block navigation', (tester) async {
       await pumpApp(tester);
-      await tester.tap(find.text('Mulai Sekarang'));
+      await tester.tap(find.text('Masuk ke Akun'));
       await tester.pumpAndSettle();
 
       await tester.tap(find.widgetWithText(ElevatedButton, 'Masuk'));

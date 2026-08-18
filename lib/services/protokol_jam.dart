@@ -27,6 +27,26 @@ class GalatProtokol implements Exception {
   String toString() => 'GalatProtokol: $pesan';
 }
 
+/// Kegagalan perintah ke jam yang sudah tidak bisa diperbaiki dengan mencoba
+/// lagi. [pesanPengguna] siap ditampilkan.
+///
+/// Tinggal di sini, bukan di `ble_asli_service.dart` tempatnya dulu, karena
+/// [FakeBleService] harus bisa melemparkannya juga: jalur gagal sebuah perintah
+/// tidak boleh hanya ada pada implementasi yang tidak bisa dites. Berkas ini
+/// murni byte ↔ Dart dan tidak menyentuh `flutter_blue_plus`, jadi kontrak
+/// [BleService] bisa memakainya tanpa menyeret radionya ikut serta.
+/// `ble_asli_service.dart` mengekspornya kembali agar `import ... show GalatJam`
+/// yang sudah ada tetap bekerja.
+class GalatJam implements Exception {
+  const GalatJam(this.pesanPengguna, {this.kode});
+
+  final String pesanPengguna;
+  final KodeGalatJam? kode;
+
+  @override
+  String toString() => 'GalatJam($kode): $pesanPengguna';
+}
+
 /// Versi mayor firmware tidak cocok dengan yang didukung aplikasi (§3).
 ///
 /// [pesanPengguna] sudah berbahasa Indonesia dan siap ditampilkan apa adanya —
@@ -52,12 +72,13 @@ abstract final class ProtokolJam {
   /// Versi yang dipahami aplikasi ini. Mayor yang berbeda memutus koneksi;
   /// minor yang berbeda hanya berarti ada field yang belum dikenal (§3).
   ///
-  /// Minor 1 menandai tiga perubahan yang dibuat **setelah** implementasi kedua
-  /// sisi dimulai — riwayatnya di §12 dokumen protokol. Nilainya belum dipakai
-  /// untuk mencabangkan perilaku apa pun, dan memang tidak perlu: yang dibelinya
-  /// adalah kemampuan mengenali firmware lama nanti, saat ada firmware lama.
+  /// Minor 2 menandai perubahan-perubahan yang dibuat **setelah** implementasi
+  /// kedua sisi dimulai — riwayatnya di §12 dokumen protokol. Nilainya belum
+  /// dipakai untuk mencabangkan perilaku apa pun, dan memang tidak perlu: yang
+  /// dibelinya adalah kemampuan mengenali firmware lama nanti, saat ada firmware
+  /// lama.
   static const int versiMayorDidukung = 1;
-  static const int versiMinorDidukung = 1;
+  static const int versiMinorDidukung = 2;
 
   static const String uuidLayanan = 'a5a70001-6b4c-4e2a-9d31-0f8c2e5a7b10';
   static const String uuidInfo = 'a5a70002-6b4c-4e2a-9d31-0f8c2e5a7b10';
@@ -108,6 +129,13 @@ abstract final class Opcode {
   static const int sinkron = 0x07;
   static const int ackEvent = 0x08;
 
+  /// Menekan tombol "Selesai Makan" **milik jam** dari aplikasi (v1.2, §5.1).
+  ///
+  /// Bukan "aplikasi menetapkan t0": jam yang mencatat `t0` dari pencacahnya
+  /// sendiri lalu mengirim `TOMBOL_SELESAI_MAKAN` seperti biasa, jadi t0 tetap
+  /// berada di garis waktu jam dan seluruh model waktu (§4) tidak tersentuh.
+  static const int mulaiSesi = 0x09;
+
   static String nama(int opcode) => switch (opcode) {
     anchorWaktu => 'ANCHOR_WAKTU',
     armSesi => 'ARM_SESI',
@@ -117,6 +145,7 @@ abstract final class Opcode {
     setKalibrasi => 'SET_KALIBRASI',
     sinkron => 'SINKRON',
     ackEvent => 'ACK_EVENT',
+    mulaiSesi => 'MULAI_SESI',
     _ => 'opcode 0x${opcode.toRadixString(16)}',
   };
 }
@@ -462,7 +491,22 @@ Uint8List tulisAnchorWaktu({required DateTime epoch, required int bootId}) {
   return data;
 }
 
-Uint8List tulisArmSesi(String sesiId) => _opcodeDenganSesi(Opcode.armSesi, sesiId);
+Uint8List tulisArmSesi(String sesiId) =>
+    _opcodeDenganSesi(Opcode.armSesi, sesiId);
+
+/// `MULAI_SESI` (§5.1) — tombol "Selesai Makan" ditekan dari aplikasi.
+///
+/// Payload-nya `sesiId` saja, **tanpa waktu**, dan justru ketiadaan waktu itulah
+/// isi perintah ini: jam yang membaca pencacahnya sendiri saat perintah tiba,
+/// lalu mengirim `TOMBOL_SELESAI_MAKAN` persis seperti kalau tombol fisiknya
+/// yang ditekan. Aplikasi tidak pernah mengarang `t0` — ia hanya meminta jam
+/// menekan tombolnya sendiri.
+///
+/// Mengirim epoch di sini akan membatalkan seluruh §4: jam tidak punya RTC, dan
+/// satu-satunya cara `t0` bisa dibandingkan dengan `uptime_s` sampelnya adalah
+/// bila keduanya berasal dari pencacah yang sama.
+Uint8List tulisMulaiSesi(String sesiId) =>
+    _opcodeDenganSesi(Opcode.mulaiSesi, sesiId);
 
 Uint8List tulisBatalSesi(String sesiId) =>
     _opcodeDenganSesi(Opcode.batalSesi, sesiId);
@@ -537,8 +581,7 @@ String buatIdSesi([Random? acak]) {
 const String uuidSesiKosong = '00000000-0000-0000-0000-000000000000';
 
 /// Apakah [sesiId] menunjuk sesi sungguhan, bukan penanda "tidak relevan".
-bool sesiIdNyata(String? sesiId) =>
-    sesiId != null && sesiId != uuidSesiKosong;
+bool sesiIdNyata(String? sesiId) => sesiId != null && sesiId != uuidSesiKosong;
 
 /// UUID kanonik → 16 byte, urutan teks (big-endian), sesuai RFC 4122.
 Uint8List uuidKeBiner(String uuid) {
@@ -549,7 +592,9 @@ Uint8List uuidKeBiner(String uuid) {
   final data = Uint8List(16);
   for (var i = 0; i < 16; i++) {
     final nilai = int.tryParse(hex.substring(i * 2, i * 2 + 2), radix: 16);
-    if (nilai == null) throw GalatProtokol('Id sesi "$uuid" bukan heksadesimal.');
+    if (nilai == null) {
+      throw GalatProtokol('Id sesi "$uuid" bukan heksadesimal.');
+    }
     data[i] = nilai;
   }
   return data;

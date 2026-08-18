@@ -153,11 +153,35 @@ void main() {
 
     tearDown(() => dir.delete(recursive: true));
 
-    Future<File> siapkanBerkasVersi(int versi, SesiMakan sesi) async {
+    // [setelahTurun] menulis baris bergaya versi lama selagi skemanya masih
+    // berbentuk lama — begitu `BasisData` dibuka lagi, migrasinya langsung
+    // jalan dan bentuk itu tidak bisa ditulis lagi.
+    Future<File> siapkanBerkasVersi(
+      int versi,
+      SesiMakan sesi, {
+      Future<void> Function(BasisData db)? setelahTurun,
+    }) async {
       final berkas = File('${dir.path}/sesi.sqlite');
       final db = BasisData(NativeDatabase(berkas));
       await SesiRepositoryDrift(db).simpan(sesi);
 
+      if (versi < 4) {
+        await db.customStatement('DROP TABLE tabel_putaran_kalibrasi');
+        await db.customStatement('ALTER TABLE tabel_kalibrasi DROP COLUMN sisi');
+        // Skema v3 menyimpan angkanya langsung di baris kalibrasi.
+        await db.customStatement(
+          'ALTER TABLE tabel_kalibrasi ADD COLUMN sistolik_referensi INTEGER NOT NULL DEFAULT 0',
+        );
+        await db.customStatement(
+          'ALTER TABLE tabel_kalibrasi ADD COLUMN diastolik_referensi INTEGER NOT NULL DEFAULT 0',
+        );
+        await db.customStatement(
+          'ALTER TABLE tabel_kalibrasi ADD COLUMN sistolik_jam INTEGER NOT NULL DEFAULT 0',
+        );
+        await db.customStatement(
+          'ALTER TABLE tabel_kalibrasi ADD COLUMN diastolik_jam INTEGER NOT NULL DEFAULT 0',
+        );
+      }
       if (versi < 3) {
         await db.customStatement('DROP TABLE tabel_entri_jam');
         await db.customStatement('DROP TABLE tabel_kalibrasi');
@@ -168,12 +192,13 @@ void main() {
       if (versi < 2) {
         await db.customStatement('DROP TABLE tabel_anchor_waktu');
       }
+      await setelahTurun?.call(db);
       await db.customStatement('PRAGMA user_version = $versi');
       await db.close();
       return berkas;
     }
 
-    test('basis data v1 naik ke v3 tanpa kehilangan sesi', () async {
+    test('basis data v1 naik ke v4 tanpa kehilangan sesi', () async {
       final sesi = contohRiwayatSesi().first;
       final berkas = await siapkanBerkasVersi(1, sesi);
 
@@ -197,7 +222,7 @@ void main() {
       expect(riwayat.single.waktuTidakPasti, isFalse);
     });
 
-    test('basis data v2 naik ke v3 dan bisa menyimpan kalibrasi', () async {
+    test('basis data v2 naik ke v4 dan bisa menyimpan kalibrasi', () async {
       final sesi = contohRiwayatSesi().first;
       final berkas = await siapkanBerkasVersi(2, sesi);
 
@@ -208,15 +233,69 @@ void main() {
       await kalibrasi.simpan(
         Kalibrasi(
           waktu: DateTime(2026, 8, 11, 9),
-          sistolikReferensi: 120,
-          diastolikReferensi: 80,
-          sistolikJam: 127,
-          diastolikJam: 84,
+          sisi: SisiPergelangan.kanan,
+          putaran: const [
+            PutaranKalibrasi(
+              sistolikReferensi: 120,
+              diastolikReferensi: 80,
+              sistolikJam: 127,
+              diastolikJam: 84,
+            ),
+            PutaranKalibrasi(
+              sistolikReferensi: 122,
+              diastolikReferensi: 81,
+              sistolikJam: 128,
+              diastolikJam: 84,
+            ),
+            PutaranKalibrasi(
+              sistolikReferensi: 118,
+              diastolikReferensi: 79,
+              sistolikJam: 126,
+              diastolikJam: 83,
+            ),
+          ],
         ),
       );
 
-      expect((await kalibrasi.terbaru())!.offsetSistolik, -7);
+      final termuat = (await kalibrasi.terbaru())!;
+      expect(termuat.putaran.length, 3);
+      expect(termuat.offsetSistolik, -7); // median dari -7, -6, -8
+      expect(termuat.sisi, SisiPergelangan.kanan);
       expect((await SesiRepositoryDrift(db).muatSemua()).single.id, sesi.id);
+    });
+
+    // Kalibrasi yang dibuat sebelum metode tiga putaran tidak boleh menguap:
+    // jam masih memakai offsetnya, jadi aplikasi yang tiba-tiba menganggap
+    // dirinya "belum pernah dikalibrasi" akan berbohong tentang keadaan jam.
+    test('kalibrasi satu putaran dari v3 selamat menyeberang ke v4', () async {
+      final sesi = contohRiwayatSesi().first;
+      final berkas = await siapkanBerkasVersi(
+        3,
+        sesi,
+        setelahTurun: (db) => db.customStatement(
+          'INSERT INTO tabel_kalibrasi (waktu, sistolik_referensi, '
+          'diastolik_referensi, sistolik_jam, diastolik_jam) '
+          'VALUES (?, ?, ?, ?, ?)',
+          [
+            DateTime.utc(2026, 8, 11, 9).microsecondsSinceEpoch,
+            120,
+            80,
+            127,
+            84,
+          ],
+        ),
+      );
+
+      final db = BasisData(NativeDatabase(berkas));
+      addTearDown(db.close);
+
+      final termuat = (await KalibrasiRepositoryDrift(db).terbaru())!;
+      expect(termuat.putaran.length, 1);
+      expect(termuat.offsetSistolik, -7);
+      expect(termuat.offsetDiastolik, -4);
+      // Satu putaran selalu "konsisten" dengan dirinya sendiri — sebarannya 0.
+      expect(termuat.konsisten, isTrue);
+      expect(termuat.sisi, SisiPergelangan.kiri);
     });
   });
 }

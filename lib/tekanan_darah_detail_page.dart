@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'controllers/sesi_makan_controller.dart';
-import 'gula_darah_detail_page.dart' show BarisNilaiSampel, JudulSesi, PesanTanpaSesi;
+import 'gula_darah_detail_page.dart'
+    show BarisNilaiSampel, JudulSesi, PesanTanpaSesi;
 import 'kalibrasi_tekanan_darah_page.dart';
 import 'models/sesi_makan.dart';
 import 'utils/format_waktu.dart';
@@ -44,9 +45,12 @@ class TekananDarahDetailPage extends StatelessWidget {
         ),
         centerTitle: true,
       ),
-      body: sesiTampil == null
-          ? const PesanTanpaSesi()
-          : _IsiTekananDarah(sesi: sesiTampil, semuaSesi: controller.riwayat),
+      body: SafeArea(
+        top: false,
+        child: sesiTampil == null
+            ? const PesanTanpaSesi()
+            : _IsiTekananDarah(sesi: sesiTampil, semuaSesi: controller.riwayat),
+      ),
     );
   }
 }
@@ -114,7 +118,11 @@ class _IsiTekananDarah extends StatelessWidget {
                 ),
                 child: Row(
                   children: const [
-                    Icon(Icons.speed_rounded, color: Color(0xFF0EAD69), size: 16),
+                    Icon(
+                      Icons.speed_rounded,
+                      color: Color(0xFF0EAD69),
+                      size: 16,
+                    ),
                     SizedBox(width: 4),
                     Text(
                       'Per sesi',
@@ -317,7 +325,13 @@ class _KartuKalibrasi extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final kalibrasi = context.watch<SesiMakanController>().kalibrasiTerakhir;
+    final controller = context.watch<SesiMakanController>();
+    final kalibrasi = controller.kalibrasiTerakhir;
+    // Kedaluwarsa bukan sekadar "sudah lama": jam tetap mengoreksi memakai
+    // angka lama itu, jadi statusnya diberi warna dan diletakkan di kalimat
+    // pertama, bukan disamarkan jadi tanggal yang tinggal dihitung sendiri.
+    final habis = controller.kalibrasiKedaluwarsa;
+    final sisa = controller.sisaHariKalibrasi;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -336,10 +350,10 @@ class _KartuKalibrasi extends StatelessWidget {
               shape: BoxShape.circle,
             ),
             alignment: Alignment.center,
-            child: const Icon(
-              Icons.tune_rounded,
+            child: Icon(
+              habis ? Icons.warning_amber_rounded : Icons.tune_rounded,
               size: 20,
-              color: Color(0xFF0EAD69),
+              color: habis ? const Color(0xFFB4761E) : const Color(0xFF0EAD69),
             ),
           ),
           const SizedBox(width: 12),
@@ -359,12 +373,18 @@ class _KartuKalibrasi extends StatelessWidget {
                 Text(
                   kalibrasi == null
                       ? 'Belum pernah dikalibrasi'
-                      : 'Terakhir dikalibrasi '
-                            '${formatWaktuRelatif(kalibrasi.waktu)} · koreksi '
-                            '${kalibrasi.ringkasanOffset}',
-                  style: const TextStyle(
+                      : habis
+                      ? 'Kedaluwarsa — dikalibrasi '
+                            '${formatWaktuRelatif(kalibrasi.waktu)}. Jam masih '
+                            'memakai koreksi ${kalibrasi.ringkasanOffset}.'
+                      : 'Koreksi ${kalibrasi.ringkasanOffset} untuk '
+                            '${kalibrasi.sisi.label.toLowerCase()} · berlaku '
+                            '$sisa hari lagi',
+                  style: TextStyle(
                     fontSize: 11,
-                    color: Color(0xFF8FA7A1),
+                    color: habis
+                        ? const Color(0xFFB4761E)
+                        : const Color(0xFF8FA7A1),
                   ),
                 ),
               ],
@@ -378,7 +398,11 @@ class _KartuKalibrasi extends StatelessWidget {
               ),
             ),
             child: Text(
-              kalibrasi == null ? 'Kalibrasi' : 'Ulangi',
+              kalibrasi == null
+                  ? 'Kalibrasi'
+                  : habis
+                  ? 'Perbarui'
+                  : 'Ulangi',
               style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.bold,

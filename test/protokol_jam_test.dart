@@ -374,6 +374,28 @@ void main() {
     test('UKUR_SEKARANG tidak berpayload', () {
       expect(tulisUkurSekarang(), [Opcode.ukurSekarang]);
     });
+
+    test('MULAI_SESI membawa sesiId saja — tanpa satu byte pun waktu', () {
+      // Ini bukan sekadar memeriksa panjang. Ketiadaan waktu di paket inilah
+      // yang membuat tombol "Selesai Makan" di aplikasi tidak melanggar §4:
+      // jam yang membaca pencacahnya sendiri, jadi t0 tetap berada di garis
+      // waktu yang sama dengan `uptime_s` tiap sampel (§5.3). Epoch di sini akan
+      // membuat `+1 jam` dan `+2 jam` dijadwalkan dari titik yang tidak ada di
+      // garis waktu jam.
+      const id = '3f2b7c10-9d4e-4a15-8c33-0b6e1f5a2d47';
+      final data = tulisMulaiSesi(id);
+
+      expect(data.length, 17);
+      expect(data[0], Opcode.mulaiSesi);
+      expect(binerKeUuid(data.sublist(1)), id);
+    });
+
+    test('MULAI_SESI menolak id sesi pra-Tahap-B', () {
+      expect(
+        () => tulisMulaiSesi('sesi-1712345678901'),
+        throwsA(isA<GalatProtokol>()),
+      );
+    });
   });
 
   group('Id sesi', () {

@@ -25,6 +25,7 @@ import 'package:asawatch/repositories/entri_jam_repository.dart';
 import 'package:asawatch/repositories/kalibrasi_repository.dart';
 import 'package:asawatch/repositories/perangkat_repository.dart';
 import 'package:asawatch/repositories/sesi_repository_drift.dart';
+import 'package:asawatch/services/auth_service.dart';
 import 'package:asawatch/services/ble_asli_service.dart';
 import 'package:asawatch/services/ble_service.dart';
 import 'package:asawatch/services/nutrisi_service.dart';
@@ -119,52 +120,55 @@ class AplikasiGagalMulai extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       home: Scaffold(
         backgroundColor: const Color(0xFFF4FAF7),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(
-                  Icons.warning_amber_rounded,
-                  size: 48,
-                  color: Color(0xFF8FA7A1),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'AsaWatch tidak bisa dibuka',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontFamily: 'Montserrat',
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1E3A34),
+        body: SafeArea(
+          top: false,
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    size: 48,
+                    color: Color(0xFF8FA7A1),
                   ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Data di perangkat ini gagal dibuka. Coba jalankan ulang '
-                  'aplikasi. Bila terus berulang, hapus data aplikasi lewat '
-                  'Pengaturan — riwayat sesi yang tersimpan akan ikut hilang.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontFamily: 'Montserrat',
-                    fontSize: 13,
-                    color: Color(0xFF6B807B),
-                    height: 1.5,
+                  const SizedBox(height: 16),
+                  const Text(
+                    'AsaWatch tidak bisa dibuka',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'Montserrat',
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1E3A34),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  '$galat',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontFamily: 'Montserrat',
-                    fontSize: 11,
-                    color: Color(0xFF9CB1AC),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Data di perangkat ini gagal dibuka. Coba jalankan ulang '
+                    'aplikasi. Bila terus berulang, hapus data aplikasi lewat '
+                    'Pengaturan — riwayat sesi yang tersimpan akan ikut hilang.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'Montserrat',
+                      fontSize: 13,
+                      color: Color(0xFF6B807B),
+                      height: 1.5,
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 16),
+                  Text(
+                    '$galat',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontFamily: 'Montserrat',
+                      fontSize: 11,
+                      color: Color(0xFF9CB1AC),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -174,11 +178,16 @@ class AplikasiGagalMulai extends StatelessWidget {
 }
 
 class MyApp extends StatefulWidget {
-  const MyApp({super.key, required this.controller});
+  const MyApp({super.key, required this.controller, this.auth});
 
   /// Dirakit di `main()` — dan di test, agar `FakeBleService` bisa
   /// dikendalikan (§11). Dimiliki pemanggil, bukan widget ini.
   final SesiMakanController controller;
+
+  /// Auth yang dipakai alur masuk. null berarti rakit yang bawaan sekali di
+  /// sini — bukan di tiap pembangunan rute, yang akan membuat satu `http.Client`
+  /// baru setiap kali halaman login dibuka.
+  final AuthService? auth;
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -192,6 +201,9 @@ class MyApp extends StatefulWidget {
 /// sampel yang terkumpul selama itu masuk (docs/protokol-jam.md §6,
 /// rencana-produksi.md §7.1).
 class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  late final AuthService _auth = widget.auth ?? buatAuthBawaan();
+  late final bool _authMilikSendiri = widget.auth == null;
+
   @override
   void initState() {
     super.initState();
@@ -201,6 +213,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    if (_authMilikSendiri) _auth.dispose();
     super.dispose();
   }
 
@@ -231,8 +244,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       ),
       initialRoute: '/welcome',
       routes: {
-        '/welcome': (context) => const WelcomePage(),
-        '/login': (context) => const LoginPage(),
+        '/welcome': (context) => WelcomePage(auth: _auth),
+        '/login': (context) => LoginPage(auth: _auth),
         '/register': (context) => const RegisterPage(),
         '/home': (context) => const MyHomePage(title: 'AsaWatch'),
       },
@@ -306,8 +319,15 @@ class _MyHomePageState extends State<MyHomePage> {
             : _currentIndex, // Keep showing previous tab if index 2 is clicked (though it pushes a page)
         children: _tabs,
       ),
+      // `SafeArea` di dalam `Container`, bukan di luarnya: putihnya harus tetap
+      // membentang sampai dasar layar (sejak Android 15 bilah navigasi sistem
+      // selalu menumpang di atas aplikasi), sementara ikon dan labelnya naik ke
+      // atas bilah itu. Dibalik urutannya, akan ada pita berwarna latar di
+      // bawah bilah navigasi aplikasi.
+      //
+      // `BottomNavigationBar` bawaan Material melakukan persis ini sendiri;
+      // bilah ini dirakit tangan, jadi ia harus melakukannya sendiri juga.
       bottomNavigationBar: Container(
-        height: 80,
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
@@ -319,15 +339,21 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
           ],
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            _buildNavItem(0, Icons.home_rounded, 'Beranda'),
-            _buildNavItem(1, Icons.assignment_outlined, 'Riwayat'),
-            _buildCenterNavItem(),
-            _buildNavItem(3, Icons.analytics_outlined, 'Analisis'),
-            _buildNavItem(4, Icons.person_outline_rounded, 'Profil'),
-          ],
+        child: SafeArea(
+          top: false,
+          child: SizedBox(
+            height: 80,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildNavItem(0, Icons.home_rounded, 'Beranda'),
+                _buildNavItem(1, Icons.assignment_outlined, 'Riwayat'),
+                _buildCenterNavItem(),
+                _buildNavItem(3, Icons.analytics_outlined, 'Analisis'),
+                _buildNavItem(4, Icons.person_outline_rounded, 'Profil'),
+              ],
+            ),
+          ),
         ),
       ),
     );

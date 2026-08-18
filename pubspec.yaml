@@ -2,7 +2,7 @@ name: asawatch
 description: "AsaWatch — aplikasi pendamping smartwatch untuk memantau detak jantung, gula darah, tekanan darah, dan tidur."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+publish_to: "none" # Remove this line if you wish to publish to pub.dev
 
 # The following defines the version and build number for your application.
 # A version number is three numbers separated by dots, like 1.2.43
@@ -49,6 +49,12 @@ dependencies:
   # compileSdk 37, sementara Android Gradle Plugin di proyek ini berhenti di 36.
   # 12.x memberi API yang persis sama untuk keperluan IzinBle.
   permission_handler: ^12.0.1
+  # Satu-satunya pemakainya adalah `AuthHttpService`. Dipilih ketimbang `dio`
+  # justru karena ia menyediakan `package:http/testing.dart` (`MockClient`):
+  # soketnya bisa dipalsukan tanpa memalsukan `AuthHttpService` itu sendiri,
+  # sehingga penyusunan URL, header, dan pembacaan JSON yang sungguhan tetap
+  # ikut teruji.
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:
@@ -62,13 +68,17 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   drift_dev: ^2.34.5
   build_runner: ^2.15.1
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
+flutter_icons:
+  android: true
+  image_path: "assets/logo/logo asawatch.png"
+
 # The following section is specific to Flutter packages.
 flutter:
-
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.

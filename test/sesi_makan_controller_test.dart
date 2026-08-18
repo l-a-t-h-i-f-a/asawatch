@@ -21,7 +21,7 @@ SesiMakanController buatController({
 }
 
 /// Menekan tombol "Selesai Makan" di jam palsu lalu menunggu pesannya sampai
-/// ke controller. App tidak punya jalan lain menetapkan t0 (§6).
+/// ke controller.
 Future<bool> tekanTombolJam(SesiMakanController c, {DateTime? waktu}) async {
   final ditekan = (c.ble as FakeBleService).tekanSelesaiMakan(waktu: waktu);
   await Future<void>.delayed(Duration.zero);
@@ -83,6 +83,87 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(ble.urutan, ['arm', 'ukur-0']);
+    });
+
+    test('tombol app memulai sesi lewat jam, bukan lewat jam dinding HP',
+        () async {
+      // `mulaiSesiDariApp` mengirim MULAI_SESI; yang menetapkan t0 tetap
+      // peristiwa TOMBOL_SELESAI_MAKAN dari jam. Bedanya kelihatan di sini:
+      // t0-nya sama persis dengan yang dilaporkan jam, bukan `DateTime.now()`
+      // milik controller.
+      final c = buatController();
+      addTearDown(c.dispose);
+
+      await c.mulaiDraft(contohFotoPath);
+      await Future<void>.delayed(Duration.zero);
+      expect(c.sesiAktif!.t0, isNull);
+
+      expect(await c.mulaiSesiDariApp(), isTrue);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(c.sesiAktif!.t0, isNotNull);
+      expect(c.sesiAktif!.status, StatusSesi.berjalan);
+      expect(c.sesiAktif!.sampel[2].detikRelatifT0, 3600);
+      expect(c.sesiAktif!.sampel[3].detikRelatifT0, 7200);
+
+      await c.batalkan();
+    });
+
+    test('menekan tombol app dua kali tidak menghasilkan dua t0', () async {
+      // Perintahnya idempoten (§5.1): tautan BLE bisa menelan ACK dan membuat
+      // aplikasi mengulang, dan dua t0 untuk satu sesi jauh lebih buruk daripada
+      // satu perintah yang terkirim dua kali.
+      final c = buatController();
+      addTearDown(c.dispose);
+
+      await c.mulaiDraft(contohFotoPath);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(await c.mulaiSesiDariApp(), isTrue);
+      await Future<void>.delayed(Duration.zero);
+      final t0 = c.sesiAktif!.t0;
+
+      // Ketukan kedua ditolak di controller karena t0 sudah ada; kalau pun
+      // lolos, jam palsu meniru jam sungguhan dengan mengabaikannya.
+      expect(await c.mulaiSesiDariApp(), isFalse);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(c.sesiAktif!.t0, t0);
+
+      await c.batalkan();
+    });
+
+    test('tombol app ditolak selagi jam terputus', () async {
+      // Perintahnya berjalan lewat BLE. Tanpa tautan tidak ada yang bisa
+      // menerimanya, dan memulai sesi di sisi aplikasi saja akan menghasilkan
+      // sesi yang jamnya tidak pernah tahu ia sedang berjalan.
+      final ble = FakeBleService(
+        percepatan: 3600,
+        otomatisSelesaiMakan: null,
+        status: const StatusPerangkat(
+          tersambung: false,
+          namaPerangkat: 'AsaWatch X1',
+        ),
+      );
+      final c = buatController(ble: ble);
+      addTearDown(c.dispose);
+
+      await c.mulaiDraft(contohFotoPath);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(await c.mulaiSesiDariApp(), isFalse);
+      expect(c.sesiAktif!.t0, isNull);
+      expect(c.sesiAktif!.status, StatusSesi.menungguPerangkat);
+    });
+
+    test('tombol app tanpa sesi draft tidak melakukan apa pun', () async {
+      // Aturan "tidak ada sesi tanpa foto makanan" (§5.1) tidak boleh punya
+      // pintu belakang lewat tombol baru ini.
+      final c = buatController();
+      addTearDown(c.dispose);
+
+      expect(await c.mulaiSesiDariApp(), isFalse);
+      expect(c.sesiAktif, isNull);
     });
 
     test('baseline yang ditolak jam ditandai terlewat seketika', () async {
@@ -397,7 +478,6 @@ class _BleTerkendali extends FakeBleService {
 
   void kirim(String sesiId, Sampel sampel) => kirimSampel(sesiId, sampel);
 }
-
 /// Jam palsu yang menghitung berapa kali tombolnya disiapkan.
 ///
 /// Menghitung `ARM_SESI` adalah satu-satunya cara menangkap umpan balik

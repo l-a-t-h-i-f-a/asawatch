@@ -11,7 +11,8 @@ import 'widgets/ringkasan_nutrisi.dart';
 import 'widgets/timeline_sampel.dart';
 
 /// Tampilan penuh sesi aktif (§5): timeline 4 titik, foto, nutrisi, status
-/// jam, dan opsi membatalkan sesi.
+/// jam, dan dua jalan keluar — menyelesaikan sesi (data disimpan sebagai
+/// `tidakLengkap`) atau membatalkannya (baris dihapus).
 ///
 /// Halaman ini mengikuti `SesiMakanController` karena sampel bisa masuk dari
 /// BLE kapan saja (§12.7). Bila sesi selesai selagi halaman terbuka, isinya
@@ -46,9 +47,12 @@ class SesiBerjalanPage extends StatelessWidget {
         ),
         centerTitle: true,
       ),
-      body: sesi == null
-          ? _SesiSudahBerakhir(controller: controller)
-          : _IsiSesi(sesi: sesi, controller: controller),
+      body: SafeArea(
+        top: false,
+        child: sesi == null
+            ? _SesiSudahBerakhir(controller: controller)
+            : _IsiSesi(sesi: sesi, controller: controller),
+      ),
     );
   }
 }
@@ -133,6 +137,7 @@ class _IsiSesi extends StatelessWidget {
                   sampel: sesi.sampel,
                   t0: t0,
                   indexBerikutnya: sesi.sampelBerikutnya?.index,
+                  kemampuan: controller.statusPerangkat.metrikTampil,
                 ),
               ],
             ),
@@ -195,7 +200,8 @@ class _IsiSesi extends StatelessWidget {
           // kalimat ini, wajar dibaca sebagai sesi yang sudah gagal, dan
           // pengguna akan membatalkannya sendiri padahal datanya aman.
           _KartuInfo(
-            terputusDiTengahSesi: t0 != null && !controller.statusPerangkat.tersambung,
+            terputusDiTengahSesi:
+                t0 != null && !controller.statusPerangkat.tersambung,
           ),
           const SizedBox(height: 20),
 
@@ -210,6 +216,50 @@ class _IsiSesi extends StatelessWidget {
               perangkat: controller.statusPerangkat,
             ),
             const SizedBox(height: 12),
+          ],
+
+          // Dua jalan keluar, dan bedanya adalah nasib datanya — karena itu
+          // keduanya tidak boleh terlihat sama. "Selesaikan" menyimpan sesi
+          // sebagai `tidakLengkap` beserta sampel yang sudah masuk;
+          // "Batalkan" menghapusnya. Sebelum ini hanya yang kedua yang ada,
+          // sehingga sesi yang jamnya tidak pernah menuntaskan pengukuran
+          // memaksa pilihan antara membuang data yang sudah terkumpul atau
+          // menunggu tenggat — sampai 2,5 jam sejak t0.
+          //
+          // Hanya ditawarkan setelah t0 ada. Sesi yang tombol jamnya belum
+          // pernah ditekan bukan sesi yang belum selesai, melainkan sesi yang
+          // belum mulai: tidak ada momen makan untuk direkam, dan
+          // menyelesaikannya hanya akan menyimpan baris kosong.
+          if (t0 != null) ...[
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => _konfirmasiSelesai(context),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF0EAD69),
+                  side: const BorderSide(color: Color(0xFF0EAD69), width: 1.5),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.check_circle_outline_rounded, size: 18),
+                    SizedBox(width: 8),
+                    Text(
+                      'Selesaikan Sesi',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
           ],
 
           SizedBox(
@@ -241,6 +291,90 @@ class _IsiSesi extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// Menutup sesi yang jamnya tidak akan menuntaskan pengukurannya.
+  ///
+  /// Selalu dikonfirmasi, dan konfirmasinya menyebut **jumlah pengukuran yang
+  /// sudah masuk** — bukan basa-basi "apakah Anda yakin". Itu satu-satunya
+  /// angka yang menentukan apakah keputusannya benar, dan pengguna tidak bisa
+  /// melihatnya dari tombol.
+  ///
+  /// Konsekuensi yang wajib dinyatakan: `akhiriLebihAwal()` memanggil
+  /// `batalkanSesi()` ke jam, jadi sampel yang mungkin masih tertahan di buffer
+  /// jam **tidak akan pernah masuk ke sesi ini** — alasan yang sama mengapa
+  /// `lupakanPerangkat()` juga tidak pernah berjalan tanpa konfirmasi.
+  Future<void> _konfirmasiSelesai(BuildContext context) async {
+    final masuk = sesi.sampel
+        .where((s) => s.status == StatusSampel.terisi)
+        .length;
+    final adaData = masuk > 0;
+
+    final jadi = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Selesaikan sesi ini?',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF1E3A34),
+          ),
+        ),
+        content: Text(
+          adaData
+              ? '$masuk dari ${sesi.sampel.length} pengukuran sudah masuk. '
+                    'Sisanya ditandai terlewat dan sesi disimpan sebagai '
+                    '"Tidak lengkap" — datanya tetap masuk riwayat dan ikut '
+                    'dihitung.\n\n'
+                    'Sampel yang mungkin masih tersimpan di jam tidak akan '
+                    'masuk lagi ke sesi ini. Bila jam hanya sedang terputus, '
+                    'sesi ini masih bisa ditunggu.'
+              : 'Belum ada satu pun pengukuran yang masuk. Sesi tetap disimpan '
+                    'sebagai "Tidak lengkap", tanpa data pengukuran, sebagai '
+                    'catatan bahwa makan ini pernah terjadi.\n\n'
+                    'Sampel yang mungkin masih tersimpan di jam tidak akan '
+                    'masuk lagi ke sesi ini. Bila jam hanya sedang terputus, '
+                    'sesi ini masih bisa ditunggu.',
+          style: const TextStyle(
+            fontSize: 13,
+            color: Color(0xFF6B807B),
+            height: 1.45,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text(
+              'Lanjutkan Sesi',
+              style: TextStyle(
+                color: Color(0xFF6B807B),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(
+              'Selesaikan',
+              style: TextStyle(
+                color: Color(0xFF0EAD69),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (jadi != true) return;
+    // Tidak mem-pop halaman: `sesiAktif` menjadi null, dan badan halaman ini
+    // berganti sendiri menjadi `_SesiSudahBerakhir` yang menawarkan pintu ke
+    // ringkasannya. Mem-pop akan membuang pengguna ke shell tepat pada saat
+    // ada sesuatu untuk dilihat.
+    await controller.akhiriLebihAwal();
   }
 
   Future<void> _konfirmasiBatal(BuildContext context) async {
@@ -423,10 +557,7 @@ class _SesiSudahBerakhir extends StatelessWidget {
               Text(
                 sesi.verdict,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF6B807B),
-                ),
+                style: const TextStyle(fontSize: 12, color: Color(0xFF6B807B)),
               ),
               const SizedBox(height: 20),
               ElevatedButton(
@@ -475,10 +606,30 @@ class StatusPerangkatBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = perangkat;
     final tersambung = p?.tersambung ?? false;
+    final belumDipasangkan = p?.belumDipasangkan ?? true;
     final keterangan = <String>[
-      tersambung ? 'Jam tersambung' : 'Jam terputus',
+      // "Terputus" menjanjikan sesuatu yang akan kembali sendiri. Jam yang
+      // belum pernah dipasangkan tidak akan, dan yang penyandingannya hilang
+      // juga tidak — keduanya butuh tindakan user, jadi keduanya dinamai
+      // sendiri (sama seperti kartu status di MenghubungkanPerangkatPage).
+      tersambung
+          ? 'Jam tersambung'
+          : belumDipasangkan
+          ? 'Belum ada jam'
+          : (p?.penyandinganHilang ?? false)
+          ? 'Jam tidak tersandingkan'
+          : 'Jam terputus',
       if (p?.baterai != null) 'baterai ${p!.baterai}%',
-      if ((p?.sampelTertunda ?? 0) > 0) '${p!.sampelTertunda} sampel tertunda',
+      // "Sampel" adalah kosakata protokol, bukan kosakata pengguna. Yang perlu
+      // diketahui adalah bahwa ada hasil pengukuran yang belum pindah dari jam
+      // ke ponsel — dan kalimatnya berbeda menurut keadaan, karena artinya
+      // memang berbeda: yang tersambung sedang berpindah saat ini juga (angkanya
+      // turun sendiri sampai nol, lihat `BleAsliService._kurangiTertunda`),
+      // sedangkan yang terputus akan menunggu sampai jamnya didekatkan.
+      if ((p?.sampelTertunda ?? 0) > 0)
+        tersambung
+            ? 'mengambil ${p!.sampelTertunda} data dari jam'
+            : '${p!.sampelTertunda} data menunggu di jam',
     ];
 
     return Container(

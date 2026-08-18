@@ -36,16 +36,17 @@ import '../repositories/perangkat_repository.dart';
 import 'ble_service.dart';
 import 'protokol_jam.dart';
 
-/// Kegagalan perintah ke jam yang sudah tidak bisa diperbaiki dengan mencoba
-/// lagi. [pesanPengguna] siap ditampilkan.
-class GalatJam implements Exception {
-  const GalatJam(this.pesanPengguna, {this.kode});
+// `GalatJam` pindah ke `protokol_jam.dart` supaya `FakeBleService` bisa
+// melemparkannya tanpa menyeret `flutter_blue_plus` ke jalur test. Diekspor
+// kembali di sini agar `import 'services/ble_asli_service.dart' show GalatJam`
+// yang sudah tersebar di halaman-halaman tetap bekerja.
+export 'protokol_jam.dart' show GalatJam;
 
-  final String pesanPengguna;
-  final KodeGalatJam? kode;
-
-  @override
-  String toString() => 'GalatJam($kode): $pesanPengguna';
+/// Penyandingan gagal dengan sebab yang sudah diketahui persis, jadi ia tidak
+/// perlu ditebak lagi di [BleAsliService.sambungkan].
+class _GagalPenyandingan implements Exception {
+  const _GagalPenyandingan(this.hasil);
+  final HasilSambung hasil;
 }
 
 class BleAsliService implements BleService {
@@ -60,11 +61,13 @@ class BleAsliService implements BleService {
   final PerangkatRepository perangkatRepo;
 
   final _pengendaliStatus = StreamController<StatusPerangkat>.broadcast();
+  final _pengendaliTahap = StreamController<TahapSambung>.broadcast();
   final _pengendaliSampel =
       StreamController<({String sesiId, Sampel sampel})>.broadcast();
-  final _pengendaliT0 = StreamController<
-    ({String sesiId, DateTime t0, bool waktuTidakPasti})
-  >.broadcast();
+  final _pengendaliT0 =
+      StreamController<
+        ({String sesiId, DateTime t0, bool waktuTidakPasti})
+      >.broadcast();
 
   /// Peristiwa ACK/NAK, dipisahkan dari stream publik karena ia percakapan
   /// internal antara [_kirimPerintah] dan jam, bukan sesuatu yang UI tunggu.
@@ -241,38 +244,149 @@ class BleAsliService implements BleService {
   }
 
   @override
-  Future<bool> sambungkan(String idPerangkat) async {
+  Stream<TahapSambung> get tahapSambung => _pengendaliTahap.stream;
+
+  void _tahap(TahapSambung tahap) {
+    if (!_pengendaliTahap.isClosed) _pengendaliTahap.add(tahap);
+  }
+
+  @override
+  Future<HasilSambung> sambungkan(String idPerangkat) async {
+    _galatTerakhir = null;
     try {
       await _sambungkan(idPerangkat, simpanPasangan: true);
-      return true;
+      return HasilSambung.berhasil;
     } on GalatVersiJam catch (e) {
       // Versi mayor yang tidak cocok bukan "coba lagi" — ia butuh pembaruan.
       // Pesannya sudah berbahasa Indonesia dan sudah menyebut sisi mana yang
       // harus diperbarui.
       _galatTerakhir = e.pesanPengguna;
       await _putuskanDiam();
-      return false;
+      return HasilSambung.versiTidakCocok;
+    } on _GagalPenyandingan catch (e) {
+      await _putuskanDiam();
+      return e.hasil;
+    } on GalatJam catch (e) {
+      debugPrint('Gagal menyambung ke $idPerangkat: $e');
+      await _putuskanDiam();
+      return HasilSambung.bukanAsaWatch;
     } catch (e) {
       debugPrint('Gagal menyambung ke $idPerangkat: $e');
-      _galatTerakhir = null;
+      // Sudah tersandingkan tetapi tetap gagal sebelum handshake selesai
+      // adalah tanda khas kunci basi: jam di-reset atau firmware-nya diganti,
+      // sehingga enkripsinya putus justru setelah tautannya terbentuk.
+      //
+      // Ini **tebakan**, bukan kepastian — jam yang menjauh di detik yang salah
+      // terlihat serupa. Karena itu pesannya (§5) menawarkan "Coba lagi" sebagai
+      // tindakan utama dan penghapusan penyandingan hanya sebagai jalan kedua:
+      // tebakan yang salah tidak boleh merusak pemasangan yang sebenarnya sehat.
+      final basi = _bondSebelumnya && !_handshakeSelesai;
       await _putuskanDiam();
+      return basi ? HasilSambung.bondBasi : HasilSambung.diLuarJangkauan;
+    }
+  }
+
+  @override
+  Future<bool> lupakanPenyandingan(String idPerangkat) async {
+    try {
+      await BluetoothDevice.fromId(idPerangkat).removeBond();
+      return true;
+    } catch (e) {
+      // Sebagian versi Android menolak penghapusan bond dari aplikasi. Yang
+      // tersisa bagi pengguna adalah Pengaturan Bluetooth sistem, dan UI harus
+      // mengatakannya — bukan menampilkan tombol yang diam-diam tidak bekerja.
+      debugPrint('Gagal menghapus penyandingan $idPerangkat: $e');
       return false;
     }
   }
 
   /// Alasan kegagalan sambung terakhir yang layak dibaca pengguna, null bila
   /// kegagalannya biasa saja (di luar jangkauan, jam mati).
+  @override
   String? get galatTerakhir => _galatTerakhir;
   String? _galatTerakhir;
+
+  /// Keadaan satu percobaan sambung, dipakai untuk membedakan kunci basi dari
+  /// jam yang sekadar menjauh. Di-reset di awal tiap [_sambungkan].
+  ///
+  /// [_bondSebelumnya] sengaja hanya true bila ponsel **sudah** tersandingkan
+  /// saat percobaan ini dimulai. Bond yang baru saja dibuat tidak mungkin basi,
+  /// jadi memasukkannya ke sini akan mengubah setiap kegagalan pemasangan
+  /// pertama menjadi saran menghapus penyandingan yang baru saja dibuat.
+  bool _bondSebelumnya = false;
+  bool _handshakeSelesai = false;
+
+  /// Menyandingkan jam **secara eksplisit**, sebelum operasi berenkripsi apa pun.
+  ///
+  /// Android sebenarnya menyandingkan sendiri begitu karakteristik terenkripsi
+  /// pertama disentuh — dan justru itu masalahnya. Penyandingan implisit itu
+  /// menyelinap ke tengah `discoverServices()` atau tulis pertama, yang punya
+  /// timeout ketat, padahal yang sedang ditunggu adalah **pengguna menemukan dan
+  /// menekan tombol di dialog sistem**. Aplikasi menyerah lebih dulu dan
+  /// melaporkan "tidak dapat disambungkan" untuk penyandingan yang beberapa
+  /// detik kemudian berhasil — lalu percobaan kedua mulus, karena bond-nya
+  /// sudah terbentuk (docs/alur-pemasangan-jam.md §1).
+  ///
+  /// Dipanggil di sini, satu-satunya momen yang menunggu manusia berdiri
+  /// sendiri: ia punya keadaan UI-nya sendiri, dan **tidak dibatasi waktu dari
+  /// sisi aplikasi**.
+  Future<void> _sandingkan(BluetoothDevice perangkat) async {
+    // Bond yang bisa dikendalikan aplikasi hanya ada di Android; di iOS
+    // CoreBluetooth mengurusnya sendiri dan `createBond` melempar `android-only`.
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+
+    if (await perangkat.bondState.first == BluetoothBondState.bonded) {
+      _bondSebelumnya = true;
+      return;
+    }
+
+    _tahap(TahapSambung.menyandingkan);
+    try {
+      // Batas waktunya milik sistem (bawaan 90 detik), bukan milik aplikasi.
+      // Aplikasi tidak boleh menyerah lebih awal daripada dialognya sendiri:
+      // pengguna lansia mungkin harus menarik panel notifikasi lebih dulu (§4.4).
+      await perangkat.createBond();
+    } on FlutterBluePlusException catch (e) {
+      // Hangus tanpa dijawab dan ditolak adalah dua hal berbeda, dan tindak
+      // lanjutnya juga berbeda — yang pertama perlu diberi tahu di mana
+      // dialognya, yang kedua perlu diberi tahu kenapa penyandingan diperlukan.
+      throw _GagalPenyandingan(
+        e.code == FbpErrorCode.timeout.index
+            ? HasilSambung.penyandinganTidakDijawab
+            : HasilSambung.penyandinganDitolak,
+      );
+    }
+  }
+
+  /// Apakah jam yang masih dicatat aplikasi sudah tidak tersandingkan lagi di
+  /// ponsel ini.
+  ///
+  /// Ragu diperlakukan sebagai "masih tersandingkan": pembacaan bond yang gagal
+  /// bukan bukti bahwa penyandingannya hilang, dan menghentikan sambung ulang
+  /// karena tebakan akan membuat jam yang sehat terlihat lepas.
+  Future<bool> _kehilanganPenyandingan(String idPerangkat) async {
+    if (defaultTargetPlatform != TargetPlatform.android) return false;
+    try {
+      final bond = await BluetoothDevice.fromId(idPerangkat).bondState.first;
+      return bond != BluetoothBondState.bonded;
+    } catch (e) {
+      debugPrint('Keadaan penyandingan $idPerangkat tidak terbaca: $e');
+      return false;
+    }
+  }
 
   Future<void> _sambungkan(
     String idPerangkat, {
     required bool simpanPasangan,
   }) async {
     await _putuskanDiam();
+    _bondSebelumnya = false;
+    _handshakeSelesai = false;
 
     final perangkat = BluetoothDevice.fromId(idPerangkat);
     _perangkat = perangkat;
+
+    _tahap(TahapSambung.menyambung);
 
     // MTU diminta saat menyambung, bukan sesudahnya: sampel butuh 31 byte utuh
     // dalam satu notifikasi (§8), dan notifikasi pertama bisa datang sebelum
@@ -283,6 +397,9 @@ class BleAsliService implements BleService {
       mtu: ProtokolJam.mtuDiminta,
     );
 
+    await _sandingkan(perangkat);
+
+    _tahap(TahapSambung.menyiapkan);
     final layanan = await perangkat.discoverServices();
     final asawatch = layanan.where(
       (s) => s.uuid.str.toLowerCase() == ProtokolJam.uuidLayanan,
@@ -318,6 +435,14 @@ class BleAsliService implements BleService {
     final infoJam = bacaInfo(await info.read());
     infoJam.periksaVersi();
     _info = infoJam;
+    // Kemampuan diketahui sejak byte pertama handshake, jadi ia dipasang di sini
+    // — sebelum satu pun sampel bisa datang. UI yang menyembunyikan metrik baru
+    // setelah sampel pertama tiba akan sempat menampilkan `—` untuk sensor yang
+    // memang tidak ada, dan itu persis yang §3 larang.
+    _perbaruiStatus(_status.salin(kemampuan: _keKemampuan(infoJam.kemampuan)));
+    // Sejak titik ini tautannya terbukti terenkripsi dan dipahami kedua sisi,
+    // jadi kegagalan sesudahnya bukan lagi soal kunci penyandingan yang basi.
+    _handshakeSelesai = true;
     // Dicatat karena `uptime_s` hanya dibaca sekali per koneksi: anchor yang
     // dipasang beberapa ratus milidetik kemudian harus tahu berapa lama sudah
     // berlalu sejak angka itu benar.
@@ -325,7 +450,7 @@ class BleAsliService implements BleService {
 
     // Langganan dipasang sebelum anchor dikirim: balasan ACK-nya datang lewat
     // karakteristik Peristiwa, bukan lewat write response (§5.1).
-    await _langganiNotifikasi(perangkat, peristiwa, sampel, status);
+    await _langganiNotifikasi(perangkat, layanan, peristiwa, sampel, status);
 
     // Setiap koneksi memasang anchor, sebelum perintah lain (§4.2). Murah,
     // idempoten, dan melewatkannya sekali bisa membuat satu sesi penuh
@@ -350,21 +475,42 @@ class BleAsliService implements BleService {
       );
     }
 
-    if (simpanPasangan) {
-      await perangkatRepo.simpan(
-        PerangkatTersimpan(
-          id: idPerangkat,
-          nama: perangkat.platformName.isEmpty
-              ? 'AsaWatch'
-              : perangkat.platformName,
-        ),
-      );
+    // **Penyimpanan yang gagal tidak membatalkan koneksi** — alasannya sama
+    // persis dengan `_pasangAnchor` di atas, dan itulah kenapa keduanya harus
+    // dijaga: radio yang sehat tidak boleh dinyatakan gagal karena disk.
+    //
+    // Tanpa penjagaan ini, `SharedPreferences` yang melempar membuat
+    // `_sambungkan` melempar setelah **seluruh handshake berhasil**, lalu
+    // `_sambungkanUlang` menangkapnya sebagai gangguan sesaat dan mengulang
+    // semuanya: connect → discover → baca Info → setNotify ×3 → baca Status →
+    // ulang, selamanya. Bentuk lingkaran itu tidak menyebut disk sama sekali di
+    // logcat, jadi ia terbaca seperti masalah radio.
+    var nama = perangkat.platformName.isEmpty
+        ? 'AsaWatch'
+        : perangkat.platformName;
+    try {
+      if (simpanPasangan) {
+        await perangkatRepo.simpan(
+          PerangkatTersimpan(id: idPerangkat, nama: nama),
+        );
+      }
+      nama = (await perangkatRepo.muat())?.nama ?? nama;
+    } catch (e) {
+      // Keadaan terdegradasi: jamnya tersambung dan berfungsi penuh, hanya
+      // namanya tidak diingat lintas start. Nama dari iklan dipakai sebagai
+      // gantinya supaya UI tetap punya sesuatu yang benar untuk ditampilkan.
+      debugPrint('Pasangan jam gagal disimpan/dibaca, koneksi dilanjutkan: $e');
     }
-    final tersimpan = await perangkatRepo.muat();
 
     _backoff = ProtokolJam.backoffAwal;
     _perbaruiStatus(
-      _status.salin(tersambung: true, namaPerangkat: tersimpan?.nama),
+      _status.salin(
+        tersambung: true,
+        namaPerangkat: nama,
+        // Tautan yang terbentuk membuktikan penyandingannya ada lagi, jadi
+        // peringatan "tidak tersandingkan" tidak boleh tertinggal di layar.
+        penyandinganHilang: false,
+      ),
     );
 
     // Buffer jam ditarik pada setiap koneksi — di sinilah sampel yang terkumpul
@@ -374,6 +520,7 @@ class BleAsliService implements BleService {
 
   Future<void> _langganiNotifikasi(
     BluetoothDevice perangkat,
+    List<BluetoothService> layanan,
     BluetoothCharacteristic peristiwa,
     BluetoothCharacteristic sampel,
     BluetoothCharacteristic status,
@@ -395,7 +542,7 @@ class BleAsliService implements BleService {
     // Baterai memakai Battery Service standar, bukan karakteristik kustom
     // (§2.1). Kalau jamnya tidak menyediakannya, statusnya tetap terisi dari
     // §5.5 — jadi tidak ada yang perlu digagalkan di sini.
-    unawaited(_langganiBaterai(perangkat));
+    unawaited(_langganiBaterai(layanan));
 
     _pantau(
       perangkat.connectionState.listen((keadaan) {
@@ -413,12 +560,25 @@ class BleAsliService implements BleService {
     }
   }
 
-  Future<void> _langganiBaterai(BluetoothDevice perangkat) async {
+  /// Dilanggankan dari daftar layanan yang **sudah** ditemukan, bukan dari
+  /// penemuan kedua.
+  ///
+  /// `discoverServices()` yang dipanggil lagi di sini bukan sekadar boros: ia
+  /// berjalan tanpa ditunggu, jadi ia berlomba dengan `status.read()` yang
+  /// dijalankan pemanggilnya pada saat yang sama. Penemuan layanan yang
+  /// bertabrakan dengan operasi GATT lain adalah sumber kegagalan yang khas di
+  /// Android, dan gejalanya jatuh di tempat yang salah — koneksi yang putus
+  /// beberapa saat setelah handshake yang kelihatannya mulus.
+  Future<void> _langganiBaterai(List<BluetoothService> layanan) async {
     try {
-      for (final s in await perangkat.discoverServices()) {
-        if (s.uuid.str.toLowerCase() != ProtokolJam.uuidLayananBaterai) continue;
+      for (final s in layanan) {
+        if (s.uuid.str.toLowerCase() != ProtokolJam.uuidLayananBaterai) {
+          continue;
+        }
         for (final c in s.characteristics) {
-          if (c.uuid.str.toLowerCase() != ProtokolJam.uuidLevelBaterai) continue;
+          if (c.uuid.str.toLowerCase() != ProtokolJam.uuidLevelBaterai) {
+            continue;
+          }
           _perbaruiStatus(_status.salin(baterai: (await c.read()).firstOrNull));
           if (c.properties.notify) {
             await c.setNotifyValue(true);
@@ -448,6 +608,35 @@ class BleAsliService implements BleService {
   }
 
   @override
+  Future<void> lupakanPerangkat() async {
+    _reconnect?.cancel();
+    _reconnect = null;
+
+    // Urutannya: putus dulu, baru hapus bond. `removeBond` pada perangkat yang
+    // masih tersambung meninggalkan tautan terenkripsi dengan kunci yang sudah
+    // tidak ada di kedua sisi.
+    final id = _perangkat?.remoteId.str ?? (await perangkatRepo.muat())?.id;
+    await _putuskanDiam();
+    if (id != null) await lupakanPenyandingan(id);
+
+    // Dilupakan **setelah** bond-nya hilang, bukan sebelum: kalau aplikasi
+    // berhenti di tengah, yang tertinggal adalah jam yang masih dikenal
+    // aplikasi tetapi tidak tersandingkan — dan keadaan itu sudah punya
+    // penanganannya sendiri (`penyandinganHilang`). Kebalikannya tidak: bond
+    // yatim yang tidak dikenal aplikasi mana pun tidak akan pernah dibersihkan.
+    try {
+      await perangkatRepo.lupakan();
+    } catch (e) {
+      debugPrint('Gagal melupakan pasangan: $e');
+    }
+
+    _info = null;
+    _kontrol = null;
+    _backoff = ProtokolJam.backoffAwal;
+    _perbaruiStatus(StatusPerangkat.kosong);
+  }
+
+  @override
   Future<bool> siapkanSesi(String sesiId) async {
     // Sesi dari sebelum Tahap B memakai id yang tidak muat di 16 byte. Semuanya
     // sudah berakhir; yang perlu dilakukan hanya tidak mencoba mengirimnya.
@@ -459,6 +648,26 @@ class BleAsliService implements BleService {
       return true;
     } catch (e) {
       debugPrint('ARM_SESI gagal: $e');
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> mulaiSesi(String sesiId) async {
+    if (!idSesiValid(sesiId)) return false;
+    if (!_status.tersambung) return false;
+
+    try {
+      // Tidak ada waktu di dalam paketnya, dan tidak ada `t0` yang dikembalikan
+      // di sini. Yang menjadikan sesi berjalan adalah `TOMBOL_SELESAI_MAKAN`
+      // yang menyusul lewat karakteristik Peristiwa — jalur yang sama persis
+      // dengan tombol fisiknya, sampai ke penulisan kotak masuk dan ack-nya.
+      // Menyingkatnya di sini akan menghasilkan sesi yang t0-nya tidak pernah
+      // tersimpan dan tidak selamat dari restart.
+      await _kirimPerintah(tulisMulaiSesi(sesiId));
+      return true;
+    } catch (e) {
+      debugPrint('MULAI_SESI gagal: $e');
       return false;
     }
   }
@@ -505,20 +714,58 @@ class BleAsliService implements BleService {
   @override
   Future<Sampel> ukurSekarang() async {
     if (!_status.tersambung) {
-      throw const GalatJam('Jam tidak tersambung.');
+      throw const GalatJam(
+        'Jam tidak tersambung, jadi pengukuran belum bisa dimulai.',
+      );
     }
 
-    // Pengukuran satu kali untuk alur kalibrasi. Sampelnya datang lewat
-    // karakteristik Sampel seperti yang lain, jadi yang ditunggu di sini adalah
-    // sampel berikutnya — dengan timeout, karena jam bisa saja tidak menjawab.
-    final menunggu = _pengendaliSampel.stream.first.timeout(
-      const Duration(seconds: 60),
-      onTimeout: () => throw const GalatJam('Jam tidak menjawab pengukuran.'),
-    );
+    // Pengukuran satu kali di luar sesi — kalibrasi tekanan darah dan pindai
+    // kesehatan atas permintaan. Jawabannya datang lewat karakteristik Sampel
+    // seperti yang lain, jadi yang ditunggu di sini adalah notifikasi
+    // berikutnya — dengan timeout, karena jam bisa saja tidak menjawab.
+    //
+    // **Yang ditunggu adalah sampel ber-`sesiId` nol, bukan sampel apa pun**
+    // (§5.1). Perintah ini boleh dikirim kapan saja, termasuk selagi sebuah
+    // sesi berjalan dan selagi buffer jam sedang terkuras, jadi sampel
+    // berikutnya di stream ini bisa saja milik sesi yang sama sekali lain.
+    // Menyerahkannya sebagai hasil pindai akan menampilkan angka dari satu jam
+    // yang lalu sebagai "hasil barusan" — salah tanpa satu pun gejala.
+    final menunggu = _pengendaliSampel.stream
+        .firstWhere((e) => !sesiIdNyata(e.sesiId))
+        .timeout(
+          const Duration(seconds: 60),
+          onTimeout: () => throw const GalatJam(
+            'Jam tidak menjawab pengukuran. Pastikan jam terpakai rapat di '
+            'pergelangan, lalu coba lagi.',
+          ),
+        );
+    // Perintahnya bisa gagal sebelum jawabannya datang; future yang ditinggalkan
+    // akan menyelesaikan dirinya dengan timeout 60 detik kemudian tanpa ada yang
+    // menangkapnya, dan itu muncul sebagai galat tak tertangani yang tidak
+    // menyerupai penyebabnya sama sekali.
+    unawaited(menunggu.catchError((_) => _sampelDibuang));
 
     await _kirimPerintah(tulisUkurSekarang());
     return (await menunggu).sampel;
   }
+
+  /// Bitfield `kemampuan` handshake → bentuk yang dimengerti UI (§3).
+  ///
+  /// Detak jantung tidak punya bit dan karena itu tidak ikut dipetakan; §3
+  /// memang tidak menyediakan satu, dan mengarangnya di sini akan membuat
+  /// aplikasi menyembunyikan metrik atas dasar bit yang tidak pernah dikirim
+  /// firmware mana pun.
+  static KemampuanPerangkat _keKemampuan(KemampuanJam k) => KemampuanPerangkat(
+    gulaDarah: k.gulaDarah,
+    tekananDarah: k.tekananDarah,
+    spo2: k.spo2,
+  );
+
+  /// Nilai buangan untuk `catchError` di atas — tidak pernah dibaca siapa pun.
+  static final ({String sesiId, Sampel sampel}) _sampelDibuang = (
+    sesiId: uuidSesiKosong,
+    sampel: const Sampel.menunggu(index: 0, detikRelatifT0: 0),
+  );
 
   @override
   Future<void> kirimKalibrasi(Kalibrasi kalibrasi) async {
@@ -540,6 +787,7 @@ class BleAsliService implements BleService {
     _langganan.clear();
     unawaited(_perangkat?.disconnect());
     _pengendaliStatus.close();
+    _pengendaliTahap.close();
     _pengendaliSampel.close();
     _pengendaliT0.close();
     _pengendaliBalasan.close();
@@ -606,7 +854,9 @@ class BleAsliService implements BleService {
         // `boot_id` tidak cocok berarti jam menyala ulang di tengah perintah:
         // anchor lama sudah menunjuk garis waktu yang salah, jadi ia dipasang
         // ulang sebelum perintahnya diulang (§7 kode 0x09).
-        if (kode == KodeGalatJam.bootIdTidakCocok) await _perbaruiInfoDanAnchor();
+        if (kode == KodeGalatJam.bootIdTidakCocok) {
+          await _perbaruiInfoDanAnchor();
+        }
         await Future<void>.delayed(kode.jedaRetry);
       } on TimeoutException {
         debugPrint(
@@ -638,10 +888,7 @@ class BleAsliService implements BleService {
   Future<void> _tulisPerintah(Uint8List perintah) async {
     final kontrol = _kontrol;
     if (kontrol == null) throw const GalatJam('Jam tidak tersambung.');
-    await kontrol.write(
-      perintah,
-      timeout: ProtokolJam.timeoutTulis.inSeconds,
-    );
+    await kontrol.write(perintah, timeout: ProtokolJam.timeoutTulis.inSeconds);
   }
 
   Future<void> _perbaruiInfoDanAnchor() async {
@@ -654,6 +901,9 @@ class BleAsliService implements BleService {
         final info = bacaInfo(await c.read());
         info.periksaVersi();
         _info = info;
+        // Jam yang menyala ulang bisa saja membawa firmware yang berbeda; baca
+        // ulang kemampuannya di sini juga, jangan hanya di handshake pertama.
+        _perbaruiStatus(_status.salin(kemampuan: _keKemampuan(info.kemampuan)));
         await _pasangAnchor(info.bootId);
       }
     }
@@ -733,6 +983,11 @@ class BleAsliService implements BleService {
 
     try {
       await _tulisPerintah(tulisAckEvent(seq));
+      // Entri rusak pun keluar dari buffer jam begitu di-ack, jadi angkanya
+      // ikut turun. Ia hilang tanpa pernah menjadi sampel — itu memang yang
+      // terjadi, dan menahannya di hitungan hanya membuat angka yang tidak
+      // akan pernah turun.
+      _kurangiTertunda();
     } catch (e) {
       debugPrint('ACK paket rusak seq $seq gagal: $e');
     }
@@ -749,7 +1004,8 @@ class BleAsliService implements BleService {
 
     // ACK/NAK adalah percakapan, bukan riwayat: ia tidak masuk ring buffer di
     // jam dan tidak perlu disimpan di sini.
-    if (entri.jenis == JenisPeristiwa.ack || entri.jenis == JenisPeristiwa.nak) {
+    if (entri.jenis == JenisPeristiwa.ack ||
+        entri.jenis == JenisPeristiwa.nak) {
       if (!_pengendaliBalasan.isClosed) _pengendaliBalasan.add(entri);
       return;
     }
@@ -782,9 +1038,32 @@ class BleAsliService implements BleService {
       // aturan 5). Dedup `(sesiId, index)` di controller yang menanganinya —
       // jangan menambahkan dedup kedua di sini.
       await _tulisPerintah(tulisAckEvent(entri.seq));
+      _kurangiTertunda();
     } catch (e) {
+      // Ack yang gagal ditulis berarti entrinya **masih** di buffer jam, jadi
+      // angka tertundanya juga tidak boleh turun.
       debugPrint('ACK seq ${entri.seq} gagal: $e');
     }
+  }
+
+  /// Satu entri keluar dari buffer jam.
+  ///
+  /// `sampel_tertunda` (§5.5) berarti "entri yang belum di-ack", dan **aplikasi
+  /// inilah yang meng-ack** — jadi aplikasi sudah tahu angkanya turun tanpa
+  /// perlu diberitahu jam. Tanpa pengurangan ini angkanya hanya berubah saat
+  /// paket Status berikutnya kebetulan datang, dan protokol tidak pernah
+  /// menjanjikan jam mengirim satu setelah buffernya terkuras. Akibatnya "3
+  /// sampel tertunda" tetap terpampang setelah ketiga sampelnya benar-benar
+  /// masuk, tersimpan, dan tampil di layar sesi — persis keadaan yang membuat
+  /// tombol Sinkronkan terlihat tidak bekerja.
+  ///
+  /// Paket Status tetap yang berkuasa: [_terimaStatus] menimpa angka ini apa
+  /// adanya begitu jam mengabarkan yang sebenarnya. Yang di sini hanya menjaga
+  /// layar tetap jujur di antara dua kabar itu.
+  void _kurangiTertunda() {
+    final tersisa = _status.sampelTertunda;
+    if (tersisa <= 0) return;
+    _perbaruiStatus(_status.salin(sampelTertunda: tersisa - 1));
   }
 
   Future<void> _tanganiPeristiwa(EntriPeristiwa entri) async {
@@ -820,7 +1099,9 @@ class BleAsliService implements BleService {
         // Ketiganya berarti sampel yang ditunggu tidak akan datang. Sesi tidak
         // dibatalkan dari sini: ia berakhir lewat tenggatnya sendiri di
         // controller, dengan sampel yang sudah masuk tetap utuh.
-        debugPrint('Jam melaporkan ${entri.jenis.name} (payload ${entri.payload})');
+        debugPrint(
+          'Jam melaporkan ${entri.jenis.name} (payload ${entri.payload})',
+        );
 
       case JenisPeristiwa.ack:
       case JenisPeristiwa.nak:
@@ -948,15 +1229,20 @@ class BleAsliService implements BleService {
     // Sesi yang sedang berjalan **tidak** dibatalkan: sampelnya menunggu di
     // buffer jam dan menyusul saat tersambung lagi (§6). Yang perlu dilakukan
     // hanya kembali.
-    unawaited(perangkatRepo.muat().then((p) {
-      if (p != null) _jadwalkanSambungUlang(p.id);
-    }));
+    unawaited(
+      perangkatRepo.muat().then((p) {
+        if (p != null) _jadwalkanSambungUlang(p.id);
+      }),
+    );
   }
 
   void _jadwalkanSambungUlang(String idPerangkat) {
     if (_dibuang || _status.tersambung) return;
     _reconnect?.cancel();
-    _reconnect = Timer(_backoff, () => unawaited(_sambungkanUlang(idPerangkat)));
+    _reconnect = Timer(
+      _backoff,
+      () => unawaited(_sambungkanUlang(idPerangkat)),
+    );
 
     // Backoff 1s → 2s → 4s → … → maks 60s (§8). Radio yang mencoba tiap detik
     // selama jam ditinggal di rumah adalah baterai yang habis sebelum sore.
@@ -968,6 +1254,28 @@ class BleAsliService implements BleService {
 
   Future<void> _sambungkanUlang(String idPerangkat) async {
     if (_dibuang) return;
+
+    // **Penyandingan tidak pernah dimulai dari latar belakang.**
+    //
+    // Kalau user menghapus jam dari Pengaturan Bluetooth sistem — atau jamnya
+    // di-reset — bond-nya hilang sementara aplikasi masih mengingatnya.
+    // Menyambung lagi pada keadaan itu akan memunculkan dialog penyandingan
+    // sistem entah kapan saja: saat user sedang menelepon, sedang di aplikasi
+    // lain, tanpa ia sedang memasang apa pun. Permintaan seperti itu mustahil
+    // dimengerti, dan yang paling mungkin dilakukan user adalah menolaknya.
+    //
+    // Jadi lingkaran sambung ulang berhenti di sini dan menyerahkannya ke UI,
+    // yang akan memintanya kembali lewat alur pemasangan yang punya
+    // penjelasannya (docs/alur-pemasangan-jam.md §4.5).
+    if (await _kehilanganPenyandingan(idPerangkat)) {
+      _reconnect?.cancel();
+      _reconnect = null;
+      _perbaruiStatus(
+        _status.salin(tersambung: false, penyandinganHilang: true),
+      );
+      return;
+    }
+
     try {
       await _sambungkan(idPerangkat, simpanPasangan: false);
     } on GalatVersiJam catch (e) {

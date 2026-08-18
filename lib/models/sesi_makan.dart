@@ -121,8 +121,7 @@ class Sampel {
   bool get terisi => status == StatusSampel.terisi;
 
   /// Waktu ukur diturunkan dari t0, tidak disimpan (§12.2).
-  DateTime waktuUkur(DateTime t0) =>
-      t0.add(Duration(seconds: detikRelatifT0));
+  DateTime waktuUkur(DateTime t0) => t0.add(Duration(seconds: detikRelatifT0));
 
   String? get tekananDarah =>
       (sistolik == null || diastolik == null) ? null : '$sistolik/$diastolik';
@@ -267,7 +266,9 @@ class SesiMakan {
   /// dinyatakan `belumLengkap`, bukan dipaksa masuk salah satu kategori.
   KualitasRespons get kualitasRespons {
     final delta = deltaPuncak;
-    if (delta == null || status.sedangAktif) return KualitasRespons.belumLengkap;
+    if (delta == null || status.sedangAktif) {
+      return KualitasRespons.belumLengkap;
+    }
     if (delta <= ambangResponsLandai) return KualitasRespons.landai;
     if (delta <= ambangResponsSedang) return KualitasRespons.sedang;
     return KualitasRespons.lonjakan;
@@ -434,16 +435,39 @@ class HasilDeteksi {
 ///
 /// User memasukkan hasil tensimeter, jam mengukur bersamaan, dan selisih
 /// keduanya menjadi koefisien yang dikirim ke jam.
-class Kalibrasi {
-  const Kalibrasi({
-    required this.waktu,
+/// Pergelangan tempat jam dipakai saat dikalibrasi.
+///
+/// Ikut disimpan karena koreksinya **hanya berlaku untuk tangan itu**: tekanan
+/// yang terbaca di pergelangan kiri dan kanan orang yang sama bisa berbeda
+/// belasan mmHg, jadi kalibrasi yang dipindah tangan diam-diam menjadi salah.
+enum SisiPergelangan {
+  kiri('Tangan kiri'),
+  kanan('Tangan kanan');
+
+  const SisiPergelangan(this.label);
+  final String label;
+
+  /// Sisi seberangnya — tempat manset tensimeter dipasang saat kalibrasi.
+  ///
+  /// Manset dan jam tidak boleh berada di lengan yang sama: manset yang
+  /// mengembang menutup aliran darah ke pergelangan di bawahnya, sehingga jam
+  /// justru buta pada detik yang sedang diukur.
+  SisiPergelangan get seberang => this == kiri ? kanan : kiri;
+
+  /// Sebutan untuk lengan, dipakai saat berbicara tentang manset.
+  String get labelLengan => this == kiri ? 'lengan kiri' : 'lengan kanan';
+}
+
+/// Satu putaran kalibrasi: sepasang bacaan tensimeter dan jam yang diambil
+/// berdekatan.
+class PutaranKalibrasi {
+  const PutaranKalibrasi({
     required this.sistolikReferensi,
     required this.diastolikReferensi,
     required this.sistolikJam,
     required this.diastolikJam,
   });
 
-  final DateTime waktu;
   final int sistolikReferensi; // dari tensimeter
   final int diastolikReferensi;
   final int sistolikJam; // pembacaan jam pada saat yang sama
@@ -452,32 +476,294 @@ class Kalibrasi {
   int get offsetSistolik => sistolikReferensi - sistolikJam;
   int get offsetDiastolik => diastolikReferensi - diastolikJam;
 
+  String get ringkasanReferensi => '$sistolikReferensi/$diastolikReferensi';
+  String get ringkasanJam => '$sistolikJam/$diastolikJam';
+}
+
+/// Rentang tensimeter yang masih masuk akal untuk dijadikan acuan.
+///
+/// Bukan penilaian medis, hanya penyaring salah ketik: angka di luar ini
+/// hampir selalu berarti kolomnya tertukar atau ada digit yang kelebihan, dan
+/// satu salah ketik di sini menghasilkan koreksi yang salah selama empat
+/// minggu penuh.
+const int sistolikMinimum = 70;
+const int sistolikMaksimum = 250;
+const int diastolikMinimum = 40;
+const int diastolikMaksimum = 150;
+
+/// Alasan sepasang angka tensimeter ditolak, atau null bila keduanya wajar.
+///
+/// Dipisahkan dari halamannya supaya bisa dites tanpa memompa widget, dan
+/// supaya kalimatnya cuma ada di satu tempat.
+String? galatReferensiTensimeter({int? sistolik, int? diastolik}) {
+  if (sistolik == null || diastolik == null) return null; // belum lengkap
+  if (sistolik < sistolikMinimum || sistolik > sistolikMaksimum) {
+    return 'Sistolik biasanya antara $sistolikMinimum dan $sistolikMaksimum '
+        'mmHg. Periksa lagi angka di tensimeter.';
+  }
+  if (diastolik < diastolikMinimum || diastolik > diastolikMaksimum) {
+    return 'Diastolik biasanya antara $diastolikMinimum dan $diastolikMaksimum '
+        'mmHg. Periksa lagi angka di tensimeter.';
+  }
+  if (sistolik <= diastolik) {
+    return 'Sistolik harus lebih besar dari diastolik. Angka atas di kolom '
+        'kiri, angka bawah di kolom kanan.';
+  }
+  return null;
+}
+
+/// Kalibrasi tekanan darah: **tiga** putaran tensimeter + jam, bukan satu.
+///
+/// Metodenya mengikuti alat sejenis yang sudah dipakai luas (Samsung Health
+/// Monitor). Tiga hal di dalamnya bukan hiasan:
+///
+/// 1. **Tiga putaran, koreksinya diambil median.** Satu pengukuran manset
+///    tunggal bisa meleset belasan mmHg karena manset kendur, lengan tidak
+///    setinggi jantung, atau user baru saja berjalan. Dengan satu putaran,
+///    meleset itu langsung menjadi koreksi permanen. Median dari tiga tahan
+///    terhadap satu putaran yang kacau; rata-rata tidak.
+/// 2. **Kalibrasi punya tanggal kedaluwarsa** ([masaBerlaku], 4 minggu).
+///    Hubungan antara gelombang nadi di pergelangan dan tekanan sebenarnya
+///    ikut bergeser mengikuti tonus pembuluh, berat badan, dan obat. Koreksi
+///    yang tidak pernah kedaluwarsa akan dipercaya bertahun-tahun.
+/// 3. **Terikat pada satu pergelangan** ([sisi]).
+class Kalibrasi {
+  Kalibrasi({required this.waktu, required this.putaran, required this.sisi})
+    : assert(
+        putaran.isNotEmpty,
+        'Kalibrasi tanpa putaran tidak berarti apa-apa',
+      );
+
+  /// Kalibrasi satu putaran — bentuk yang dipakai sebelum metode tiga putaran.
+  ///
+  /// Masih ada karena baris yang tersimpan di basis data sebelum skema v4
+  /// memang hanya punya satu pasang angka; jangan dipakai untuk kalibrasi baru.
+  Kalibrasi.tunggal({
+    required DateTime waktu,
+    required int sistolikReferensi,
+    required int diastolikReferensi,
+    required int sistolikJam,
+    required int diastolikJam,
+    SisiPergelangan sisi = SisiPergelangan.kiri,
+  }) : this(
+         waktu: waktu,
+         sisi: sisi,
+         putaran: [
+           PutaranKalibrasi(
+             sistolikReferensi: sistolikReferensi,
+             diastolikReferensi: diastolikReferensi,
+             sistolikJam: sistolikJam,
+             diastolikJam: diastolikJam,
+           ),
+         ],
+       );
+
+  /// Jumlah putaran yang diminta alur kalibrasi baru.
+  static const int jumlahPutaran = 3;
+
+  /// Jeda minimum antar putaran. Manset yang langsung dipompa ulang membaca
+  /// terlalu tinggi — pembuluh di lengan belum pulih dari tekanan sebelumnya.
+  static const Duration jedaAntarPutaran = Duration(seconds: 60);
+
+  /// Selisih offset terbesar yang masih dianggap satu keadaan yang sama
+  /// (mmHg). Di atas ini ketiga putaran bercerita tentang tiga tekanan yang
+  /// berbeda, dan mediannya tidak mewakili apa pun.
+  static const int sebaranMaksimum = 12;
+
+  static const Duration masaBerlaku = Duration(days: 28);
+
+  final DateTime waktu;
+  final List<PutaranKalibrasi> putaran;
+  final SisiPergelangan sisi;
+
+  static int _median(List<int> nilai) {
+    final urut = [...nilai]..sort();
+    return urut[urut.length ~/ 2];
+  }
+
+  static int _sebaran(List<int> nilai) =>
+      nilai.reduce((a, b) => a > b ? a : b) -
+      nilai.reduce((a, b) => a < b ? a : b);
+
+  int get offsetSistolik =>
+      _median([for (final p in putaran) p.offsetSistolik]);
+  int get offsetDiastolik =>
+      _median([for (final p in putaran) p.offsetDiastolik]);
+
+  int get sebaranSistolik =>
+      _sebaran([for (final p in putaran) p.offsetSistolik]);
+  int get sebaranDiastolik =>
+      _sebaran([for (final p in putaran) p.offsetDiastolik]);
+
+  /// Ketiga putaran cukup mirip satu sama lain untuk dirangkum jadi satu
+  /// koreksi. Bila tidak, yang benar adalah mengulang — bukan mengirim median
+  /// dari angka yang saling bertentangan.
+  bool get konsisten =>
+      sebaranSistolik <= sebaranMaksimum && sebaranDiastolik <= sebaranMaksimum;
+
+  DateTime get berlakuSampai => waktu.add(masaBerlaku);
+
+  bool kedaluwarsaPada(DateTime kini) => !kini.isBefore(berlakuSampai);
+
+  /// Sisa hari sebelum kedaluwarsa; 0 berarti habis hari ini atau sudah lewat.
+  int sisaHariPada(DateTime kini) {
+    final sisa = berlakuSampai.difference(kini).inHours;
+    return sisa <= 0 ? 0 : (sisa / 24).ceil();
+  }
+
   String get ringkasanOffset {
     String tanda(int n) => n >= 0 ? '+$n' : '$n';
     return '${tanda(offsetSistolik)}/${tanda(offsetDiastolik)} mmHg';
   }
 }
 
+/// Satu pindai kesehatan atas permintaan — hasil `UKUR_SEKARANG` (protokol
+/// §5.1) di luar sesi makan mana pun.
+///
+/// Bukan [SesiMakan] dan sengaja tidak dijadikan satu: ia tidak punya makanan,
+/// tidak punya `t0`, dan tidak punya tiga titik pembanding, sehingga tidak satu
+/// pun hitungan di `AnalisisSesi` berlaku untuknya. [waktu] adalah waktu ponsel
+/// saat jawabannya diterima, dan itu memang sah di sini — berbeda dari sampel
+/// sesi, pindai hanya terjadi selagi jam tersambung dan menjawab seketika, jadi
+/// tidak ada jalur buffer yang bisa membuatnya datang berjam-jam terlambat.
+class HasilPindai {
+  const HasilPindai({required this.waktu, required this.sampel});
+
+  final DateTime waktu;
+  final Sampel sampel;
+
+  /// Tidak satu metrik pun terbaca. Dibedakan dari sebagian gagal karena
+  /// tindak lanjutnya berbeda: yang ini selalu berarti jam tidak menempel
+  /// dengan benar, bukan satu sensor yang kebetulan meleset.
+  bool get kosong =>
+      sampel.gulaDarah == null &&
+      sampel.detakJantung == null &&
+      sampel.tekananDarah == null &&
+      sampel.spo2 == null;
+
+  /// Ada metrik yang terbaca dan ada yang tidak.
+  bool get sebagianGagal =>
+      !kosong &&
+      (sampel.gulaDarah == null ||
+          sampel.detakJantung == null ||
+          sampel.tekananDarah == null ||
+          sampel.spo2 == null);
+}
+
+/// Metrik yang benar-benar bisa diukur jam ini — bitfield `kemampuan` di
+/// handshake (docs/protokol-jam.md §3, byte 11).
+///
+/// **Ini bukan hiasan**, dan §3 menyatakannya sebagai kewajiban: metrik yang
+/// bit-nya 0 harus **disembunyikan** dari UI, bukan ditampilkan sebagai `—`.
+/// Bedanya besar bagi yang membaca layar. `—` berarti "diukur tetapi gagal" —
+/// kalimat yang mengundang orang merapatkan tali jam, mencoba lagi, dan
+/// menyalahkan dirinya sendiri untuk sensor yang memang tidak ada di alat itu.
+///
+/// **Detak jantung tidak punya bit** di §3 dan karena itu selalu dianggap ada;
+/// jangan mengarang bit untuknya. Bit3 (OTA) bukan metrik dan tidak diwakili di
+/// sini.
+class KemampuanPerangkat {
+  const KemampuanPerangkat({
+    required this.gulaDarah,
+    required this.tekananDarah,
+    required this.spo2,
+  });
+
+  /// Jawaban saat kemampuannya **belum diketahui** — sebelum handshake pertama,
+  /// dan untuk sesi lama di riwayat yang jamnya mungkin sudah bukan jam ini.
+  ///
+  /// Sengaja "semua boleh", bukan "semua disembunyikan": menyembunyikan angka
+  /// yang **sudah ada di basis data** karena kita belum sempat bertanya ke jam
+  /// adalah kerugian yang pasti, ditukar dengan kerapian yang belum tentu benar.
+  static const KemampuanPerangkat semua = KemampuanPerangkat(
+    gulaDarah: true,
+    tekananDarah: true,
+    spo2: true,
+  );
+
+  final bool gulaDarah;
+  final bool tekananDarah;
+  final bool spo2;
+
+  @override
+  bool operator ==(Object other) =>
+      other is KemampuanPerangkat &&
+      other.gulaDarah == gulaDarah &&
+      other.tekananDarah == tekananDarah &&
+      other.spo2 == spo2;
+
+  @override
+  int get hashCode => Object.hash(gulaDarah, tekananDarah, spo2);
+}
+
 /// Status jam yang ditampilkan apa adanya di sesi berjalan (§8).
 class StatusPerangkat {
   const StatusPerangkat({
     required this.tersambung,
-    this.baterai,
+    int? baterai,
     this.sampelTertunda = 0,
     this.sinkronTerakhir,
     this.namaPerangkat,
-  });
+    this.penyandinganHilang = false,
+    this.kemampuan,
+  }) : _bateraiTerakhir = baterai;
+
+  /// Belum pernah ada jam yang dipasangkan sama sekali.
+  static const StatusPerangkat kosong = StatusPerangkat(tersambung: false);
 
   final bool tersambung;
-  final int? baterai; // persen
+
+  final int? _bateraiTerakhir;
+
+  /// Level baterai jam dalam persen, atau null kalau tidak diketahui.
+  ///
+  /// **Jam yang terputus selalu null.** Baterai hanya terbaca selagi tautan
+  /// hidup (characteristic `0x2A19`), jadi begitu jam lepas, angka terakhir
+  /// hanya menua: jam yang dipakai seharian di luar jangkauan ponsel akan
+  /// tetap "100%" di layar sampai tersambung lagi. Menahan angka basi itu
+  /// lebih buruk daripada tidak menampilkan apa pun — user memutuskan
+  /// mengisi daya atau tidak berdasarkan angka itu.
+  ///
+  /// Aturannya ada di sini, bukan di tiap halaman, supaya permukaan baru tidak
+  /// bisa lupa. Konsekuensinya [salin] ikut membuang angkanya begitu status
+  /// berubah jadi terputus; nilai yang segar datang lagi dari paket status
+  /// saat menyambung (§7) dan dari langganan Battery Service.
+  int? get baterai => tersambung ? _bateraiTerakhir : null;
   final int sampelTertunda; // masih tertahan di buffer jam
   final DateTime? sinkronTerakhir;
+
+  /// Jam masih tercatat dipasangkan di aplikasi, tetapi ponsel sudah tidak
+  /// menyandingkannya — user menghapusnya lewat Pengaturan Bluetooth sistem,
+  /// atau jamnya di-reset.
+  ///
+  /// Dibedakan dari sekadar terputus karena tindak lanjutnya bertolak belakang:
+  /// yang terputus akan tersambung sendiri dan sampelnya menyusul, sedangkan
+  /// yang ini **tidak akan pernah** sampai user menyandingkannya lagi. Aplikasi
+  /// sengaja tidak menyandinginya sendiri dari latar belakang — dialog
+  /// penyandingan yang muncul entah kapan, tanpa user sedang memasang apa pun,
+  /// adalah permintaan yang tidak mungkin dimengerti
+  /// (docs/alur-pemasangan-jam.md §4.5).
+  final bool penyandinganHilang;
 
   /// Nama jam yang sedang/terakhir dipasangkan. null berarti belum pernah ada
   /// perangkat yang dipasangkan sama sekali — bedanya dengan `tersambung:
   /// false` adalah yang terakhir cuma putus sementara, dan sampelnya masih
   /// menunggu di buffer.
   final String? namaPerangkat;
+
+  /// Metrik yang bisa diukur jam ini, dari handshake (§3). null berarti
+  /// **belum diketahui** — belum pernah handshake sejak aplikasi dibuka.
+  ///
+  /// Berbeda dari [baterai], nilainya **tidak dibuang saat jam terputus**, dan
+  /// perbedaan itu disengaja: baterai menua tiap menit, sedangkan jam tidak
+  /// menumbuhkan sensor SpO2 selagi berada di luar jangkauan. Menyembunyikan
+  /// metrik hanya selagi tersambung, lalu menampilkannya lagi begitu putus,
+  /// adalah layar yang berubah-ubah tanpa ada yang berubah.
+  final KemampuanPerangkat? kemampuan;
+
+  /// Metrik yang boleh ditampilkan sekarang. Selama [kemampuan] belum diketahui,
+  /// jawabannya semua — lihat [KemampuanPerangkat.semua].
+  KemampuanPerangkat get metrikTampil => kemampuan ?? KemampuanPerangkat.semua;
 
   /// Belum pernah dipasangkan, jadi UI harus menawarkan pemindaian, bukan
   /// sekadar "menunggu tersambung kembali".
@@ -489,13 +775,21 @@ class StatusPerangkat {
     int? sampelTertunda,
     DateTime? sinkronTerakhir,
     String? namaPerangkat,
+    bool? penyandinganHilang,
+    KemampuanPerangkat? kemampuan,
   }) {
     return StatusPerangkat(
       tersambung: tersambung ?? this.tersambung,
+      // `this.baterai` di sini adalah getter-nya, jadi menyalin status yang
+      // sudah terputus tidak membawa angka lama ikut serta — sekali putus,
+      // angkanya hilang dan hanya bacaan baru yang bisa mengisinya.
       baterai: baterai ?? this.baterai,
       sampelTertunda: sampelTertunda ?? this.sampelTertunda,
       sinkronTerakhir: sinkronTerakhir ?? this.sinkronTerakhir,
       namaPerangkat: namaPerangkat ?? this.namaPerangkat,
+      penyandinganHilang: penyandinganHilang ?? this.penyandinganHilang,
+      // Ditahan, tidak seperti baterai: lihat alasannya di definisi field-nya.
+      kemampuan: kemampuan ?? this.kemampuan,
     );
   }
 }

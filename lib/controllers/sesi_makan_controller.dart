@@ -7,7 +7,7 @@ import '../repositories/kalibrasi_repository.dart';
 import '../repositories/sesi_repository.dart';
 import '../services/ble_service.dart';
 import '../services/nutrisi_service.dart';
-import '../services/protokol_jam.dart' show buatIdSesi;
+import '../services/protokol_jam.dart' show GalatJam, buatIdSesi;
 
 /// Satu-satunya state hidup di aplikasi (§12.6), disediakan lewat satu
 /// `ChangeNotifierProvider` di atas `MaterialApp`.
@@ -218,9 +218,7 @@ class SesiMakanController extends ChangeNotifier {
     final t0 = sesi.t0;
     if (t0 == null) return null;
     final titikTerakhir = sesi.sampel.last.detikRelatifT0;
-    return t0
-        .add(Duration(seconds: titikTerakhir))
-        .add(tenggatSampelTerakhir);
+    return t0.add(Duration(seconds: titikTerakhir)).add(tenggatSampelTerakhir);
   }
 
   void _jadwalkanTenggat() {
@@ -420,6 +418,37 @@ class SesiMakanController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Menekan tombol "Selesai Makan" dari aplikasi.
+  ///
+  /// Pasangan tombol fisik di jam, bukan penggantinya — keduanya bermuara ke
+  /// jalur yang sama persis. Aplikasi **tidak** menetapkan `t0`: ia mengirim
+  /// `MULAI_SESI` (protokol §5.1), dan sesi baru benar-benar dimulai saat
+  /// `TOMBOL_SELESAI_MAKAN` dari jam sampai ke [_terimaT0]. Itulah sebabnya
+  /// metode ini tidak menyentuh `_sesiAktif` sama sekali.
+  ///
+  /// Perbedaan itu bukan formalitas. `t0` harus berada di garis waktu yang sama
+  /// dengan `uptime_s` tiap sampel (§5.3); `t0` versi jam dinding HP tidak bisa
+  /// dibandingkan dengan apa pun yang dikirim jam, dan `+1 jam` / `+2 jam` akan
+  /// dijadwalkan dari titik yang tidak ada di garis waktu jam.
+  ///
+  /// Mengembalikan false bila perintahnya tidak jadi dikirim atau ditolak jam.
+  /// **Layar tidak berubah pada saat itu juga** meski berhasil — yang ditunggu
+  /// adalah balasan jam, dan menampilkan sesi sudah berjalan sebelum jamnya
+  /// setuju akan berbohong tepat pada detik yang paling menentukan.
+  Future<bool> mulaiSesiDariApp() async {
+    final sesi = _sesiAktif;
+    if (sesi == null) return false;
+    if (sesi.t0 != null) return false; // sudah berjalan
+    if (!_statusPerangkat.tersambung) return false;
+
+    // Jam menolak `MULAI_SESI` selama belum di-ARM — aturan yang sama yang
+    // menjamin tidak ada sesi tanpa foto makanan (§5.1). Kalau ARM sebelumnya
+    // belum sampai (jam baru tersambung), kirim lebih dulu.
+    if (_sesiDiarm != sesi.id) await _siapkanJam();
+
+    return ble.mulaiSesi(sesi.id);
+  }
+
   Sampel _geser(Sampel s, int detikRelatifT0) => Sampel(
     index: s.index,
     detikRelatifT0: detikRelatifT0,
@@ -460,9 +489,21 @@ class SesiMakanController extends ChangeNotifier {
     }
   }
 
-  /// Mengakhiri sesi berjalan lebih awal — dipakai saat user mau memotret
-  /// makanan baru padahal sesi lama belum kelar (§6). Sampel yang belum masuk
-  /// ditandai terlewat, jadi sesinya `tidakLengkap`, bukan gagal.
+  /// Mengakhiri sesi berjalan lebih awal. Sampel yang belum masuk ditandai
+  /// terlewat, jadi sesinya `tidakLengkap`, bukan gagal — bedanya dengan
+  /// [batalkan] adalah nasib datanya: di sini sampel yang sudah masuk tetap
+  /// tersimpan dan tetap dihitung, di sana barisnya dihapus.
+  ///
+  /// Dua pemanggil, dua maksud. Yang lama: user memotret makanan baru padahal
+  /// sesi lama belum kelar (§6). Yang kedua: user menutup sendiri sesi yang
+  /// jamnya tidak akan pernah menuntaskan pengukurannya — baterai habis, sensor
+  /// gagal, jam tidak kembali tersambung. Tanpa yang kedua, satu-satunya jalan
+  /// keluar adalah membatalkan (membuang data yang sudah terkumpul) atau
+  /// menunggu [tenggatSampelTerakhir], yang jatuh sampai 2,5 jam setelah t0.
+  ///
+  /// Memanggil `batalkanSesi()` ke jam, jadi sampel yang masih tertahan di
+  /// buffer jam tidak akan masuk lagi ke sesi ini. Karena itu pemanggil dari UI
+  /// wajib mengonfirmasinya lebih dulu.
   Future<void> akhiriLebihAwal() async {
     final sesi = _sesiAktif;
     if (sesi == null) return;
@@ -505,8 +546,25 @@ class SesiMakanController extends ChangeNotifier {
 
   Stream<PerangkatDitemukan> pindaiPerangkat() => ble.pindai();
 
-  Future<bool> sambungkanPerangkat(String idPerangkat) =>
+  /// Tahap penyambungan yang sedang berjalan, diteruskan apa adanya dari jam.
+  Stream<TahapSambung> get tahapSambung => ble.tahapSambung;
+
+  Future<HasilSambung> sambungkanPerangkat(String idPerangkat) =>
       ble.sambungkan(idPerangkat);
+
+  Future<bool> lupakanPenyandingan(String idPerangkat) =>
+      ble.lupakanPenyandingan(idPerangkat);
+
+  /// Melepas pemasangan jam sepenuhnya.
+  ///
+  /// Sesi yang sedang berjalan **tidak ikut dibatalkan**: sampel yang sudah
+  /// masuk tetap data yang sah, dan sesinya berakhir lewat tenggatnya sendiri
+  /// seperti sesi mana pun yang kehilangan jamnya. Yang harus dikatakan UI lebih
+  /// dulu adalah bahwa sisa sampelnya tidak akan pernah datang.
+  Future<void> lupakanPerangkat() => ble.lupakanPerangkat();
+
+  /// Penjelasan kegagalan sambung yang datang dari jam sendiri, bila ada.
+  String? get galatSambungTerakhir => ble.galatTerakhir;
 
   Future<void> putuskanPerangkat() => ble.putuskan();
 
@@ -520,8 +578,93 @@ class SesiMakanController extends ChangeNotifier {
   /// aplikasi yang lupa akan berbohong tentang keadaan jamnya sendiri.
   Kalibrasi? get kalibrasiTerakhir => _kalibrasiTerakhir;
 
+  /// Kalibrasi terakhir sudah lewat masa berlakunya (`Kalibrasi.masaBerlaku`).
+  ///
+  /// Jam **tetap** memakai offset lamanya — ia tidak tahu apa-apa soal tanggal
+  /// (protokol §4: tidak ada RTC di sana), jadi kedaluwarsa adalah penilaian
+  /// aplikasi, bukan perubahan perilaku alat. Karena itu yang benar adalah
+  /// mengatakannya, bukan diam: angkanya masih keluar, hanya tidak lagi bisa
+  /// dipertanggungjawabkan.
+  bool get kalibrasiKedaluwarsa =>
+      _kalibrasiTerakhir?.kedaluwarsaPada(DateTime.now()) ?? false;
+
+  /// Sisa hari masa berlaku kalibrasi, null bila belum pernah dikalibrasi.
+  int? get sisaHariKalibrasi =>
+      _kalibrasiTerakhir?.sisaHariPada(DateTime.now());
+
   /// Meminta jam mengukur bersamaan dengan tensimeter.
   Future<Sampel> ukurUntukKalibrasi() => ble.ukurSekarang();
+
+  // --- Pindai kesehatan atas permintaan ----------------------------------
+
+  HasilPindai? _pindaiTerakhir;
+
+  /// Hasil pindai kesehatan terakhir di sesi aplikasi ini, atau null bila belum
+  /// pernah memindai sejak aplikasi dibuka.
+  ///
+  /// **Sengaja hanya di memori.** Riwayat aplikasi ini berisi sesi makan
+  /// (docs/rancangan-ui-sesi-makan.md), dan satu pembacaan lepas tanpa makanan,
+  /// tanpa `t0`, dan tanpa tiga titik pembanding bukan sesi — menyimpannya ke
+  /// tabel yang sama akan mencemari setiap hitungan di `AnalisisSesi`. Yang
+  /// dibelinya di sini cuma satu hal, dan memang cuma itu yang dibutuhkan:
+  /// pengguna yang menutup halaman lalu membukanya lagi tidak kehilangan angka
+  /// yang baru saja dilihatnya. Halaman pindai mengatakan apa adanya bahwa
+  /// hasilnya tidak masuk riwayat.
+  HasilPindai? get pindaiTerakhir => _pindaiTerakhir;
+
+  /// Sedang menunggu jawaban jam atas sebuah pindai.
+  ///
+  /// Di controller, bukan di halaman, karena satu perintah `UKUR_SEKARANG` boleh
+  /// jalan pada satu waktu: jam menjawab NAK `sedangMengukur` untuk yang kedua,
+  /// dan dua halaman yang saling menunggu jawaban yang sama akan saling
+  /// mencuri sampelnya.
+  bool get sedangMemindai => _sedangMemindai;
+  bool _sedangMemindai = false;
+
+  /// Pindai kesehatan sekali jalan, di luar sesi makan mana pun.
+  ///
+  /// Perintahnya sama dengan yang dipakai kalibrasi (`UKUR_SEKARANG`, §5.1);
+  /// yang berbeda hanya nasib hasilnya. Melempar [GalatJam] dengan kalimat siap
+  /// tampil bila jam tidak tersambung, menolak, atau tidak menjawab.
+  Future<HasilPindai> pindaiKesehatan() async {
+    // Diperiksa di sini, bukan hanya di layer BLE, supaya jawabannya sama
+    // apakah jamnya palsu atau sungguhan — dan supaya kalimatnya menyebut
+    // keadaan yang **berbeda**: jam yang belum pernah dipasangkan menuntut
+    // pemindaian perangkat, bukan mendekatkan jam.
+    final p = statusPerangkat;
+    if (p.belumDipasangkan) {
+      throw const GalatJam(
+        'Belum ada jam yang dipasangkan. Pasangkan jam AsaWatch lebih dulu.',
+      );
+    }
+    if (!p.tersambung) {
+      throw const GalatJam(
+        'Jam belum tersambung. Dekatkan jam ke ponsel, lalu coba lagi.',
+      );
+    }
+    if (_sedangMemindai) {
+      throw const GalatJam('Pengukuran sebelumnya masih berjalan.');
+    }
+
+    _sedangMemindai = true;
+    notifyListeners();
+    try {
+      final sampel = await ble.ukurSekarang();
+      final hasil = HasilPindai(waktu: DateTime.now(), sampel: sampel);
+      _pindaiTerakhir = hasil;
+      return hasil;
+    } finally {
+      _sedangMemindai = false;
+      notifyListeners();
+    }
+  }
+
+  /// Membuang hasil pindai terakhir dari layar.
+  void buangPindaiTerakhir() {
+    if (_pindaiTerakhir == null) return;
+    _pindaiTerakhir = null;
+    notifyListeners();
+  }
 
   /// Menghitung koefisien dari selisih tensimeter vs jam, lalu mengirimkannya.
   ///

@@ -26,20 +26,43 @@ class KalibrasiRepositoryDrift implements KalibrasiRepository {
 
   @override
   Future<void> simpan(Kalibrasi kalibrasi) async {
-    await db
-        .into(db.tabelKalibrasi)
-        .insertOnConflictUpdate(
-          TabelKalibrasiCompanion.insert(
-            // `Value(...)` karena kolom integer yang menjadi satu-satunya kunci
-            // primer adalah alias rowid di SQLite, sehingga drift menganggapnya
-            // boleh dikosongkan. Di sini ia tidak boleh: waktunya adalah datanya.
-            waktu: Value(kalibrasi.waktu.toUtc().microsecondsSinceEpoch),
-            sistolikReferensi: kalibrasi.sistolikReferensi,
-            diastolikReferensi: kalibrasi.diastolikReferensi,
-            sistolikJam: kalibrasi.sistolikJam,
-            diastolikJam: kalibrasi.diastolikJam,
-          ),
-        );
+    final waktu = kalibrasi.waktu.toUtc().microsecondsSinceEpoch;
+
+    // Induk dan putarannya ditulis dalam satu transaksi: kalibrasi yang punya
+    // baris tetapi tidak punya putaran akan terbaca sebagai kalibrasi tanpa
+    // angka, dan `Kalibrasi` tidak mengizinkan bentuk itu ada.
+    await db.transaction(() async {
+      await db
+          .into(db.tabelKalibrasi)
+          .insertOnConflictUpdate(
+            TabelKalibrasiCompanion.insert(
+              // `Value(...)` karena kolom integer yang menjadi satu-satunya
+              // kunci primer adalah alias rowid di SQLite, sehingga drift
+              // menganggapnya boleh dikosongkan. Di sini ia tidak boleh:
+              // waktunya adalah datanya.
+              waktu: Value(waktu),
+              sisi: kalibrasi.sisi,
+            ),
+          );
+      await (db.delete(
+        db.tabelPutaranKalibrasi,
+      )..where((t) => t.waktuKalibrasi.equals(waktu))).go();
+      for (var i = 0; i < kalibrasi.putaran.length; i++) {
+        final p = kalibrasi.putaran[i];
+        await db
+            .into(db.tabelPutaranKalibrasi)
+            .insert(
+              TabelPutaranKalibrasiCompanion.insert(
+                waktuKalibrasi: waktu,
+                urutan: i,
+                sistolikReferensi: p.sistolikReferensi,
+                diastolikReferensi: p.diastolikReferensi,
+                sistolikJam: p.sistolikJam,
+                diastolikJam: p.diastolikJam,
+              ),
+            );
+      }
+    });
   }
 
   @override
@@ -54,15 +77,31 @@ class KalibrasiRepositoryDrift implements KalibrasiRepository {
             .getSingleOrNull();
     if (b == null) return null;
 
+    final putaran =
+        await (db.select(db.tabelPutaranKalibrasi)
+              ..where((t) => t.waktuKalibrasi.equals(b.waktu))
+              ..orderBy([(t) => OrderingTerm(expression: t.urutan)]))
+            .get();
+    // Baris induk tanpa putaran hanya mungkin dari basis data yang rusak;
+    // memperlakukannya sebagai "belum pernah dikalibrasi" lebih jujur daripada
+    // melempar di layar profil.
+    if (putaran.isEmpty) return null;
+
     return Kalibrasi(
       waktu: DateTime.fromMicrosecondsSinceEpoch(
         b.waktu,
         isUtc: true,
       ).toLocal(),
-      sistolikReferensi: b.sistolikReferensi,
-      diastolikReferensi: b.diastolikReferensi,
-      sistolikJam: b.sistolikJam,
-      diastolikJam: b.diastolikJam,
+      sisi: b.sisi,
+      putaran: [
+        for (final p in putaran)
+          PutaranKalibrasi(
+            sistolikReferensi: p.sistolikReferensi,
+            diastolikReferensi: p.diastolikReferensi,
+            sistolikJam: p.sistolikJam,
+            diastolikJam: p.diastolikJam,
+          ),
+      ],
     );
   }
 }

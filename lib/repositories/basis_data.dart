@@ -151,15 +151,43 @@ class TabelAnchorWaktu extends Table {
 /// Jam sendiri menyimpan offsetnya di flash, jadi tabel ini bukan sumber
 /// kebenaran bagi jam — ia sumber kebenaran bagi **aplikasi**, yang tanpa ini
 /// lupa pernah mengalibrasi setiap kali ditutup.
+/// Sejak v4 baris ini hanya menyimpan **identitas** satu kalibrasi: kapan dan
+/// di pergelangan mana. Angkanya pindah ke [TabelPutaranKalibrasi], karena satu
+/// kalibrasi kini terdiri dari tiga putaran (`Kalibrasi.jumlahPutaran`) dan
+/// koreksi yang dikirim ke jam adalah mediannya — nilai turunan, yang seperti
+/// nilai turunan lain di skema ini tidak punya kolom sendiri.
 class TabelKalibrasi extends Table {
   IntColumn get waktu => integer()();
+
+  /// `textEnum`, jadi mengganti nama anggota [SisiPergelangan] adalah
+  /// perubahan skema — sama seperti `StatusSesi` di [TabelSesi].
+  TextColumn get sisi => textEnum<SisiPergelangan>()();
+
+  @override
+  Set<Column> get primaryKey => {waktu};
+}
+
+/// Satu putaran tensimeter + jam milik sebuah kalibrasi.
+///
+/// Ketiganya disimpan mentah, bukan hanya mediannya, karena sebaran antar
+/// putaran adalah satu-satunya bukti bahwa kalibrasinya layak dipercaya
+/// (`Kalibrasi.konsisten`). Median tanpa sebarannya tidak bisa dibedakan dari
+/// median tiga angka yang saling bertentangan.
+///
+/// Tidak ada `references` ke [TabelKalibrasi] dengan sengaja: induknya tidak
+/// pernah dihapus (kalibrasi adalah riwayat), dan kunci asing ke tabel yang
+/// ikut ditulis ulang saat migrasi hanya menambah satu cara gagal yang baru
+/// muncul di perangkat pengguna.
+class TabelPutaranKalibrasi extends Table {
+  IntColumn get waktuKalibrasi => integer()();
+  IntColumn get urutan => integer()();
   IntColumn get sistolikReferensi => integer()();
   IntColumn get diastolikReferensi => integer()();
   IntColumn get sistolikJam => integer()();
   IntColumn get diastolikJam => integer()();
 
   @override
-  Set<Column> get primaryKey => {waktu};
+  Set<Column> get primaryKey => {waktuKalibrasi, urutan};
 }
 
 /// Entri mentah yang datang dari jam, sebelum jadi bagian sebuah sesi —
@@ -214,6 +242,7 @@ class TabelEntriJam extends Table {
     TabelItemMakanan,
     TabelAnchorWaktu,
     TabelKalibrasi,
+    TabelPutaranKalibrasi,
     TabelEntriJam,
   ],
 )
@@ -221,7 +250,7 @@ class BasisData extends _$BasisData {
   BasisData(super.e);
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -247,6 +276,49 @@ class BasisData extends _$BasisData {
             await m.addColumn(tabelSesi, tabelSesi.waktuTidakPasti);
             await m.createTable(tabelKalibrasi);
             await m.createTable(tabelEntriJam);
+          case 3: // v3 → v4: kalibrasi tiga putaran (metode manset berulang)
+            // Urutannya penting: angka v3 disalin dulu menjadi putaran 0,
+            // baru kolom asalnya dibuang bersama penulisan ulang tabelnya.
+            // Kalibrasi lama tetap terbaca — satu putaran, mediannya dirinya
+            // sendiri — jadi tidak ada pengguna yang tiba-tiba "belum pernah
+            // dikalibrasi" padahal jamnya masih memakai offset itu.
+            await m.createTable(tabelPutaranKalibrasi);
+
+            // `createTable` selalu memakai definisi Dart **hari ini**, bukan
+            // definisi versi yang sedang dimigrasikan. Jadi perangkat yang
+            // melompat dari v2 baru saja membuat `tabel_kalibrasi` dalam bentuk
+            // v4 di langkah sebelumnya, dan tidak punya kolom lama untuk
+            // disalin. Yang membedakan keduanya cuma isi tabelnya sendiri —
+            // karena itu ditanya, bukan diasumsikan.
+            final kolom = await m.database
+                .customSelect('PRAGMA table_info(tabel_kalibrasi)')
+                .get();
+            final bentukV3 = kolom.any(
+              (baris) => baris.read<String>('name') == 'sistolik_referensi',
+            );
+
+            if (bentukV3) {
+              await m.database.customStatement(
+                'INSERT INTO tabel_putaran_kalibrasi ('
+                'waktu_kalibrasi, urutan, sistolik_referensi, '
+                'diastolik_referensi, sistolik_jam, diastolik_jam) '
+                'SELECT waktu, 0, sistolik_referensi, diastolik_referensi, '
+                'sistolik_jam, diastolik_jam FROM tabel_kalibrasi',
+              );
+              await m.alterTable(
+                TableMigration(
+                  tabelKalibrasi,
+                  newColumns: [tabelKalibrasi.sisi],
+                  // Pergelangannya tidak terekam sebelum v4 dan tidak bisa
+                  // diterka. Diisi kiri — sisi yang paling lazim — dan tidak
+                  // dipakai untuk apa pun selain kalimat di layar; kalibrasi
+                  // lama itu sendiri sudah kedaluwarsa 4 minggu setelah dibuat.
+                  columnTransformer: {
+                    tabelKalibrasi.sisi: const Constant('kiri'),
+                  },
+                ),
+              );
+            }
           default:
             throw UnsupportedError(
               'Belum ada migrasi dari skema v$v ke v${v + 1}. '

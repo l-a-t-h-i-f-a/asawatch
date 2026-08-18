@@ -33,7 +33,9 @@ class _RegisterPageState extends State<RegisterPage> {
     final value = _passwordController.text;
     setState(() {
       _isPasswordLengthValid = value.length >= 8;
-      _hasLetterAndNumber = RegExp(r'[a-zA-Z]').hasMatch(value) && RegExp(r'[0-9]').hasMatch(value);
+      _hasLetterAndNumber =
+          RegExp(r'[a-zA-Z]').hasMatch(value) &&
+          RegExp(r'[0-9]').hasMatch(value);
     });
   }
 
@@ -56,9 +58,7 @@ class _RegisterPageState extends State<RegisterPage> {
         children: [
           // Leafy curves background at the bottom-right corner matching login's custom painter style but flipped
           Positioned.fill(
-            child: CustomPaint(
-              painter: RegisterBackgroundPainter(),
-            ),
+            child: CustomPaint(painter: RegisterBackgroundPainter()),
           ),
           SafeArea(
             child: SingleChildScrollView(
@@ -74,7 +74,10 @@ class _RegisterPageState extends State<RegisterPage> {
                       // Back Button
                       IconButton(
                         onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.arrow_back, color: Color(0xFF1E3A34)),
+                        icon: const Icon(
+                          Icons.arrow_back,
+                          color: Color(0xFF1E3A34),
+                        ),
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(),
                       ),
@@ -128,29 +131,50 @@ class _RegisterPageState extends State<RegisterPage> {
                         },
                         decoration: InputDecoration(
                           hintText: 'Masukkan nama lengkap',
-                          hintStyle: const TextStyle(color: Color(0xFF9CB1AC), fontWeight: FontWeight.normal),
-                          prefixIcon: const Icon(Icons.person_outline_rounded, color: Color(0xFF6B807B)),
+                          hintStyle: const TextStyle(
+                            color: Color(0xFF9CB1AC),
+                            fontWeight: FontWeight.normal,
+                          ),
+                          prefixIcon: const Icon(
+                            Icons.person_outline_rounded,
+                            color: Color(0xFF6B807B),
+                          ),
                           filled: true,
                           fillColor: Colors.white,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 16,
+                          ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Color(0xFF0EAD69), width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF0EAD69),
+                              width: 1.5,
+                            ),
                           ),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Color(0xFFE2EBE8), width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFE2EBE8),
+                              width: 1.5,
+                            ),
                           ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
                           errorBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Colors.redAccent,
+                              width: 1.5,
+                            ),
                           ),
                           focusedErrorBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Colors.redAccent,
+                              width: 1.5,
+                            ),
                           ),
                         ),
                       ),
@@ -175,36 +199,59 @@ class _RegisterPageState extends State<RegisterPage> {
                           if (value == null || value.trim().isEmpty) {
                             return 'Masukkan email';
                           }
-                          if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value.trim())) {
+                          if (!RegExp(
+                            r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                          ).hasMatch(value.trim())) {
                             return 'Format email tidak valid';
                           }
                           return null;
                         },
                         decoration: InputDecoration(
                           hintText: 'Masukkan email',
-                          hintStyle: const TextStyle(color: Color(0xFF9CB1AC), fontWeight: FontWeight.normal),
-                          prefixIcon: const Icon(Icons.email_outlined, color: Color(0xFF6B807B)),
+                          hintStyle: const TextStyle(
+                            color: Color(0xFF9CB1AC),
+                            fontWeight: FontWeight.normal,
+                          ),
+                          prefixIcon: const Icon(
+                            Icons.email_outlined,
+                            color: Color(0xFF6B807B),
+                          ),
                           filled: true,
                           fillColor: Colors.white,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 16,
+                          ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Color(0xFF0EAD69), width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF0EAD69),
+                              width: 1.5,
+                            ),
                           ),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Color(0xFFE2EBE8), width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFE2EBE8),
+                              width: 1.5,
+                            ),
                           ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
                           errorBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Colors.redAccent,
+                              width: 1.5,
+                            ),
                           ),
                           focusedErrorBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Colors.redAccent,
+                              width: 1.5,
+                            ),
                           ),
                         ),
                       ),
@@ -233,29 +280,50 @@ class _RegisterPageState extends State<RegisterPage> {
                         },
                         decoration: InputDecoration(
                           hintText: 'Masukkan nomor HP',
-                          hintStyle: const TextStyle(color: Color(0xFF9CB1AC), fontWeight: FontWeight.normal),
-                          prefixIcon: const Icon(Icons.phone_outlined, color: Color(0xFF6B807B)),
+                          hintStyle: const TextStyle(
+                            color: Color(0xFF9CB1AC),
+                            fontWeight: FontWeight.normal,
+                          ),
+                          prefixIcon: const Icon(
+                            Icons.phone_outlined,
+                            color: Color(0xFF6B807B),
+                          ),
                           filled: true,
                           fillColor: Colors.white,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 16,
+                          ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Color(0xFF0EAD69), width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF0EAD69),
+                              width: 1.5,
+                            ),
                           ),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Color(0xFFE2EBE8), width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFE2EBE8),
+                              width: 1.5,
+                            ),
                           ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
                           errorBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Colors.redAccent,
+                              width: 1.5,
+                            ),
                           ),
                           focusedErrorBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Colors.redAccent,
+                              width: 1.5,
+                            ),
                           ),
                         ),
                       ),
@@ -283,18 +351,27 @@ class _RegisterPageState extends State<RegisterPage> {
                           if (value.length < 8) {
                             return 'Kata sandi minimal 8 karakter';
                           }
-                          if (!RegExp(r'[a-zA-Z]').hasMatch(value) || !RegExp(r'[0-9]').hasMatch(value)) {
+                          if (!RegExp(r'[a-zA-Z]').hasMatch(value) ||
+                              !RegExp(r'[0-9]').hasMatch(value)) {
                             return 'Kata sandi harus mengandung huruf dan angka';
                           }
                           return null;
                         },
                         decoration: InputDecoration(
                           hintText: 'Buat kata sandi',
-                          hintStyle: const TextStyle(color: Color(0xFF9CB1AC), fontWeight: FontWeight.normal),
-                          prefixIcon: const Icon(Icons.lock_outline_rounded, color: Color(0xFF6B807B)),
+                          hintStyle: const TextStyle(
+                            color: Color(0xFF9CB1AC),
+                            fontWeight: FontWeight.normal,
+                          ),
+                          prefixIcon: const Icon(
+                            Icons.lock_outline_rounded,
+                            color: Color(0xFF6B807B),
+                          ),
                           suffixIcon: IconButton(
                             icon: Icon(
-                              _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                              _obscurePassword
+                                  ? Icons.visibility_off_outlined
+                                  : Icons.visibility_outlined,
                               color: const Color(0xFF6B807B),
                             ),
                             onPressed: () {
@@ -305,25 +382,40 @@ class _RegisterPageState extends State<RegisterPage> {
                           ),
                           filled: true,
                           fillColor: Colors.white,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 16,
+                          ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Color(0xFF0EAD69), width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF0EAD69),
+                              width: 1.5,
+                            ),
                           ),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Color(0xFFE2EBE8), width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFE2EBE8),
+                              width: 1.5,
+                            ),
                           ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
                           errorBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Colors.redAccent,
+                              width: 1.5,
+                            ),
                           ),
                           focusedErrorBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Colors.redAccent,
+                              width: 1.5,
+                            ),
                           ),
                         ),
                       ),
@@ -334,7 +426,8 @@ class _RegisterPageState extends State<RegisterPage> {
                         children: [
                           Icon(
                             Icons.check_circle,
-                            color: (_isPasswordLengthValid && _hasLetterAndNumber)
+                            color:
+                                (_isPasswordLengthValid && _hasLetterAndNumber)
                                 ? const Color(0xFF0EAD69)
                                 : const Color(0xFF9CB1AC),
                             size: 16,
@@ -344,11 +437,15 @@ class _RegisterPageState extends State<RegisterPage> {
                             child: Text(
                               'Minimal 8 karakter dengan huruf dan angka',
                               style: TextStyle(
-                                color: (_isPasswordLengthValid && _hasLetterAndNumber)
+                                color:
+                                    (_isPasswordLengthValid &&
+                                        _hasLetterAndNumber)
                                     ? const Color(0xFF1E3A34)
                                     : const Color(0xFF6B807B),
                                 fontSize: 12,
-                                fontWeight: (_isPasswordLengthValid && _hasLetterAndNumber)
+                                fontWeight:
+                                    (_isPasswordLengthValid &&
+                                        _hasLetterAndNumber)
                                     ? FontWeight.w500
                                     : FontWeight.normal,
                               ),
@@ -384,40 +481,64 @@ class _RegisterPageState extends State<RegisterPage> {
                         },
                         decoration: InputDecoration(
                           hintText: 'Ulangi kata sandi',
-                          hintStyle: const TextStyle(color: Color(0xFF9CB1AC), fontWeight: FontWeight.normal),
-                          prefixIcon: const Icon(Icons.lock_outline_rounded, color: Color(0xFF6B807B)),
+                          hintStyle: const TextStyle(
+                            color: Color(0xFF9CB1AC),
+                            fontWeight: FontWeight.normal,
+                          ),
+                          prefixIcon: const Icon(
+                            Icons.lock_outline_rounded,
+                            color: Color(0xFF6B807B),
+                          ),
                           suffixIcon: IconButton(
                             icon: Icon(
-                              _obscureConfirmPassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                              _obscureConfirmPassword
+                                  ? Icons.visibility_off_outlined
+                                  : Icons.visibility_outlined,
                               color: const Color(0xFF6B807B),
                             ),
                             onPressed: () {
                               setState(() {
-                                _obscureConfirmPassword = !_obscureConfirmPassword;
+                                _obscureConfirmPassword =
+                                    !_obscureConfirmPassword;
                               });
                             },
                           ),
                           filled: true,
                           fillColor: Colors.white,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 16,
+                          ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Color(0xFF0EAD69), width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF0EAD69),
+                              width: 1.5,
+                            ),
                           ),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Color(0xFFE2EBE8), width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFE2EBE8),
+                              width: 1.5,
+                            ),
                           ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
                           errorBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Colors.redAccent,
+                              width: 1.5,
+                            ),
                           ),
                           focusedErrorBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Colors.redAccent,
+                              width: 1.5,
+                            ),
                           ),
                         ),
                       ),
@@ -436,7 +557,10 @@ class _RegisterPageState extends State<RegisterPage> {
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(6),
                               ),
-                              side: const BorderSide(color: Color(0xFFD4E2DE), width: 1.5),
+                              side: const BorderSide(
+                                color: Color(0xFFD4E2DE),
+                                width: 1.5,
+                              ),
                               onChanged: (val) {
                                 setState(() {
                                   _agreeToTerms = val ?? false;
@@ -488,7 +612,9 @@ class _RegisterPageState extends State<RegisterPage> {
                               if (_agreeToTerms) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
-                                    content: Text('Pendaftaran berhasil! Silakan masuk.'),
+                                    content: Text(
+                                      'Pendaftaran berhasil! Silakan masuk.',
+                                    ),
                                     backgroundColor: Color(0xFF0EAD69),
                                   ),
                                 );
@@ -496,7 +622,9 @@ class _RegisterPageState extends State<RegisterPage> {
                               } else {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
-                                    content: Text('Anda harus menyetujui Syarat & Ketentuan terlebih dahulu.'),
+                                    content: Text(
+                                      'Anda harus menyetujui Syarat & Ketentuan terlebih dahulu.',
+                                    ),
                                     backgroundColor: Colors.redAccent,
                                   ),
                                 );
@@ -528,7 +656,10 @@ class _RegisterPageState extends State<RegisterPage> {
                         children: [
                           const Text(
                             'Sudah punya akun? ',
-                            style: TextStyle(color: Color(0xFF6B807B), fontSize: 14),
+                            style: TextStyle(
+                              color: Color(0xFF6B807B),
+                              fontSize: 14,
+                            ),
                           ),
                           GestureDetector(
                             onTap: () {
@@ -575,8 +706,18 @@ class RegisterBackgroundPainter extends CustomPainter {
     final topPath = Path()
       ..moveTo(0, 0)
       ..lineTo(size.width * 0.6, 0)
-      ..quadraticBezierTo(size.width * 0.4, size.height * 0.12, size.width * 0.15, size.height * 0.1)
-      ..quadraticBezierTo(size.width * 0.05, size.height * 0.09, 0, size.height * 0.16)
+      ..quadraticBezierTo(
+        size.width * 0.4,
+        size.height * 0.12,
+        size.width * 0.15,
+        size.height * 0.1,
+      )
+      ..quadraticBezierTo(
+        size.width * 0.05,
+        size.height * 0.09,
+        0,
+        size.height * 0.16,
+      )
       ..close();
     canvas.drawPath(topPath, topWavePaint);
 
@@ -585,18 +726,40 @@ class RegisterBackgroundPainter extends CustomPainter {
     final path = Path()
       ..moveTo(size.width, size.height)
       ..lineTo(size.width * 0.6, size.height)
-      ..cubicTo(size.width * 0.65, size.height * 0.95, size.width * 0.75, size.height * 0.9, size.width * 0.85, size.height * 0.92)
-      ..cubicTo(size.width * 0.92, size.height * 0.94, size.width * 0.95, size.height * 0.88, size.width, size.height * 0.82)
+      ..cubicTo(
+        size.width * 0.65,
+        size.height * 0.95,
+        size.width * 0.75,
+        size.height * 0.9,
+        size.width * 0.85,
+        size.height * 0.92,
+      )
+      ..cubicTo(
+        size.width * 0.92,
+        size.height * 0.94,
+        size.width * 0.95,
+        size.height * 0.88,
+        size.width,
+        size.height * 0.82,
+      )
       ..close();
 
-    paint.shader = LinearGradient(
-      colors: [
-        const Color(0xFF8AE8CD).withValues(alpha: 0.3),
-        const Color(0xFFD6F5EC).withValues(alpha: 0.05),
-      ],
-      begin: Alignment.bottomRight,
-      end: Alignment.topLeft,
-    ).createShader(Rect.fromLTWH(size.width * 0.6, size.height * 0.8, size.width * 0.4, size.height * 0.2));
+    paint.shader =
+        LinearGradient(
+          colors: [
+            const Color(0xFF8AE8CD).withValues(alpha: 0.3),
+            const Color(0xFFD6F5EC).withValues(alpha: 0.05),
+          ],
+          begin: Alignment.bottomRight,
+          end: Alignment.topLeft,
+        ).createShader(
+          Rect.fromLTWH(
+            size.width * 0.6,
+            size.height * 0.8,
+            size.width * 0.4,
+            size.height * 0.2,
+          ),
+        );
 
     canvas.drawPath(path, paint);
 
@@ -605,25 +768,29 @@ class RegisterBackgroundPainter extends CustomPainter {
     _drawLeaf(canvas, size.width - 45, size.height - 18, -55, 16, paint);
   }
 
-  void _drawLeaf(Canvas canvas, double cx, double cy, double rotationDegrees, double size, Paint paint) {
+  void _drawLeaf(
+    Canvas canvas,
+    double cx,
+    double cy,
+    double rotationDegrees,
+    double size,
+    Paint paint,
+  ) {
     canvas.save();
     canvas.translate(cx, cy);
     canvas.rotate(rotationDegrees * 3.14159 / 180);
-    
+
     final path = Path();
     path.moveTo(0, 0);
     path.quadraticBezierTo(size * 0.5, -size * 0.8, size, -size);
     path.quadraticBezierTo(size * 0.8, -size * 0.2, 0, 0);
-    
+
     paint.shader = const LinearGradient(
-      colors: [
-        Color(0xFF55CCAA),
-        Color(0xFF7DE6C7),
-      ],
+      colors: [Color(0xFF55CCAA), Color(0xFF7DE6C7)],
       begin: Alignment.bottomLeft,
       end: Alignment.topRight,
     ).createShader(Rect.fromLTWH(0, -size, size, size));
-    
+
     canvas.drawPath(path, paint);
     canvas.restore();
   }

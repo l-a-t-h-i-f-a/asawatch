@@ -18,7 +18,7 @@ class _InformasiPribadiPageState extends State<InformasiPribadiPage> {
   final _weightController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
-  
+
   // null berarti belum dipilih; string kosong tidak bisa dipakai karena
   // DropdownButtonFormField menuntut nilainya ada di dalam daftar itemnya.
   String? _selectedGender;
@@ -45,10 +45,14 @@ class _InformasiPribadiPageState extends State<InformasiPribadiPage> {
     setState(() {
       _nameController.text = profil.nama;
       _tanggalLahir = DateTime.tryParse(profil.tanggalLahir);
-      _selectedGender = profil.jenisKelamin.isEmpty ? null : profil.jenisKelamin;
+      _selectedGender = profil.jenisKelamin.isEmpty
+          ? null
+          : profil.jenisKelamin;
       _heightController.text = _hanyaAngka(profil.tinggi);
       _weightController.text = _hanyaAngka(profil.berat);
-      _selectedBloodType = profil.golonganDarah.isEmpty ? null : profil.golonganDarah;
+      _selectedBloodType = profil.golonganDarah.isEmpty
+          ? null
+          : profil.golonganDarah;
       _emailController.text = profil.email;
       _phoneController.text = profil.telepon;
       _isLoading = false;
@@ -150,201 +154,219 @@ class _InformasiPribadiPageState extends State<InformasiPribadiPage> {
           const SizedBox(width: 8),
         ],
       ),
-      body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0EAD69)),
+      body: SafeArea(
+        top: false,
+        child: _isLoading
+            ? const Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0EAD69)),
+                ),
+              )
+            : SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: Padding(
+                  padding: const EdgeInsets.all(20.0),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // Profile Photo Stack
+                        Stack(
+                          alignment: Alignment.bottomRight,
+                          children: [
+                            Container(
+                              width: 100,
+                              height: 100,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: 4,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.08),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              // Foto orang asing dari Unsplash dihapus bersama sisa
+                              // identitas demo (rencana-produksi.md §3.2). Ia juga tidak
+                              // pernah termuat di rilis: izin INTERNET tidak dideklarasikan.
+                              child: const CircleAvatar(
+                                radius: 46,
+                                backgroundColor: Color(0xFFE0F2F1),
+                                child: Icon(
+                                  Icons.person,
+                                  color: Color(0xFF0EAD69),
+                                  size: 46,
+                                ),
+                              ),
+                            ),
+                            GestureDetector(
+                              onTap: () {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Ubah foto profil belum tersedia.',
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF0EAD69),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.camera_alt_rounded,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+
+                        // Form Fields
+                        _buildTextField(
+                          label: 'Nama Lengkap',
+                          controller: _nameController,
+                          icon: Icons.person_outline_rounded,
+                          capitalization: TextCapitalization.words,
+                        ),
+                        const SizedBox(height: 16),
+
+                        _buildDateField(),
+                        const SizedBox(height: 16),
+
+                        _buildDropdownField(
+                          label: 'Jenis Kelamin',
+                          value: _selectedGender,
+                          items: ['Laki-laki', 'Perempuan'],
+                          icon: Icons.wc_rounded,
+                          onChanged: (val) {
+                            if (val != null) {
+                              setState(() {
+                                _selectedGender = val;
+                              });
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 16),
+
+                        _buildTextField(
+                          label: 'Tinggi Badan',
+                          controller: _heightController,
+                          icon: Icons.straighten_rounded,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          formatters: [_formatterAngka],
+                          suffix: 'cm',
+                          validator: (nilai) =>
+                              _validasiUkuran(nilai, 'Tinggi', 60, 250),
+                        ),
+                        const SizedBox(height: 16),
+
+                        _buildTextField(
+                          label: 'Berat Badan',
+                          controller: _weightController,
+                          icon: Icons.monitor_weight_outlined,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          formatters: [_formatterAngka],
+                          suffix: 'kg',
+                          validator: (nilai) =>
+                              _validasiUkuran(nilai, 'Berat', 20, 300),
+                        ),
+                        const SizedBox(height: 16),
+
+                        _buildDropdownField(
+                          label: 'Golongan Darah',
+                          value: _selectedBloodType,
+                          items: ['A', 'B', 'AB', 'O'],
+                          icon: Icons.bloodtype_outlined,
+                          onChanged: (val) {
+                            if (val != null) {
+                              setState(() {
+                                _selectedBloodType = val;
+                              });
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 16),
+
+                        _buildTextField(
+                          label: 'Email',
+                          controller: _emailController,
+                          icon: Icons.email_outlined,
+                          keyboardType: TextInputType.emailAddress,
+                          // Autocorrect mengubah alamat email menjadi kata lain, dan
+                          // huruf besar otomatis di awal adalah sumber galat klasik.
+                          autocorrect: false,
+                          capitalization: TextCapitalization.none,
+                          validator: _validasiEmail,
+                        ),
+                        const SizedBox(height: 16),
+
+                        _buildTextField(
+                          label: 'Nomor HP',
+                          controller: _phoneController,
+                          icon: Icons.phone_outlined,
+                          keyboardType: TextInputType.phone,
+                          formatters: [_formatterTelepon],
+                          validator: _validasiTelepon,
+                        ),
+                        const SizedBox(height: 24),
+
+                        // Personalize Info Card Banner
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 14,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE8F8F5),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: const Color(0xFFD0EBE0),
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.shield_outlined,
+                                color: Color(0xFF0EAD69),
+                                size: 28,
+                              ),
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Text(
+                                  'Lengkapi informasi untuk pengalaman yang lebih personal',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF1E3A34),
+                                    fontWeight: FontWeight.bold,
+                                    height: 1.3,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-            )
-          : SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              child: Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                // Profile Photo Stack
-                Stack(
-                  alignment: Alignment.bottomRight,
-                  children: [
-                    Container(
-                      width: 100,
-                      height: 100,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 4),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.08),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      // Foto orang asing dari Unsplash dihapus bersama sisa
-                      // identitas demo (rencana-produksi.md §3.2). Ia juga tidak
-                      // pernah termuat di rilis: izin INTERNET tidak dideklarasikan.
-                      child: const CircleAvatar(
-                        radius: 46,
-                        backgroundColor: Color(0xFFE0F2F1),
-                        child: Icon(
-                          Icons.person,
-                          color: Color(0xFF0EAD69),
-                          size: 46,
-                        ),
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Ubah foto profil belum tersedia.')),
-                        );
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF0EAD69),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.camera_alt_rounded,
-                          color: Colors.white,
-                          size: 16,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                // Form Fields
-                _buildTextField(
-                  label: 'Nama Lengkap',
-                  controller: _nameController,
-                  icon: Icons.person_outline_rounded,
-                  capitalization: TextCapitalization.words,
-                ),
-                const SizedBox(height: 16),
-
-                _buildDateField(),
-                const SizedBox(height: 16),
-
-                _buildDropdownField(
-                  label: 'Jenis Kelamin',
-                  value: _selectedGender,
-                  items: ['Laki-laki', 'Perempuan'],
-                  icon: Icons.wc_rounded,
-                  onChanged: (val) {
-                    if (val != null) {
-                      setState(() {
-                        _selectedGender = val;
-                      });
-                    }
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                _buildTextField(
-                  label: 'Tinggi Badan',
-                  controller: _heightController,
-                  icon: Icons.straighten_rounded,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  formatters: [_formatterAngka],
-                  suffix: 'cm',
-                  validator: (nilai) => _validasiUkuran(nilai, 'Tinggi', 60, 250),
-                ),
-                const SizedBox(height: 16),
-
-                _buildTextField(
-                  label: 'Berat Badan',
-                  controller: _weightController,
-                  icon: Icons.monitor_weight_outlined,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  formatters: [_formatterAngka],
-                  suffix: 'kg',
-                  validator: (nilai) => _validasiUkuran(nilai, 'Berat', 20, 300),
-                ),
-                const SizedBox(height: 16),
-
-                _buildDropdownField(
-                  label: 'Golongan Darah',
-                  value: _selectedBloodType,
-                  items: ['A', 'B', 'AB', 'O'],
-                  icon: Icons.bloodtype_outlined,
-                  onChanged: (val) {
-                    if (val != null) {
-                      setState(() {
-                        _selectedBloodType = val;
-                      });
-                    }
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                _buildTextField(
-                  label: 'Email',
-                  controller: _emailController,
-                  icon: Icons.email_outlined,
-                  keyboardType: TextInputType.emailAddress,
-                  // Autocorrect mengubah alamat email menjadi kata lain, dan
-                  // huruf besar otomatis di awal adalah sumber galat klasik.
-                  autocorrect: false,
-                  capitalization: TextCapitalization.none,
-                  validator: _validasiEmail,
-                ),
-                const SizedBox(height: 16),
-
-                _buildTextField(
-                  label: 'Nomor HP',
-                  controller: _phoneController,
-                  icon: Icons.phone_outlined,
-                  keyboardType: TextInputType.phone,
-                  formatters: [_formatterTelepon],
-                  validator: _validasiTelepon,
-                ),
-                const SizedBox(height: 24),
-
-                // Personalize Info Card Banner
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE8F8F5),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFD0EBE0), width: 1),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.shield_outlined,
-                        color: Color(0xFF0EAD69),
-                        size: 28,
-                      ),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Text(
-                          'Lengkapi informasi untuk pengalaman yang lebih personal',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF1E3A34),
-                            fontWeight: FontWeight.bold,
-                            height: 1.3,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -429,7 +451,11 @@ class _InformasiPribadiPageState extends State<InformasiPribadiPage> {
           inputFormatters: formatters,
           textCapitalization: capitalization,
           autocorrect: autocorrect,
-          style: const TextStyle(color: Color(0xFF1E3A34), fontSize: 14, fontWeight: FontWeight.w600),
+          style: const TextStyle(
+            color: Color(0xFF1E3A34),
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
           validator: validator,
           decoration: InputDecoration(
             prefixIcon: Icon(icon, color: const Color(0xFF6B807B), size: 20),
@@ -442,18 +468,25 @@ class _InformasiPribadiPageState extends State<InformasiPribadiPage> {
             ),
             filled: true,
             fillColor: Colors.white,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 14,
+            ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFF0EAD69), width: 1.5),
+              borderSide: const BorderSide(
+                color: Color(0xFF0EAD69),
+                width: 1.5,
+              ),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFFE2EBE8), width: 1.5),
+              borderSide: const BorderSide(
+                color: Color(0xFFE2EBE8),
+                width: 1.5,
+              ),
             ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             errorBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
@@ -580,30 +613,41 @@ class _InformasiPribadiPageState extends State<InformasiPribadiPage> {
             'Belum dipilih',
             style: TextStyle(color: Color(0xFF9CB1AC), fontSize: 14),
           ),
-          style: const TextStyle(color: Color(0xFF1E3A34), fontSize: 14, fontWeight: FontWeight.w600),
-          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF6B807B)),
+          style: const TextStyle(
+            color: Color(0xFF1E3A34),
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+          icon: const Icon(
+            Icons.keyboard_arrow_down_rounded,
+            color: Color(0xFF6B807B),
+          ),
           decoration: InputDecoration(
             prefixIcon: Icon(icon, color: const Color(0xFF6B807B), size: 20),
             filled: true,
             fillColor: Colors.white,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 14,
+            ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFF0EAD69), width: 1.5),
+              borderSide: const BorderSide(
+                color: Color(0xFF0EAD69),
+                width: 1.5,
+              ),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFFE2EBE8), width: 1.5),
+              borderSide: const BorderSide(
+                color: Color(0xFFE2EBE8),
+                width: 1.5,
+              ),
             ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           items: items.map<DropdownMenuItem<String>>((String value) {
-            return DropdownMenuItem<String>(
-              value: value,
-              child: Text(value),
-            );
+            return DropdownMenuItem<String>(value: value, child: Text(value));
           }).toList(),
         ),
       ],

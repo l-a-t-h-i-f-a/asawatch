@@ -89,7 +89,11 @@ class DeteksiMakananPage extends StatelessWidget {
             // 4. Camera controls — hanya selama belum ada foto yang diambil.
             if (sesi == null)
               Positioned(
-                bottom: 60,
+                // Bilah navigasi sistem menumpang di atas pratinjau kamera,
+                // jadi 60 px itu diukur dari tepi layar, bukan dari tepi yang
+                // bisa disentuh. Tombol rana yang setengah tertutup bilah tiga
+                // tombol adalah kegagalan yang tidak terlihat di emulator.
+                bottom: 60 + MediaQuery.paddingOf(context).bottom,
                 left: 40,
                 right: 40,
                 child: Row(
@@ -282,7 +286,15 @@ class _KartuHasil extends StatelessWidget {
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.72,
       ),
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+      // Putihnya sengaja tetap membentang sampai tepi bawah layar; yang
+      // ditambah hanya jarak isinya, supaya tombol paling bawah tidak duduk di
+      // belakang bilah navigasi sistem.
+      padding: EdgeInsets.fromLTRB(
+        20,
+        20,
+        20,
+        24 + MediaQuery.paddingOf(context).bottom,
+      ),
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
@@ -401,7 +413,8 @@ class _KartuHasil extends StatelessWidget {
     if (hasilEdit == null) return;
 
     controller.koreksiHasil([
-      for (final m in hasil.makanan) if (identical(m, item)) hasilEdit else m,
+      for (final m in hasil.makanan)
+        if (identical(m, item)) hasilEdit else m,
     ]);
   }
 }

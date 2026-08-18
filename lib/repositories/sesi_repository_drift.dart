@@ -69,10 +69,7 @@ class SesiRepositoryDrift implements SesiRepository {
           status: s.status,
           waktuTidakPasti: s.waktuTidakPasti,
           sampel: _rakitSampel(sampelPerSesi[s.id] ?? const []),
-          hasil: _rakitHasil(
-            hasilPerSesi[s.id],
-            itemPerSesi[s.id] ?? const [],
-          ),
+          hasil: _rakitHasil(hasilPerSesi[s.id], itemPerSesi[s.id] ?? const []),
         ),
     ];
   }

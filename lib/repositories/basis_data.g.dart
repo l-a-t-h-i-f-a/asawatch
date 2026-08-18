@@ -2660,6 +2660,222 @@ class $TabelKalibrasiTable extends TabelKalibrasi
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  @override
+  late final GeneratedColumnWithTypeConverter<SisiPergelangan, String> sisi =
+      GeneratedColumn<String>(
+        'sisi',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+      ).withConverter<SisiPergelangan>($TabelKalibrasiTable.$convertersisi);
+  @override
+  List<GeneratedColumn> get $columns => [waktu, sisi];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'tabel_kalibrasi';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<TabelKalibrasiData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('waktu')) {
+      context.handle(
+        _waktuMeta,
+        waktu.isAcceptableOrUnknown(data['waktu']!, _waktuMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {waktu};
+  @override
+  TabelKalibrasiData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return TabelKalibrasiData(
+      waktu: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}waktu'],
+      )!,
+      sisi: $TabelKalibrasiTable.$convertersisi.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}sisi'],
+        )!,
+      ),
+    );
+  }
+
+  @override
+  $TabelKalibrasiTable createAlias(String alias) {
+    return $TabelKalibrasiTable(attachedDatabase, alias);
+  }
+
+  static JsonTypeConverter2<SisiPergelangan, String, String> $convertersisi =
+      const EnumNameConverter<SisiPergelangan>(SisiPergelangan.values);
+}
+
+class TabelKalibrasiData extends DataClass
+    implements Insertable<TabelKalibrasiData> {
+  final int waktu;
+
+  /// `textEnum`, jadi mengganti nama anggota [SisiPergelangan] adalah
+  /// perubahan skema — sama seperti `StatusSesi` di [TabelSesi].
+  final SisiPergelangan sisi;
+  const TabelKalibrasiData({required this.waktu, required this.sisi});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['waktu'] = Variable<int>(waktu);
+    {
+      map['sisi'] = Variable<String>(
+        $TabelKalibrasiTable.$convertersisi.toSql(sisi),
+      );
+    }
+    return map;
+  }
+
+  TabelKalibrasiCompanion toCompanion(bool nullToAbsent) {
+    return TabelKalibrasiCompanion(waktu: Value(waktu), sisi: Value(sisi));
+  }
+
+  factory TabelKalibrasiData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return TabelKalibrasiData(
+      waktu: serializer.fromJson<int>(json['waktu']),
+      sisi: $TabelKalibrasiTable.$convertersisi.fromJson(
+        serializer.fromJson<String>(json['sisi']),
+      ),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'waktu': serializer.toJson<int>(waktu),
+      'sisi': serializer.toJson<String>(
+        $TabelKalibrasiTable.$convertersisi.toJson(sisi),
+      ),
+    };
+  }
+
+  TabelKalibrasiData copyWith({int? waktu, SisiPergelangan? sisi}) =>
+      TabelKalibrasiData(waktu: waktu ?? this.waktu, sisi: sisi ?? this.sisi);
+  TabelKalibrasiData copyWithCompanion(TabelKalibrasiCompanion data) {
+    return TabelKalibrasiData(
+      waktu: data.waktu.present ? data.waktu.value : this.waktu,
+      sisi: data.sisi.present ? data.sisi.value : this.sisi,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TabelKalibrasiData(')
+          ..write('waktu: $waktu, ')
+          ..write('sisi: $sisi')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(waktu, sisi);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is TabelKalibrasiData &&
+          other.waktu == this.waktu &&
+          other.sisi == this.sisi);
+}
+
+class TabelKalibrasiCompanion extends UpdateCompanion<TabelKalibrasiData> {
+  final Value<int> waktu;
+  final Value<SisiPergelangan> sisi;
+  const TabelKalibrasiCompanion({
+    this.waktu = const Value.absent(),
+    this.sisi = const Value.absent(),
+  });
+  TabelKalibrasiCompanion.insert({
+    this.waktu = const Value.absent(),
+    required SisiPergelangan sisi,
+  }) : sisi = Value(sisi);
+  static Insertable<TabelKalibrasiData> custom({
+    Expression<int>? waktu,
+    Expression<String>? sisi,
+  }) {
+    return RawValuesInsertable({
+      if (waktu != null) 'waktu': waktu,
+      if (sisi != null) 'sisi': sisi,
+    });
+  }
+
+  TabelKalibrasiCompanion copyWith({
+    Value<int>? waktu,
+    Value<SisiPergelangan>? sisi,
+  }) {
+    return TabelKalibrasiCompanion(
+      waktu: waktu ?? this.waktu,
+      sisi: sisi ?? this.sisi,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (waktu.present) {
+      map['waktu'] = Variable<int>(waktu.value);
+    }
+    if (sisi.present) {
+      map['sisi'] = Variable<String>(
+        $TabelKalibrasiTable.$convertersisi.toSql(sisi.value),
+      );
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TabelKalibrasiCompanion(')
+          ..write('waktu: $waktu, ')
+          ..write('sisi: $sisi')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $TabelPutaranKalibrasiTable extends TabelPutaranKalibrasi
+    with TableInfo<$TabelPutaranKalibrasiTable, TabelPutaranKalibrasiData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TabelPutaranKalibrasiTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _waktuKalibrasiMeta = const VerificationMeta(
+    'waktuKalibrasi',
+  );
+  @override
+  late final GeneratedColumn<int> waktuKalibrasi = GeneratedColumn<int>(
+    'waktu_kalibrasi',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _urutanMeta = const VerificationMeta('urutan');
+  @override
+  late final GeneratedColumn<int> urutan = GeneratedColumn<int>(
+    'urutan',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
   static const VerificationMeta _sistolikReferensiMeta = const VerificationMeta(
     'sistolikReferensi',
   );
@@ -2705,7 +2921,8 @@ class $TabelKalibrasiTable extends TabelKalibrasi
   );
   @override
   List<GeneratedColumn> get $columns => [
-    waktu,
+    waktuKalibrasi,
+    urutan,
     sistolikReferensi,
     diastolikReferensi,
     sistolikJam,
@@ -2715,19 +2932,32 @@ class $TabelKalibrasiTable extends TabelKalibrasi
   String get aliasedName => _alias ?? actualTableName;
   @override
   String get actualTableName => $name;
-  static const String $name = 'tabel_kalibrasi';
+  static const String $name = 'tabel_putaran_kalibrasi';
   @override
   VerificationContext validateIntegrity(
-    Insertable<TabelKalibrasiData> instance, {
+    Insertable<TabelPutaranKalibrasiData> instance, {
     bool isInserting = false,
   }) {
     final context = VerificationContext();
     final data = instance.toColumns(true);
-    if (data.containsKey('waktu')) {
+    if (data.containsKey('waktu_kalibrasi')) {
       context.handle(
-        _waktuMeta,
-        waktu.isAcceptableOrUnknown(data['waktu']!, _waktuMeta),
+        _waktuKalibrasiMeta,
+        waktuKalibrasi.isAcceptableOrUnknown(
+          data['waktu_kalibrasi']!,
+          _waktuKalibrasiMeta,
+        ),
       );
+    } else if (isInserting) {
+      context.missing(_waktuKalibrasiMeta);
+    }
+    if (data.containsKey('urutan')) {
+      context.handle(
+        _urutanMeta,
+        urutan.isAcceptableOrUnknown(data['urutan']!, _urutanMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_urutanMeta);
     }
     if (data.containsKey('sistolik_referensi')) {
       context.handle(
@@ -2777,14 +3007,21 @@ class $TabelKalibrasiTable extends TabelKalibrasi
   }
 
   @override
-  Set<GeneratedColumn> get $primaryKey => {waktu};
+  Set<GeneratedColumn> get $primaryKey => {waktuKalibrasi, urutan};
   @override
-  TabelKalibrasiData map(Map<String, dynamic> data, {String? tablePrefix}) {
+  TabelPutaranKalibrasiData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return TabelKalibrasiData(
-      waktu: attachedDatabase.typeMapping.read(
+    return TabelPutaranKalibrasiData(
+      waktuKalibrasi: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
-        data['${effectivePrefix}waktu'],
+        data['${effectivePrefix}waktu_kalibrasi'],
+      )!,
+      urutan: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}urutan'],
       )!,
       sistolikReferensi: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
@@ -2806,20 +3043,22 @@ class $TabelKalibrasiTable extends TabelKalibrasi
   }
 
   @override
-  $TabelKalibrasiTable createAlias(String alias) {
-    return $TabelKalibrasiTable(attachedDatabase, alias);
+  $TabelPutaranKalibrasiTable createAlias(String alias) {
+    return $TabelPutaranKalibrasiTable(attachedDatabase, alias);
   }
 }
 
-class TabelKalibrasiData extends DataClass
-    implements Insertable<TabelKalibrasiData> {
-  final int waktu;
+class TabelPutaranKalibrasiData extends DataClass
+    implements Insertable<TabelPutaranKalibrasiData> {
+  final int waktuKalibrasi;
+  final int urutan;
   final int sistolikReferensi;
   final int diastolikReferensi;
   final int sistolikJam;
   final int diastolikJam;
-  const TabelKalibrasiData({
-    required this.waktu,
+  const TabelPutaranKalibrasiData({
+    required this.waktuKalibrasi,
+    required this.urutan,
     required this.sistolikReferensi,
     required this.diastolikReferensi,
     required this.sistolikJam,
@@ -2828,7 +3067,8 @@ class TabelKalibrasiData extends DataClass
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
-    map['waktu'] = Variable<int>(waktu);
+    map['waktu_kalibrasi'] = Variable<int>(waktuKalibrasi);
+    map['urutan'] = Variable<int>(urutan);
     map['sistolik_referensi'] = Variable<int>(sistolikReferensi);
     map['diastolik_referensi'] = Variable<int>(diastolikReferensi);
     map['sistolik_jam'] = Variable<int>(sistolikJam);
@@ -2836,9 +3076,10 @@ class TabelKalibrasiData extends DataClass
     return map;
   }
 
-  TabelKalibrasiCompanion toCompanion(bool nullToAbsent) {
-    return TabelKalibrasiCompanion(
-      waktu: Value(waktu),
+  TabelPutaranKalibrasiCompanion toCompanion(bool nullToAbsent) {
+    return TabelPutaranKalibrasiCompanion(
+      waktuKalibrasi: Value(waktuKalibrasi),
+      urutan: Value(urutan),
       sistolikReferensi: Value(sistolikReferensi),
       diastolikReferensi: Value(diastolikReferensi),
       sistolikJam: Value(sistolikJam),
@@ -2846,13 +3087,14 @@ class TabelKalibrasiData extends DataClass
     );
   }
 
-  factory TabelKalibrasiData.fromJson(
+  factory TabelPutaranKalibrasiData.fromJson(
     Map<String, dynamic> json, {
     ValueSerializer? serializer,
   }) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
-    return TabelKalibrasiData(
-      waktu: serializer.fromJson<int>(json['waktu']),
+    return TabelPutaranKalibrasiData(
+      waktuKalibrasi: serializer.fromJson<int>(json['waktuKalibrasi']),
+      urutan: serializer.fromJson<int>(json['urutan']),
       sistolikReferensi: serializer.fromJson<int>(json['sistolikReferensi']),
       diastolikReferensi: serializer.fromJson<int>(json['diastolikReferensi']),
       sistolikJam: serializer.fromJson<int>(json['sistolikJam']),
@@ -2863,7 +3105,8 @@ class TabelKalibrasiData extends DataClass
   Map<String, dynamic> toJson({ValueSerializer? serializer}) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
-      'waktu': serializer.toJson<int>(waktu),
+      'waktuKalibrasi': serializer.toJson<int>(waktuKalibrasi),
+      'urutan': serializer.toJson<int>(urutan),
       'sistolikReferensi': serializer.toJson<int>(sistolikReferensi),
       'diastolikReferensi': serializer.toJson<int>(diastolikReferensi),
       'sistolikJam': serializer.toJson<int>(sistolikJam),
@@ -2871,22 +3114,29 @@ class TabelKalibrasiData extends DataClass
     };
   }
 
-  TabelKalibrasiData copyWith({
-    int? waktu,
+  TabelPutaranKalibrasiData copyWith({
+    int? waktuKalibrasi,
+    int? urutan,
     int? sistolikReferensi,
     int? diastolikReferensi,
     int? sistolikJam,
     int? diastolikJam,
-  }) => TabelKalibrasiData(
-    waktu: waktu ?? this.waktu,
+  }) => TabelPutaranKalibrasiData(
+    waktuKalibrasi: waktuKalibrasi ?? this.waktuKalibrasi,
+    urutan: urutan ?? this.urutan,
     sistolikReferensi: sistolikReferensi ?? this.sistolikReferensi,
     diastolikReferensi: diastolikReferensi ?? this.diastolikReferensi,
     sistolikJam: sistolikJam ?? this.sistolikJam,
     diastolikJam: diastolikJam ?? this.diastolikJam,
   );
-  TabelKalibrasiData copyWithCompanion(TabelKalibrasiCompanion data) {
-    return TabelKalibrasiData(
-      waktu: data.waktu.present ? data.waktu.value : this.waktu,
+  TabelPutaranKalibrasiData copyWithCompanion(
+    TabelPutaranKalibrasiCompanion data,
+  ) {
+    return TabelPutaranKalibrasiData(
+      waktuKalibrasi: data.waktuKalibrasi.present
+          ? data.waktuKalibrasi.value
+          : this.waktuKalibrasi,
+      urutan: data.urutan.present ? data.urutan.value : this.urutan,
       sistolikReferensi: data.sistolikReferensi.present
           ? data.sistolikReferensi.value
           : this.sistolikReferensi,
@@ -2904,8 +3154,9 @@ class TabelKalibrasiData extends DataClass
 
   @override
   String toString() {
-    return (StringBuffer('TabelKalibrasiData(')
-          ..write('waktu: $waktu, ')
+    return (StringBuffer('TabelPutaranKalibrasiData(')
+          ..write('waktuKalibrasi: $waktuKalibrasi, ')
+          ..write('urutan: $urutan, ')
           ..write('sistolikReferensi: $sistolikReferensi, ')
           ..write('diastolikReferensi: $diastolikReferensi, ')
           ..write('sistolikJam: $sistolikJam, ')
@@ -2916,7 +3167,8 @@ class TabelKalibrasiData extends DataClass
 
   @override
   int get hashCode => Object.hash(
-    waktu,
+    waktuKalibrasi,
+    urutan,
     sistolikReferensi,
     diastolikReferensi,
     sistolikJam,
@@ -2925,74 +3177,95 @@ class TabelKalibrasiData extends DataClass
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is TabelKalibrasiData &&
-          other.waktu == this.waktu &&
+      (other is TabelPutaranKalibrasiData &&
+          other.waktuKalibrasi == this.waktuKalibrasi &&
+          other.urutan == this.urutan &&
           other.sistolikReferensi == this.sistolikReferensi &&
           other.diastolikReferensi == this.diastolikReferensi &&
           other.sistolikJam == this.sistolikJam &&
           other.diastolikJam == this.diastolikJam);
 }
 
-class TabelKalibrasiCompanion extends UpdateCompanion<TabelKalibrasiData> {
-  final Value<int> waktu;
+class TabelPutaranKalibrasiCompanion
+    extends UpdateCompanion<TabelPutaranKalibrasiData> {
+  final Value<int> waktuKalibrasi;
+  final Value<int> urutan;
   final Value<int> sistolikReferensi;
   final Value<int> diastolikReferensi;
   final Value<int> sistolikJam;
   final Value<int> diastolikJam;
-  const TabelKalibrasiCompanion({
-    this.waktu = const Value.absent(),
+  final Value<int> rowid;
+  const TabelPutaranKalibrasiCompanion({
+    this.waktuKalibrasi = const Value.absent(),
+    this.urutan = const Value.absent(),
     this.sistolikReferensi = const Value.absent(),
     this.diastolikReferensi = const Value.absent(),
     this.sistolikJam = const Value.absent(),
     this.diastolikJam = const Value.absent(),
+    this.rowid = const Value.absent(),
   });
-  TabelKalibrasiCompanion.insert({
-    this.waktu = const Value.absent(),
+  TabelPutaranKalibrasiCompanion.insert({
+    required int waktuKalibrasi,
+    required int urutan,
     required int sistolikReferensi,
     required int diastolikReferensi,
     required int sistolikJam,
     required int diastolikJam,
-  }) : sistolikReferensi = Value(sistolikReferensi),
+    this.rowid = const Value.absent(),
+  }) : waktuKalibrasi = Value(waktuKalibrasi),
+       urutan = Value(urutan),
+       sistolikReferensi = Value(sistolikReferensi),
        diastolikReferensi = Value(diastolikReferensi),
        sistolikJam = Value(sistolikJam),
        diastolikJam = Value(diastolikJam);
-  static Insertable<TabelKalibrasiData> custom({
-    Expression<int>? waktu,
+  static Insertable<TabelPutaranKalibrasiData> custom({
+    Expression<int>? waktuKalibrasi,
+    Expression<int>? urutan,
     Expression<int>? sistolikReferensi,
     Expression<int>? diastolikReferensi,
     Expression<int>? sistolikJam,
     Expression<int>? diastolikJam,
+    Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
-      if (waktu != null) 'waktu': waktu,
+      if (waktuKalibrasi != null) 'waktu_kalibrasi': waktuKalibrasi,
+      if (urutan != null) 'urutan': urutan,
       if (sistolikReferensi != null) 'sistolik_referensi': sistolikReferensi,
       if (diastolikReferensi != null) 'diastolik_referensi': diastolikReferensi,
       if (sistolikJam != null) 'sistolik_jam': sistolikJam,
       if (diastolikJam != null) 'diastolik_jam': diastolikJam,
+      if (rowid != null) 'rowid': rowid,
     });
   }
 
-  TabelKalibrasiCompanion copyWith({
-    Value<int>? waktu,
+  TabelPutaranKalibrasiCompanion copyWith({
+    Value<int>? waktuKalibrasi,
+    Value<int>? urutan,
     Value<int>? sistolikReferensi,
     Value<int>? diastolikReferensi,
     Value<int>? sistolikJam,
     Value<int>? diastolikJam,
+    Value<int>? rowid,
   }) {
-    return TabelKalibrasiCompanion(
-      waktu: waktu ?? this.waktu,
+    return TabelPutaranKalibrasiCompanion(
+      waktuKalibrasi: waktuKalibrasi ?? this.waktuKalibrasi,
+      urutan: urutan ?? this.urutan,
       sistolikReferensi: sistolikReferensi ?? this.sistolikReferensi,
       diastolikReferensi: diastolikReferensi ?? this.diastolikReferensi,
       sistolikJam: sistolikJam ?? this.sistolikJam,
       diastolikJam: diastolikJam ?? this.diastolikJam,
+      rowid: rowid ?? this.rowid,
     );
   }
 
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
-    if (waktu.present) {
-      map['waktu'] = Variable<int>(waktu.value);
+    if (waktuKalibrasi.present) {
+      map['waktu_kalibrasi'] = Variable<int>(waktuKalibrasi.value);
+    }
+    if (urutan.present) {
+      map['urutan'] = Variable<int>(urutan.value);
     }
     if (sistolikReferensi.present) {
       map['sistolik_referensi'] = Variable<int>(sistolikReferensi.value);
@@ -3006,17 +3279,22 @@ class TabelKalibrasiCompanion extends UpdateCompanion<TabelKalibrasiData> {
     if (diastolikJam.present) {
       map['diastolik_jam'] = Variable<int>(diastolikJam.value);
     }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
     return map;
   }
 
   @override
   String toString() {
-    return (StringBuffer('TabelKalibrasiCompanion(')
-          ..write('waktu: $waktu, ')
+    return (StringBuffer('TabelPutaranKalibrasiCompanion(')
+          ..write('waktuKalibrasi: $waktuKalibrasi, ')
+          ..write('urutan: $urutan, ')
           ..write('sistolikReferensi: $sistolikReferensi, ')
           ..write('diastolikReferensi: $diastolikReferensi, ')
           ..write('sistolikJam: $sistolikJam, ')
-          ..write('diastolikJam: $diastolikJam')
+          ..write('diastolikJam: $diastolikJam, ')
+          ..write('rowid: $rowid')
           ..write(')'))
         .toString();
   }
@@ -4008,6 +4286,8 @@ abstract class _$BasisData extends GeneratedDatabase {
     this,
   );
   late final $TabelKalibrasiTable tabelKalibrasi = $TabelKalibrasiTable(this);
+  late final $TabelPutaranKalibrasiTable tabelPutaranKalibrasi =
+      $TabelPutaranKalibrasiTable(this);
   late final $TabelEntriJamTable tabelEntriJam = $TabelEntriJamTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
@@ -4020,6 +4300,7 @@ abstract class _$BasisData extends GeneratedDatabase {
     tabelItemMakanan,
     tabelAnchorWaktu,
     tabelKalibrasi,
+    tabelPutaranKalibrasi,
     tabelEntriJam,
   ];
   @override
@@ -6062,18 +6343,12 @@ typedef $$TabelAnchorWaktuTableProcessedTableManager =
 typedef $$TabelKalibrasiTableCreateCompanionBuilder =
     TabelKalibrasiCompanion Function({
       Value<int> waktu,
-      required int sistolikReferensi,
-      required int diastolikReferensi,
-      required int sistolikJam,
-      required int diastolikJam,
+      required SisiPergelangan sisi,
     });
 typedef $$TabelKalibrasiTableUpdateCompanionBuilder =
     TabelKalibrasiCompanion Function({
       Value<int> waktu,
-      Value<int> sistolikReferensi,
-      Value<int> diastolikReferensi,
-      Value<int> sistolikJam,
-      Value<int> diastolikJam,
+      Value<SisiPergelangan> sisi,
     });
 
 class $$TabelKalibrasiTableFilterComposer
@@ -6090,24 +6365,10 @@ class $$TabelKalibrasiTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<int> get sistolikReferensi => $composableBuilder(
-    column: $table.sistolikReferensi,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<int> get diastolikReferensi => $composableBuilder(
-    column: $table.diastolikReferensi,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<int> get sistolikJam => $composableBuilder(
-    column: $table.sistolikJam,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<int> get diastolikJam => $composableBuilder(
-    column: $table.diastolikJam,
-    builder: (column) => ColumnFilters(column),
+  ColumnWithTypeConverterFilters<SisiPergelangan, SisiPergelangan, String>
+  get sisi => $composableBuilder(
+    column: $table.sisi,
+    builder: (column) => ColumnWithTypeConverterFilters(column),
   );
 }
 
@@ -6125,23 +6386,8 @@ class $$TabelKalibrasiTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<int> get sistolikReferensi => $composableBuilder(
-    column: $table.sistolikReferensi,
-    builder: (column) => ColumnOrderings(column),
-  );
-
-  ColumnOrderings<int> get diastolikReferensi => $composableBuilder(
-    column: $table.diastolikReferensi,
-    builder: (column) => ColumnOrderings(column),
-  );
-
-  ColumnOrderings<int> get sistolikJam => $composableBuilder(
-    column: $table.sistolikJam,
-    builder: (column) => ColumnOrderings(column),
-  );
-
-  ColumnOrderings<int> get diastolikJam => $composableBuilder(
-    column: $table.diastolikJam,
+  ColumnOrderings<String> get sisi => $composableBuilder(
+    column: $table.sisi,
     builder: (column) => ColumnOrderings(column),
   );
 }
@@ -6158,25 +6404,8 @@ class $$TabelKalibrasiTableAnnotationComposer
   GeneratedColumn<int> get waktu =>
       $composableBuilder(column: $table.waktu, builder: (column) => column);
 
-  GeneratedColumn<int> get sistolikReferensi => $composableBuilder(
-    column: $table.sistolikReferensi,
-    builder: (column) => column,
-  );
-
-  GeneratedColumn<int> get diastolikReferensi => $composableBuilder(
-    column: $table.diastolikReferensi,
-    builder: (column) => column,
-  );
-
-  GeneratedColumn<int> get sistolikJam => $composableBuilder(
-    column: $table.sistolikJam,
-    builder: (column) => column,
-  );
-
-  GeneratedColumn<int> get diastolikJam => $composableBuilder(
-    column: $table.diastolikJam,
-    builder: (column) => column,
-  );
+  GeneratedColumnWithTypeConverter<SisiPergelangan, String> get sisi =>
+      $composableBuilder(column: $table.sisi, builder: (column) => column);
 }
 
 class $$TabelKalibrasiTableTableManager
@@ -6215,31 +6444,13 @@ class $$TabelKalibrasiTableTableManager
           updateCompanionCallback:
               ({
                 Value<int> waktu = const Value.absent(),
-                Value<int> sistolikReferensi = const Value.absent(),
-                Value<int> diastolikReferensi = const Value.absent(),
-                Value<int> sistolikJam = const Value.absent(),
-                Value<int> diastolikJam = const Value.absent(),
-              }) => TabelKalibrasiCompanion(
-                waktu: waktu,
-                sistolikReferensi: sistolikReferensi,
-                diastolikReferensi: diastolikReferensi,
-                sistolikJam: sistolikJam,
-                diastolikJam: diastolikJam,
-              ),
+                Value<SisiPergelangan> sisi = const Value.absent(),
+              }) => TabelKalibrasiCompanion(waktu: waktu, sisi: sisi),
           createCompanionCallback:
               ({
                 Value<int> waktu = const Value.absent(),
-                required int sistolikReferensi,
-                required int diastolikReferensi,
-                required int sistolikJam,
-                required int diastolikJam,
-              }) => TabelKalibrasiCompanion.insert(
-                waktu: waktu,
-                sistolikReferensi: sistolikReferensi,
-                diastolikReferensi: diastolikReferensi,
-                sistolikJam: sistolikJam,
-                diastolikJam: diastolikJam,
-              ),
+                required SisiPergelangan sisi,
+              }) => TabelKalibrasiCompanion.insert(waktu: waktu, sisi: sisi),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
               .toList(),
@@ -6263,6 +6474,254 @@ typedef $$TabelKalibrasiTableProcessedTableManager =
         BaseReferences<_$BasisData, $TabelKalibrasiTable, TabelKalibrasiData>,
       ),
       TabelKalibrasiData,
+      PrefetchHooks Function()
+    >;
+typedef $$TabelPutaranKalibrasiTableCreateCompanionBuilder =
+    TabelPutaranKalibrasiCompanion Function({
+      required int waktuKalibrasi,
+      required int urutan,
+      required int sistolikReferensi,
+      required int diastolikReferensi,
+      required int sistolikJam,
+      required int diastolikJam,
+      Value<int> rowid,
+    });
+typedef $$TabelPutaranKalibrasiTableUpdateCompanionBuilder =
+    TabelPutaranKalibrasiCompanion Function({
+      Value<int> waktuKalibrasi,
+      Value<int> urutan,
+      Value<int> sistolikReferensi,
+      Value<int> diastolikReferensi,
+      Value<int> sistolikJam,
+      Value<int> diastolikJam,
+      Value<int> rowid,
+    });
+
+class $$TabelPutaranKalibrasiTableFilterComposer
+    extends Composer<_$BasisData, $TabelPutaranKalibrasiTable> {
+  $$TabelPutaranKalibrasiTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get waktuKalibrasi => $composableBuilder(
+    column: $table.waktuKalibrasi,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get urutan => $composableBuilder(
+    column: $table.urutan,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sistolikReferensi => $composableBuilder(
+    column: $table.sistolikReferensi,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get diastolikReferensi => $composableBuilder(
+    column: $table.diastolikReferensi,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sistolikJam => $composableBuilder(
+    column: $table.sistolikJam,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get diastolikJam => $composableBuilder(
+    column: $table.diastolikJam,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$TabelPutaranKalibrasiTableOrderingComposer
+    extends Composer<_$BasisData, $TabelPutaranKalibrasiTable> {
+  $$TabelPutaranKalibrasiTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get waktuKalibrasi => $composableBuilder(
+    column: $table.waktuKalibrasi,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get urutan => $composableBuilder(
+    column: $table.urutan,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sistolikReferensi => $composableBuilder(
+    column: $table.sistolikReferensi,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get diastolikReferensi => $composableBuilder(
+    column: $table.diastolikReferensi,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sistolikJam => $composableBuilder(
+    column: $table.sistolikJam,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get diastolikJam => $composableBuilder(
+    column: $table.diastolikJam,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$TabelPutaranKalibrasiTableAnnotationComposer
+    extends Composer<_$BasisData, $TabelPutaranKalibrasiTable> {
+  $$TabelPutaranKalibrasiTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get waktuKalibrasi => $composableBuilder(
+    column: $table.waktuKalibrasi,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get urutan =>
+      $composableBuilder(column: $table.urutan, builder: (column) => column);
+
+  GeneratedColumn<int> get sistolikReferensi => $composableBuilder(
+    column: $table.sistolikReferensi,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get diastolikReferensi => $composableBuilder(
+    column: $table.diastolikReferensi,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get sistolikJam => $composableBuilder(
+    column: $table.sistolikJam,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get diastolikJam => $composableBuilder(
+    column: $table.diastolikJam,
+    builder: (column) => column,
+  );
+}
+
+class $$TabelPutaranKalibrasiTableTableManager
+    extends
+        RootTableManager<
+          _$BasisData,
+          $TabelPutaranKalibrasiTable,
+          TabelPutaranKalibrasiData,
+          $$TabelPutaranKalibrasiTableFilterComposer,
+          $$TabelPutaranKalibrasiTableOrderingComposer,
+          $$TabelPutaranKalibrasiTableAnnotationComposer,
+          $$TabelPutaranKalibrasiTableCreateCompanionBuilder,
+          $$TabelPutaranKalibrasiTableUpdateCompanionBuilder,
+          (
+            TabelPutaranKalibrasiData,
+            BaseReferences<
+              _$BasisData,
+              $TabelPutaranKalibrasiTable,
+              TabelPutaranKalibrasiData
+            >,
+          ),
+          TabelPutaranKalibrasiData,
+          PrefetchHooks Function()
+        > {
+  $$TabelPutaranKalibrasiTableTableManager(
+    _$BasisData db,
+    $TabelPutaranKalibrasiTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TabelPutaranKalibrasiTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$TabelPutaranKalibrasiTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$TabelPutaranKalibrasiTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<int> waktuKalibrasi = const Value.absent(),
+                Value<int> urutan = const Value.absent(),
+                Value<int> sistolikReferensi = const Value.absent(),
+                Value<int> diastolikReferensi = const Value.absent(),
+                Value<int> sistolikJam = const Value.absent(),
+                Value<int> diastolikJam = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => TabelPutaranKalibrasiCompanion(
+                waktuKalibrasi: waktuKalibrasi,
+                urutan: urutan,
+                sistolikReferensi: sistolikReferensi,
+                diastolikReferensi: diastolikReferensi,
+                sistolikJam: sistolikJam,
+                diastolikJam: diastolikJam,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required int waktuKalibrasi,
+                required int urutan,
+                required int sistolikReferensi,
+                required int diastolikReferensi,
+                required int sistolikJam,
+                required int diastolikJam,
+                Value<int> rowid = const Value.absent(),
+              }) => TabelPutaranKalibrasiCompanion.insert(
+                waktuKalibrasi: waktuKalibrasi,
+                urutan: urutan,
+                sistolikReferensi: sistolikReferensi,
+                diastolikReferensi: diastolikReferensi,
+                sistolikJam: sistolikJam,
+                diastolikJam: diastolikJam,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$TabelPutaranKalibrasiTableProcessedTableManager =
+    ProcessedTableManager<
+      _$BasisData,
+      $TabelPutaranKalibrasiTable,
+      TabelPutaranKalibrasiData,
+      $$TabelPutaranKalibrasiTableFilterComposer,
+      $$TabelPutaranKalibrasiTableOrderingComposer,
+      $$TabelPutaranKalibrasiTableAnnotationComposer,
+      $$TabelPutaranKalibrasiTableCreateCompanionBuilder,
+      $$TabelPutaranKalibrasiTableUpdateCompanionBuilder,
+      (
+        TabelPutaranKalibrasiData,
+        BaseReferences<
+          _$BasisData,
+          $TabelPutaranKalibrasiTable,
+          TabelPutaranKalibrasiData
+        >,
+      ),
+      TabelPutaranKalibrasiData,
       PrefetchHooks Function()
     >;
 typedef $$TabelEntriJamTableCreateCompanionBuilder =
@@ -6713,6 +7172,8 @@ class $BasisDataManager {
       $$TabelAnchorWaktuTableTableManager(_db, _db.tabelAnchorWaktu);
   $$TabelKalibrasiTableTableManager get tabelKalibrasi =>
       $$TabelKalibrasiTableTableManager(_db, _db.tabelKalibrasi);
+  $$TabelPutaranKalibrasiTableTableManager get tabelPutaranKalibrasi =>
+      $$TabelPutaranKalibrasiTableTableManager(_db, _db.tabelPutaranKalibrasi);
   $$TabelEntriJamTableTableManager get tabelEntriJam =>
       $$TabelEntriJamTableTableManager(_db, _db.tabelEntriJam);
 }

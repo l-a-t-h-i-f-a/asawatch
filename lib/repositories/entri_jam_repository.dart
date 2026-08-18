@@ -81,16 +81,16 @@ class EntriJamRepositoryDrift implements EntriJamRepository {
         .into(db.tabelEntriJam)
         .insert(
           TabelEntriJamCompanion.insert(
-            jenis: entri is EntriSampel ? jenisEntriSampel : jenisEntriPeristiwa,
+            jenis: entri is EntriSampel
+                ? jenisEntriSampel
+                : jenisEntriPeristiwa,
             seq: entri.seq,
             bootId: entri.bootId,
             uptimeS: entri.uptimeS,
             dariBuffer: entri.dariBuffer,
             waktuTidakPasti: entri.waktuTidakPasti,
             sesiId: Value(sesiId),
-            indexSampel: Value(
-              entri is EntriSampel ? entri.index : null,
-            ),
+            indexSampel: Value(entri is EntriSampel ? entri.index : null),
             kodePeristiwa: Value(
               entri is EntriPeristiwa ? entri.jenis.kode : null,
             ),
@@ -146,8 +146,7 @@ class EntriJamRepositoryDrift implements EntriJamRepository {
             .get();
 
     return {
-      for (final b in baris)
-        b.sesiId!: (bootId: b.bootId, uptimeS: b.uptimeS),
+      for (final b in baris) b.sesiId!: (bootId: b.bootId, uptimeS: b.uptimeS),
     };
   }
 
@@ -251,8 +250,10 @@ class EntriJamRepositoryMemori implements EntriJamRepository {
   }
 
   @override
-  Future<List<EntriJam>> belumDiproses() async =>
-      [for (final e in _entri) if (!_diproses.contains(e)) e];
+  Future<List<EntriJam>> belumDiproses() async => [
+    for (final e in _entri)
+      if (!_diproses.contains(e)) e,
+  ];
 
   @override
   Future<Map<String, ({int bootId, int uptimeS})>> t0PerSesi() async => {

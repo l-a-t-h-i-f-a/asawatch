@@ -16,6 +16,7 @@ class TimelineSampel extends StatelessWidget {
     required this.sampel,
     required this.t0,
     this.indexBerikutnya,
+    this.kemampuan = KemampuanPerangkat.semua,
   });
 
   final List<Sampel> sampel;
@@ -23,6 +24,11 @@ class TimelineSampel extends StatelessWidget {
 
   /// Titik yang sedang dihitung mundur; null bila tidak ada yang dijadwalkan.
   final int? indexBerikutnya;
+
+  /// Metrik yang jam ini benar-benar punya (protokol §3). Yang tidak dimiliki
+  /// **tidak ditulis sama sekali** — bukan ditulis `—`, yang terbaca sebagai
+  /// pengukuran yang gagal.
+  final KemampuanPerangkat kemampuan;
 
   @override
   Widget build(BuildContext context) {
@@ -34,6 +40,7 @@ class TimelineSampel extends StatelessWidget {
             t0: t0,
             terakhir: s.index == sampel.length - 1,
             hitungMundur: s.index == indexBerikutnya,
+            kemampuan: kemampuan,
           ),
       ],
     );
@@ -46,12 +53,34 @@ class _BarisTitik extends StatelessWidget {
     required this.t0,
     required this.terakhir,
     required this.hitungMundur,
+    required this.kemampuan,
   });
 
   final Sampel sampel;
   final DateTime? t0;
   final bool terakhir;
   final bool hitungMundur;
+  final KemampuanPerangkat kemampuan;
+
+  /// Metrik selain gula darah, dirangkai jadi satu baris.
+  ///
+  /// Gula darah tidak ikut: ia sudah berdiri sendiri di kanan baris ini sebagai
+  /// angka besar, karena seluruh sesi makan memang tentang dia. Yang di sini
+  /// adalah tiga metrik yang sebelumnya **tidak terlihat di mana pun sampai
+  /// sesinya selesai** — padahal ketiganya sudah diukur di setiap titik sejak
+  /// awal, dan seorang pengguna yang ingin tahu SpO2-nya tidak punya alasan
+  /// menunggu dua jam untuk melihat angka yang sudah ada.
+  String? get _metrikSekunder {
+    if (!sampel.terisi) return null;
+    final bagian = <String>[
+      // Detak jantung tidak punya bit `kemampuan` di §3 dan selalu dianggap ada.
+      if (sampel.detakJantung != null) '${sampel.detakJantung} bpm',
+      if (kemampuan.tekananDarah && sampel.tekananDarah != null)
+        '${sampel.tekananDarah} mmHg',
+      if (kemampuan.spo2 && sampel.spo2 != null) 'SpO₂ ${sampel.spo2}%',
+    ];
+    return bagian.isEmpty ? null : bagian.join(' · ');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -113,10 +142,23 @@ class _BarisTitik extends StatelessWidget {
                     color: Color(0xFF8FA7A1),
                   ),
                 ),
+                if (_metrikSekunder != null) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    _metrikSekunder!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      height: 1.2,
+                      color: Color(0xFF6B807B),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
-          if (terisi && sampel.gulaDarah != null)
+          if (terisi && kemampuan.gulaDarah && sampel.gulaDarah != null)
             RichText(
               text: TextSpan(
                 style: const TextStyle(

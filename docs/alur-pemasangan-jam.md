@@ -151,6 +151,46 @@ mengganti yang pertama):
 Delapan detik dipilih supaya user yang menjawab dengan normal tidak pernah melihat kalimat ini —
 instruksi tambahan yang muncul saat semuanya berjalan baik justru membuat ragu.
 
+### 4.5 Melepas pemasangan
+
+Dua jalan yang berbeda menuju keadaan yang sama, dan aplikasi tidak boleh menyamakan keduanya.
+
+**Dari dalam aplikasi — "Lupakan Jam Ini".** Memutus koneksi, menghapus penyandingan di ponsel, dan
+melupakan jamnya, sehingga aplikasi kembali ke keadaan "belum pernah dipasangkan" seutuhnya. Selalu
+dikonfirmasi lebih dulu, karena akibatnya tidak terlihat dan tidak bisa dibatalkan: **sampel yang
+masih menunggu di buffer jam tidak akan pernah sampai** setelah tidak ada lagi yang menyambunginya.
+Dialognya menyebut jumlahnya apa adanya ("3 data yang masih tersimpan di jam…"), menyebut sesi yang
+sedang berjalan bila ada, dan menutup dengan penegasan bahwa riwayat yang sudah tersimpan tetap aman
+— tiga hal yang tidak bisa disimpulkan sendiri oleh siapa pun.
+
+Tombolnya sengaja **tidak** berdampingan dengan "Putuskan" sebagai pilihan setara: keduanya
+terdengar mirip, tetapi hanya satu yang bisa dibatalkan.
+
+**Dari Pengaturan Bluetooth sistem, di luar aplikasi.** Aplikasi masih mengingat jamnya sementara
+ponsel sudah tidak menyandingkannya. Aturan yang mengikat di sini:
+
+> **Penyandingan tidak pernah dimulai dari latar belakang.**
+
+Lingkaran sambung ulang memeriksa `bondState` lebih dulu; bila bond-nya hilang, ia **berhenti** dan
+menandai `StatusPerangkat.penyandinganHilang`. Menyambung lagi pada keadaan itu akan memunculkan
+dialog penyandingan sistem entah kapan saja — saat user sedang menelepon, sedang di aplikasi lain,
+tanpa ia sedang memasang apa pun. Permintaan seperti itu mustahil dimengerti, dan yang paling
+mungkin dilakukan user adalah menolaknya.
+
+Yang ditampilkan pada keadaan itu berbeda dari "terputus" biasa di tiga tempat, karena tindak
+lanjutnya memang bertolak belakang — yang terputus akan tersambung sendiri, yang ini tidak akan
+pernah:
+
+| | Terputus | Penyandingan hilang |
+|---|---|---|
+| Judul kartu | Jam Terputus | **Jam Tidak Tersandingkan** |
+| Baris kedua | Sinkron terakhir … | **Dihapus dari Bluetooth ponsel** |
+| Tombol | Sambungkan Ulang | **Sandingkan Ulang** |
+
+Ragu diperlakukan sebagai "masih tersandingkan": pembacaan bond yang gagal bukan bukti bahwa
+penyandingannya hilang, dan menghentikan sambung ulang atas dasar tebakan akan membuat jam yang
+sehat terlihat lepas.
+
 ---
 
 ## 5. Jalur gagal
@@ -164,17 +204,38 @@ adalah cara tercepat membuat user mencoba hal yang sama sepuluh kali.
 | Connect gagal / di luar jangkauan | AsaWatch X1 belum bisa disambungkan. Dekatkan jam ke ponsel, lalu coba lagi. | Coba lagi |
 | User menolak penyandingan | Penyandingan dibatalkan. Jam perlu disandingkan sekali agar datanya terkirim dengan aman. | Coba lagi |
 | Permintaan tidak dijawab | Permintaan penyandingan belum dijawab. Coba lagi, lalu ketuk "Sandingkan" saat permintaan itu muncul. | Coba lagi |
-| **Bond basi** (jam di-reset / firmware diganti) | Jam ini pernah disandingkan dengan data yang sudah tidak berlaku. Buka Pengaturan Bluetooth, hapus "AsaWatch X1" dari daftar perangkat tersimpan, lalu sambungkan lagi. | **Buka Pengaturan Bluetooth** |
+| **Bond basi** (jam di-reset / firmware diganti) | AsaWatch X1 pernah disandingkan dengan data yang sudah tidak berlaku, jadi ponsel dan jam tidak lagi saling mengenali. | **Coba Lagi**, lalu **Sandingkan ulang jam ini** |
 | Versi protokol tidak cocok | *(sudah ada — `GalatVersiJam.pesanPengguna`)* | Sesuai pesan |
 | Bluetooth ponsel mati | *(sudah ada — `HasilIzinBle.bluetoothMati`)* | Nyalakan Bluetooth |
 | Izin ditolak permanen | *(sudah ada — `HasilIzinBle.ditolakPermanen`)* | Buka Pengaturan |
 
 Bond basi adalah **satu-satunya kegagalan di tabel ini yang tidak akan pernah pulih dengan mencoba
-lagi.** Kunci enkripsi lama masih tersimpan di ponsel sementara jam sudah tidak mengenalinya, dan
-tidak ada tindakan di dalam aplikasi yang bisa memperbaikinya secara andal (`removeBond()` tidak
-tersedia di semua versi Android). Karena itu ia wajib punya copy dan tombolnya sendiri yang membuka
-Pengaturan Bluetooth sistem — bukan Pengaturan aplikasi, yang tidak memuat daftar perangkat
-tersandingkan.
+lagi**, karena kunci enkripsi lama masih tersimpan di ponsel sementara jam sudah tidak mengenalinya.
+Ia ditangani bertingkat, dan urutannya disengaja:
+
+1. **"Coba Lagi" tetap tombol utamanya.** Sisi aplikasi hanya bisa *menduga* kunci basi — jam yang
+   menjauh di detik yang keliru terlihat sangat mirip. Menaruh penghapusan penyandingan sebagai
+   tindakan utama berarti merusak pemasangan yang sebenarnya sehat atas dasar tebakan.
+2. **"Sandingkan ulang jam ini"** memanggil `removeBond()` lalu menyambung lagi — jalan keluar yang
+   tidak menuntut pengguna membuka Pengaturan sistem sama sekali.
+3. **Kalau `removeBond()` ditolak** (sebagian versi Android tidak mengizinkannya dari aplikasi),
+   barulah muncul petunjuk manual: Pengaturan → Bluetooth → jam → Lupakan. Petunjuk itu harus
+   menyebut **Pengaturan Bluetooth**, bukan Pengaturan aplikasi, yang tidak memuat daftar perangkat
+   tersandingkan.
+
+**"Nyalakan Bluetooth" pada baris itu adalah tombol sungguhan, bukan kalimat perintah.** Ia memanggil
+`IzinBle.nyalakanBluetooth()`, yang di Android memunculkan dialog sistem `ACTION_REQUEST_ENABLE` di
+atas halaman pemindaian; begitu radionya hidup, pemindaian dimulai lagi sendiri tanpa ketukan kedua.
+Tiga hal membatasi janji itu, dan ketiganya terlihat di layar:
+
+- **Ini bukan "menyalakan diam-diam".** Sejak Android 13 `BluetoothAdapter.enable()` dicabut, jadi
+  persetujuan tetap milik pengguna. Yang dihemat adalah perjalanan ke Pengaturan dan — bagian yang
+  paling sering berakhir di tempat lain untuk pengguna yang dituju dokumen ini — jalan kembalinya.
+- **Tombolnya hanya muncul di platform yang bisa memenuhinya** (`bisaMenyalakanBluetooth`). iOS tidak
+  punya padanannya dan tidak akan punya, jadi di sana kartunya tetap menunjuk ke Pengaturan ponsel.
+- **Menolak dialog bukan jalan buntu.** `HasilNyalakanBluetooth.ditolakPengguna` mengembalikan
+  halaman ke keadaan semula dengan tombol yang masih bisa ditekan — bukan pesan kesalahan, karena
+  tidak ada yang salah: pengguna baru saja memutuskan sesuatu yang memang haknya.
 
 **Setelah gagal, jangan lempar user kembali ke awal.** Tombol "Coba lagi" mengulang penyambungan ke
 jam yang sama, tanpa memindai ulang. Memaksa memindai lagi berarti mengulang seluruh ritual untuk
@@ -199,18 +260,27 @@ kesalahan yang sering kali hanya berarti "jamnya sedikit terlalu jauh".
 
 ---
 
-## 7. Yang berubah di kode
+## 7. Keadaan implementasi
 
-Ringkasan, untuk dipakai saat implementasi:
+Sisi aplikasi **sudah dikerjakan**; yang tersisa ada di firmware.
 
-| Berkas | Perubahan |
-|---|---|
-| [lib/services/ble_asli_service.dart](../lib/services/ble_asli_service.dart) | `createBond()` eksplisit sesudah `connect()` dan **sebelum** `discoverServices()`; pantau `bondState`; laporkan keadaannya keluar; kenali galat otentikasi sebagai "bond basi" |
-| [lib/services/ble_service.dart](../lib/services/ble_service.dart) | Kontrak baru untuk melaporkan keadaan penyambungan (empat keadaan §4.3), diikuti `FakeBleService` |
-| [lib/pemindaian_perangkat_page.dart](../lib/pemindaian_perangkat_page.dart) | `_idMenyambung` menjadi keadaan berjenis, bukan `String?`; layar penuh untuk `menyandingkan`; baris tambahan setelah 8 detik; tabel pesan gagal §5 |
-| [lib/menghubungkan_perangkat_page.dart](../lib/menghubungkan_perangkat_page.dart) | Enam langkah §4.1 dan kalimat penenang |
-| Firmware | Iklan cepat selama belum ada bond (§3) |
+| Berkas | Perubahan | Status |
+|---|---|---|
+| [lib/services/ble_service.dart](../lib/services/ble_service.dart) | `TahapSambung`, `HasilSambung` + pesannya, `tahapSambung`, `lupakanPenyandingan`; `PenyandinganPalsu` di `FakeBleService` | selesai |
+| [lib/services/ble_asli_service.dart](../lib/services/ble_asli_service.dart) | `createBond()` eksplisit sesudah `connect()` dan **sebelum** `discoverServices()`; klasifikasi hangus vs ditolak; dugaan kunci basi | selesai |
+| [lib/controllers/sesi_makan_controller.dart](../lib/controllers/sesi_makan_controller.dart) | meneruskan tahap, hasil, dan `lupakanPenyandingan` | selesai |
+| [lib/pemindaian_perangkat_page.dart](../lib/pemindaian_perangkat_page.dart) | layar penyambungan penuh, petunjuk notifikasi 8 detik, pesan gagal per sebab | selesai |
+| [lib/menghubungkan_perangkat_page.dart](../lib/menghubungkan_perangkat_page.dart) | enam langkah §4.1, kalimat penenang, "Lupakan Jam Ini" + konfirmasinya, keadaan penyandingan hilang | selesai |
+| [lib/models/sesi_makan.dart](../lib/models/sesi_makan.dart) | `StatusPerangkat.penyandinganHilang` dan `StatusPerangkat.kosong` | selesai |
+| [test/penyandingan_test.dart](../test/penyandingan_test.dart) | dua belas test menutupi §4.3–§5 | selesai |
+| **Firmware** | **iklan cepat selama belum ada bond (§3)** | **belum** |
 
-`FakeBleService` harus ikut memodelkan keadaan `menyandingkan` — termasuk yang **tidak pernah
-dijawab** — supaya seluruh alur §4.3 dan §5 bisa diuji tanpa perangkat keras. Itu satu-satunya cara
-copy di dokumen ini benar-benar terlihat sebelum ada jam di tangan.
+`FakeBleService.penyandingan` memodelkan kelima perilakunya, termasuk dialog yang **tidak pernah
+dijawab** dan kunci yang **basi** — dua keadaan yang tidak bisa dipesan pada jam sungguhan, sementara
+justru merekalah yang paling membingungkan pengguna. Tanpa tiruan itu, seluruh copy di dokumen ini
+baru terlihat pertama kali di tangan pengguna.
+
+> **Catatan untuk test.** Jeda `FakeBleService` ikut dipercepat, sedangkan `jedaPetunjukNotifikasi`
+> (8 detik) tidak — ia timer UI. Test yang menguji petunjuk itu karenanya memakai `percepatan: 1`;
+> dengan 3600 yang biasa dipakai test lain, seluruh penyandingan mampat menjadi sepersekian detik dan
+> tidak ada yang bisa diamati.

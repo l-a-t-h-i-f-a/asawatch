@@ -45,9 +45,12 @@ class GulaDarahDetailPage extends StatelessWidget {
         ),
         centerTitle: true,
       ),
-      body: sesiTampil == null
-          ? const PesanTanpaSesi()
-          : _IsiGulaDarah(sesi: sesiTampil, semuaSesi: controller.riwayat),
+      body: SafeArea(
+        top: false,
+        child: sesiTampil == null
+            ? const PesanTanpaSesi()
+            : _IsiGulaDarah(sesi: sesiTampil, semuaSesi: controller.riwayat),
+      ),
     );
   }
 }
@@ -246,7 +249,7 @@ class _LintasSesi extends StatelessWidget {
               ? 'Belum ada puncak yang terukur'
               : 'Rata-rata puncak ${rataPuncak.round()} mg/dL'
                     '${rataDelta == null ? '' : ' · rata-rata kenaikan '
-                          '+${rataDelta.round()} mg/dL'}',
+                              '+${rataDelta.round()} mg/dL'}',
         ),
         KurvaTumpukSesi(sesi: semuaSesi),
         const SizedBox(height: 8),
@@ -390,11 +393,7 @@ class PesanTanpaSesi extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: const [
-            Icon(
-              Icons.insights_rounded,
-              size: 48,
-              color: Color(0xFF8FA7A1),
-            ),
+            Icon(Icons.insights_rounded, size: 48, color: Color(0xFF8FA7A1)),
             SizedBox(height: 12),
             Text(
               'Belum ada sesi yang selesai',
