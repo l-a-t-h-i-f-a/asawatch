@@ -8,7 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Dart SDK `^3.12.0`. Third-party runtime dependencies: `shared_preferences` (profile + paired-watch
 id), `provider` (meal-session surfaces only — see below), `drift`/`drift_flutter` (all local
-storage), `flutter_blue_plus` (the watch), and `permission_handler` (Bluetooth permissions).
+storage), `flutter_blue_plus` (the watch), `permission_handler` (Bluetooth permissions), and
+`flutter_local_notifications` + `timezone` (measurement-point reminders — see
+[docs/jadwal-titik-ukur.md](docs/jadwal-titik-ukur.md) §6; since the watch stopped scheduling its own
+points, nothing but the app reminds the user).
 `drift_dev` + `build_runner` are dev-only, for the generated `basis_data.g.dart`.
 
 **Both BLE-adjacent dependencies are pinned below their latest, for unrelated reasons.**
@@ -30,6 +33,7 @@ shaped the way it is.
 flutter pub get                      # install deps
 flutter run                          # run on the connected device/emulator (real watch over BLE)
 flutter run --dart-define=PAKAI_JAM_PALSU=true   # …with FakeBleService instead, no hardware needed
+flutter run --dart-define=PAKAI_JADWAL_UJI=true   # …with the two-minute session schedule (real watch works too)
 flutter run --dart-define=PAKAI_AUTH_PALSU=true  # …with FakeAuthService — the only way in until a backend exists
                                                  # demo account: test@email.com / rahasia123
 flutter run --dart-define=BASIS_URL_API=http://10.0.2.2:8080   # point AuthHttpService at a local server
@@ -157,7 +161,21 @@ loads and then fails when the database opens.
 ### The watch (Tahap B)
 
 **[docs/protokol-jam.md](docs/protokol-jam.md) is normative.** If the code and that document
-disagree, one of them is a bug. Five things carry most of the weight:
+disagree, one of them is a bug.
+
+**Read its §12 v1.3 entry before touching anything below.** The watch cannot stay powered for more
+than ~50 minutes while a session runs over two hours, so **v1.3 moves the schedule out of the
+firmware and into the app**: `UKUR` is served in all three states, a new `ARM_TITIK` (`0x0A`) lights
+the watch's measure button for one point at a time, `t0` becomes an app-side `DateTime`, and the
+discard-on-mismatched-`boot_id` rule is gone. v1.3 is **designed, not implemented** — the five points
+below still describe the shipped v1.2 code, and the deltas are listed in §12. The app-side half —
+the four-point schedule as data rather than literals, the per-point tolerance windows, the
+early-vs-late rule, and the `PAKAI_JADWAL_UJI` compressed-schedule test mode — lives in
+[docs/jadwal-titik-ukur.md](docs/jadwal-titik-ukur.md), which is normative for the app and has none
+of it on the wire. **All eight of its app-side steps are done** (its §8 has the table, plus three
+things found while building that are not in any plan); the firmware side is untouched.
+
+Five things carry most of the weight:
 
 - **The watch has no RTC.** It never sends a wall clock — only `uptime_s` and `boot_id`. The app
   holds all knowledge of real time as *anchors* (`ANCHOR_WAKTU` is written on **every** connection,

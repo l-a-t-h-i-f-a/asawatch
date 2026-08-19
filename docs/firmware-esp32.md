@@ -183,6 +183,19 @@ Tiga aturan menempel pada keputusan itu.
    dan yang sudah di-dedup aplikasi dengan `(sesiId, index)`. Jadi `ring_tambah_*` menulis seketika,
    `ring_ack` menunggu. Biayanya ~5 tulis tambahan per hari, dan yang menjadi alasan jeda itu ada
    tetap terlindungi, karena yang datang berombongan memang ack.
+
+   **Protokol v1.3 memindahkan aturan ini dari kehati-hatian menjadi jalur utama.** Saat baris ini
+   ditulis, jam menyala terus sepanjang sesi dan jendela 3 detik itu hampir tidak pernah tersentuh —
+   perlu daya yang putus tepat di dalamnya. v1.3 mengunci pola pemakaian yang berbeda: pengguna
+   menyalakan jam, mengukur satu titik, lalu **mematikannya lagi** untuk menghemat baterai
+   (docs/protokol-jam.md §12). Tidak ada alasan bagi siapa pun untuk menunggu sesudah pengukurannya
+   selesai, jadi mematikan jam dalam hitungan detik bukan kasus tepi melainkan yang diharapkan
+   terjadi.
+
+   Artinya sampel yang hilang di jendela itu bukan lagi kemungkinan kecil: ia titik ukur yang
+   **tidak bisa diulang** — `t0+1 jam` cuma terjadi sekali — dan hilangnya tidak menghasilkan gejala
+   apa pun selain titik yang tetap kosong. Kalau hanya satu butir dari berkas ini yang dikerjakan,
+   butir inilah.
 2. **Nilai balik `putBytes` wajib diperiksa.** Mengabaikannya lalu menurunkan flag `kotor` berarti
    buffer berhenti persisten **diam-diam** saat NVS penuh atau gagal, tanpa gejala apa pun sampai
    jam reboot dan seluruh isinya lenyap. Bila gagal: `kotor` tetap menyala supaya percobaan

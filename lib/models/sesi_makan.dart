@@ -6,6 +6,8 @@
 /// tidak disimpan.
 library;
 
+import 'jadwal_sesi.dart';
+
 enum StatusSesi {
   // Foto sudah diambil dan tombol "Selesai Makan" di jam sudah menyala; yang
   // ditunggu adalah tombol itu ditekan.
@@ -37,12 +39,13 @@ const int ambangResponsSedang = 60;
 const int ambangPemulihan = 10;
 
 /// Label titik pengukuran sesuai tabel index di §12.1.
-const List<String> labelTitikSampel = [
-  'Baseline',
-  'Selesai makan',
-  '+1 jam',
-  '+2 jam',
-];
+///
+/// Diturunkan dari [jadwalNormal], bukan ditulis ulang: jadwal dan labelnya
+/// adalah satu hal, dan dua daftar yang harus dijaga sebanding pada akhirnya
+/// akan berselisih. Sengaja dari jadwal **sungguhan** meski mode uji memakai
+/// jadwal yang dikecilkan — label sebuah titik menyebut maknanya ("+1 jam"),
+/// bukan durasinya di mode itu, dan itu memang yang ingin dibaca penguji.
+final List<String> labelTitikSampel = jadwalNormal.label;
 
 extension LabelStatusSesi on StatusSesi {
   String get label => switch (this) {
@@ -137,6 +140,7 @@ class SesiMakan {
     this.t0,
     this.hasil,
     this.waktuTidakPasti = false,
+    this.sesiUji = false,
   });
 
   final String id;
@@ -158,12 +162,24 @@ class SesiMakan {
   /// masuk `AnalisisSesi`.
   final bool waktuTidakPasti;
 
+  /// Sesi ini dibuat oleh rakitan mode jadwal uji — jadwal dua menit, bukan dua
+  /// jam (docs/jadwal-titik-ukur.md §7).
+  ///
+  /// Ia **tetap disimpan dan tetap tampil di Riwayat**, dengan lencana:
+  /// menyembunyikannya akan membuat mustahil memverifikasi bahwa persistensinya
+  /// bekerja — yang justru salah satu hal yang sedang diuji. Yang dilarang
+  /// adalah membiarkannya ikut dihitung: angka dari sesi dua menit di dalam
+  /// garis tren `AnalisisSesi` adalah pencemaran yang besok tidak akan terlihat
+  /// lagi sebagai pencemaran.
+  final bool sesiUji;
+
   SesiMakan salin({
     DateTime? t0,
     StatusSesi? status,
     HasilDeteksi? hasil,
     List<Sampel>? sampel,
     bool? waktuTidakPasti,
+    bool? sesiUji,
   }) {
     return SesiMakan(
       id: id,
@@ -174,7 +190,51 @@ class SesiMakan {
       hasil: hasil ?? this.hasil,
       sampel: sampel ?? this.sampel,
       waktuTidakPasti: waktuTidakPasti ?? this.waktuTidakPasti,
+      sesiUji: sesiUji ?? this.sesiUji,
     );
+  }
+
+  /// Jadwal yang berlaku untuk sesi ini.
+  ///
+  /// Diturunkan dari [sesiUji], bukan dibaca dari konfigurasi rakitan yang
+  /// sedang berjalan: sesi lama harus tetap dinilai dengan jadwal yang berlaku
+  /// saat ia direkam. Rakitan uji yang membuka riwayat sungguhan tidak boleh
+  /// menyatakan seluruh titiknya telat karena diukur dengan penggaris dua menit.
+  JadwalSesi get jadwal => sesiUji ? jadwalUji : jadwalNormal;
+
+  /// Pengukuran ini tiba di luar jendela toleransi titiknya
+  /// (docs/jadwal-titik-ukur.md §3).
+  ///
+  /// Dihitung, tidak disimpan: [Sampel.detikRelatifT0] sudah merekam kapan
+  /// pengukurannya benar-benar terjadi, dan jendelanya ada di [jadwal] — jadi
+  /// sebuah kolom di sini hanya akan menduplikasi keduanya, lalu berselisih
+  /// dengan salah satunya.
+  ///
+  /// Hanya "telat" yang ditandai, tidak ada padanan "terlalu cepat". Itu bukan
+  /// kelalaian melainkan asimetri yang jadi aturannya: pengukuran yang terlalu
+  /// cepat ditahan sebelum terjadi — titiknya belum lewat dan masih bisa diukur
+  /// ulang — sedangkan yang telat sudah tidak punya pengganti dan hanya bisa
+  /// diterima apa adanya.
+  bool sampelTelat(Sampel s) {
+    if (!s.terisi) return false;
+    final titik = jadwal.titik.where((t) => t.index == s.index);
+    if (titik.isEmpty) return false;
+    return titik.first.telat(s.detikRelatifT0);
+  }
+
+  /// Label titik yang **ikut jujur saat pengukurannya meleset**.
+  ///
+  /// "+1 jam" selama selisihnya kosmetik; "+1 jam 24 mnt" begitu tidak. Label
+  /// nominal di atas pengukuran yang telat 24 menit bukan merapikan tampilan,
+  /// itu menyembunyikan satu-satunya hal yang menjelaskan kenapa angkanya
+  /// mengejutkan.
+  String labelSampel(Sampel s) {
+    if (!s.terisi || !sampelTelat(s)) return s.label;
+    final menit = (s.detikRelatifT0 / 60).round();
+    final jam = menit ~/ 60;
+    final sisa = menit % 60;
+    if (jam == 0) return '+$sisa mnt';
+    return sisa == 0 ? '+$jam jam' : '+$jam jam $sisa mnt';
   }
 
   /// Sampel baseline pra-makan, hanya bila sudah terisi.
@@ -229,12 +289,28 @@ class SesiMakan {
   /// Berapa lama sejak t0 gula darah kembali ke sekitar baseline.
   ///
   /// null berarti belum kembali (atau datanya belum cukup), bukan gagal.
+  ///
+  /// **Yang membandingkan titik di sini adalah `detikRelatifT0`, bukan `index`.**
+  /// Keduanya memberi jawaban yang sama selama jadwalnya empat titik yang
+  /// kebetulan berurutan waktu — dan itulah yang membuat versi lama (`s.index <=
+  /// puncak.index`) tampak benar. Ia meleset pada titik pertama yang disisipkan:
+  /// `+30 menit` yang ditambahkan sebagai `index: 4` akan terbaca sebagai
+  /// "sesudah +2 jam", dan pemulihannya salah dihitung tanpa satu pun gejala.
+  /// Sejak jadwal jadi data per sesi (docs/jadwal-titik-ukur.md §1), penyisipan
+  /// itu berhenti menjadi hal yang mustahil, jadi asumsinya diganti dengan hal
+  /// yang memang dimaksud kalimat ini: urutan waktu.
   Duration? get waktuPemulihan {
     final dasar = gulaDarahBaseline;
     final puncak = sampelPuncak;
     if (dasar == null || puncak == null) return null;
-    for (final s in sampel) {
-      if (s.index <= puncak.index || !s.terisi || s.gulaDarah == null) continue;
+    final urut = [...sampel]
+      ..sort((a, b) => a.detikRelatifT0.compareTo(b.detikRelatifT0));
+    for (final s in urut) {
+      if (s.detikRelatifT0 <= puncak.detikRelatifT0 ||
+          !s.terisi ||
+          s.gulaDarah == null) {
+        continue;
+      }
       if (s.gulaDarah! <= dasar + ambangPemulihan) {
         return Duration(seconds: s.detikRelatifT0);
       }

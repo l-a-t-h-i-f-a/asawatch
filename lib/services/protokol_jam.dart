@@ -78,7 +78,7 @@ abstract final class ProtokolJam {
   /// dibelinya adalah kemampuan mengenali firmware lama nanti, saat ada firmware
   /// lama.
   static const int versiMayorDidukung = 1;
-  static const int versiMinorDidukung = 2;
+  static const int versiMinorDidukung = 3;
 
   static const String uuidLayanan = 'a5a70001-6b4c-4e2a-9d31-0f8c2e5a7b10';
   static const String uuidInfo = 'a5a70002-6b4c-4e2a-9d31-0f8c2e5a7b10';
@@ -136,6 +136,9 @@ abstract final class Opcode {
   /// berada di garis waktu jam dan seluruh model waktu (§4) tidak tersentuh.
   static const int mulaiSesi = 0x09;
 
+  /// v1.3 — menyalakan tombol ukur di jam untuk satu titik tertentu.
+  static const int armTitik = 0x0A;
+
   static String nama(int opcode) => switch (opcode) {
     anchorWaktu => 'ANCHOR_WAKTU',
     armSesi => 'ARM_SESI',
@@ -146,6 +149,7 @@ abstract final class Opcode {
     sinkron => 'SINKRON',
     ackEvent => 'ACK_EVENT',
     mulaiSesi => 'MULAI_SESI',
+    armTitik => 'ARM_TITIK',
     _ => 'opcode 0x${opcode.toRadixString(16)}',
   };
 }
@@ -515,9 +519,7 @@ Uint8List tulisBatalSesi(String sesiId) =>
 /// sebelum `t0` ada, dan karena itu membawa `sesiId` yang sama dengan
 /// `ARM_SESI` yang menyusul.
 Uint8List tulisUkur(String sesiId, int index) {
-  if (index < 0 || index > 3) {
-    throw GalatProtokol('Index sampel $index di luar 0..3.');
-  }
+  _periksaIndex(index);
   final data = Uint8List(18);
   data[0] = Opcode.ukur;
   data.setRange(1, 17, uuidKeBiner(sesiId));
@@ -526,6 +528,40 @@ Uint8List tulisUkur(String sesiId, int index) {
 }
 
 Uint8List tulisUkurSekarang() => Uint8List.fromList([Opcode.ukurSekarang]);
+
+/// Batas atas `index` di kawat: 1 byte penuh (§5.1).
+///
+/// Bukan lagi `0..3`. Sejak jadwal titik ukur menjadi data sisi aplikasi
+/// (docs/jadwal-titik-ukur.md §1), menambah titik tidak boleh tertahan oleh
+/// penjaga di codec — dan yang menentukan bentuk paket memang cuma lebar
+/// bytenya. Yang tetap dijaga adalah apa yang benar-benar tidak muat.
+void _periksaIndex(int index) {
+  if (index < 0 || index > 255) {
+    throw GalatProtokol('Index sampel $index tidak muat dalam 1 byte.');
+  }
+}
+
+/// `ARM_TITIK` (§5.1, v1.3) — menyalakan tombol ukur fisik di jam untuk satu
+/// titik.
+///
+/// Payload `sesiId` + `index` saja, **tanpa waktu**. Rancangan pertamanya
+/// membawa `2B detik_tunda` supaya jam menyalakan tombolnya sendiri saat
+/// jendela toleransi terbuka; itu dibuang sebelum implementasi karena penundaan
+/// tersebut tidak pernah selamat melewati pemutusan daya — dan pemutusan daya
+/// adalah keadaan normal di v1.3 (§9, "Kenapa `ARM_TITIK` tidak membawa
+/// penundaan"). Karena perintah ini sama-sama butuh koneksi seperti `UKUR`,
+/// aplikasi mengirimnya **saat titiknya jatuh tempo**, bukan di awal sesi.
+///
+/// Jam menyimpannya ke NVS, jadi tombolnya tetap menyala setelah jam dimatikan
+/// dan dihidupkan lagi — justru keadaan yang paling sering.
+Uint8List tulisArmTitik(String sesiId, int index) {
+  _periksaIndex(index);
+  final data = Uint8List(18);
+  data[0] = Opcode.armTitik;
+  data.setRange(1, 17, uuidKeBiner(sesiId));
+  data[17] = index;
+  return data;
+}
 
 /// `SET_KALIBRASI` (§5.1) — yang dikirim adalah **offset**, bukan nilai
 /// referensi tensimeternya. Firmware hanya menambahkan; ia tidak perlu tahu

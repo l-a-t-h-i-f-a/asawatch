@@ -8,10 +8,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:asawatch/controllers/sesi_makan_controller.dart';
+import 'package:asawatch/models/jadwal_sesi.dart';
 import 'package:asawatch/models/sesi_makan.dart';
 import 'package:asawatch/repositories/sesi_repository.dart';
 import 'package:asawatch/services/ble_service.dart';
 import 'package:asawatch/services/nutrisi_service.dart';
+import 'package:asawatch/services/pengingat_titik_ukur.dart';
 
 /// Registers the bundled Montserrat faces with the test binding.
 ///
@@ -32,6 +34,40 @@ Future<void> loadMontserrat() async {
     loader.addFont(Future.value(ByteData.view(bytes.buffer)));
   }
   await loader.load();
+}
+
+/// Jam dinding palsu yang bergerak hanya bila disuruh.
+///
+/// `tester.pump(Duration)` memajukan timer tetapi **tidak** memajukan
+/// `DateTime.now()`. Sejak protokol v1.3 menaruh jadwal titik ukur di sisi
+/// aplikasi, jam dinding ikut menjadi bahan perhitungan — jendela toleransi,
+/// hitung mundur, dan penundaan `ARM_TITIK` semuanya membacanya. Tanpa jam yang
+/// bisa dimajukan bersama `pump`, tidak satu pun dari ketiganya bisa diuji.
+class JamPalsu {
+  /// Bermula dari waktu **sungguhan**, bukan tanggal tetap.
+  ///
+  /// `FakeBleService` menstempel `t0`-nya dengan `DateTime.now()` yang asli, dan
+  /// jam palsu yang bermula di tanggal lain akan membuat selisih keduanya
+  /// terhitung berbulan-bulan — sesi tertutup oleh tenggatnya sendiri sebelum
+  /// test sempat menyentuh apa pun.
+  JamPalsu([DateTime? mulai]) : _sekarang = mulai ?? DateTime.now();
+
+  DateTime _sekarang;
+
+  DateTime call() => _sekarang;
+
+  void maju(Duration d) => _sekarang = _sekarang.add(d);
+}
+
+/// Memajukan jam palsu **dan** timer sekaligus, supaya keduanya tidak pernah
+/// berselisih di tengah test.
+Future<void> majuBersama(
+  WidgetTester tester,
+  JamPalsu jam,
+  Duration d,
+) async {
+  jam.maju(d);
+  await tester.pump(d);
 }
 
 /// Sets the phone-sized surface the layouts assume (412x915). The 800x600
@@ -58,6 +94,9 @@ SesiMakanController buatControllerUji({
   FakeBleService? ble,
   NutrisiService? nutrisi,
   SesiRepository? repo,
+  JadwalSesi? jadwal,
+  DateTime Function()? jam,
+  PengingatTitikUkur? pengingat,
 }) {
   return SesiMakanController(
     ble:
@@ -73,6 +112,17 @@ SesiMakanController buatControllerUji({
     // Dibiarkan null kecuali test memang menguji penyimpanannya: sesi yang
     // selesai cukup hidup di memori controller seperti sebelumnya.
     repo: repo,
+    // Jadwal ikut dimampatkan dengan faktor yang sama seperti jam palsunya.
+    //
+    // Ini bukan kenyamanan melainkan syarat kebenaran sejak protokol v1.3.
+    // `detikRelatifT0` kini diturunkan dari jam dinding (§5.3), sedangkan
+    // `percepatan` memampatkan jadwal jam palsu tanpa memampatkan jam dinding.
+    // Membiarkan keduanya berbeda berarti sampel "+1 jam" yang tiba satu detik
+    // setelah t0 tercatat pada detik ke-1 dan ditandai telat — test yang
+    // mensimulasikan hal yang tidak mungkin terjadi di dunia nyata.
+    jadwal: jadwal ?? jadwalNormal.dibagi(percepatan),
+    jam: jam,
+    pengingat: pengingat,
   );
 }
 

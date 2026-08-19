@@ -299,6 +299,13 @@ void main() {
       await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
       await jalankanSesi(tester, c);
 
+      // Digulir dulu: `PetunjukTombolUkur` mendorong tombol jalan keluar ke
+      // bawah lipatan, dan `tap` di luar viewport mengetuk titik yang salah
+      // tanpa gagal.
+      await tester.ensureVisible(find.text('Batalkan Sesi'));
+      await tester.pump();
+      await tester.ensureVisible(find.text('Batalkan Sesi'));
+      await tester.pump();
       await tester.tap(find.text('Batalkan Sesi'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));

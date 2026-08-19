@@ -7,6 +7,7 @@ import 'ringkasan_sesi_page.dart';
 import 'utils/format_waktu.dart';
 import 'widgets/foto_makanan.dart';
 import 'widgets/petunjuk_tombol_jam.dart';
+import 'widgets/petunjuk_tombol_ukur.dart';
 import 'widgets/ringkasan_nutrisi.dart';
 import 'widgets/timeline_sampel.dart';
 
@@ -215,6 +216,16 @@ class _IsiSesi extends StatelessWidget {
               status: sesi.status,
               perangkat: controller.statusPerangkat,
             ),
+            const SizedBox(height: 12),
+          ],
+
+          // Setelah t0, yang ditunggu bukan lagi tombol "Selesai Makan"
+          // melainkan tiap titik ukur — dan sejak protokol v1.3 titik itu
+          // tidak datang sendiri (§9): jam dimatikan di antara pengukuran, jadi
+          // ada yang harus memicunya. Widget ini menyembunyikan dirinya bila
+          // tidak ada titik yang menunggu.
+          if (sesi.t0 != null) ...[
+            const PetunjukTombolUkur(),
             const SizedBox(height: 12),
           ],
 

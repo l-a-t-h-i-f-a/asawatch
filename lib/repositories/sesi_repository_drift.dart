@@ -68,6 +68,7 @@ class SesiRepositoryDrift implements SesiRepository {
           t0: s.t0 == null ? null : _keWaktu(s.t0!),
           status: s.status,
           waktuTidakPasti: s.waktuTidakPasti,
+          sesiUji: s.sesiUji,
           sampel: _rakitSampel(sampelPerSesi[s.id] ?? const []),
           hasil: _rakitHasil(hasilPerSesi[s.id], itemPerSesi[s.id] ?? const []),
         ),
@@ -89,6 +90,7 @@ class SesiRepositoryDrift implements SesiRepository {
               t0: Value(sesi.t0 == null ? null : _keEpoch(sesi.t0!)),
               status: sesi.status,
               waktuTidakPasti: Value(sesi.waktuTidakPasti),
+              sesiUji: Value(sesi.sesiUji),
             ),
           );
 

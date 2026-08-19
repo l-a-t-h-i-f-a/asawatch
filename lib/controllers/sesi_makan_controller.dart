@@ -2,11 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../konfigurasi.dart';
+import '../models/jadwal_sesi.dart';
 import '../models/sesi_makan.dart';
 import '../repositories/kalibrasi_repository.dart';
 import '../repositories/sesi_repository.dart';
 import '../services/ble_service.dart';
 import '../services/nutrisi_service.dart';
+import '../services/pengingat_titik_ukur.dart';
 import '../services/protokol_jam.dart' show GalatJam, buatIdSesi;
 
 /// Satu-satunya state hidup di aplikasi (§12.6), disediakan lewat satu
@@ -36,7 +39,13 @@ class SesiMakanController extends ChangeNotifier {
     this.repo,
     this.repoKalibrasi,
     Kalibrasi? kalibrasiAwal,
-  }) : _riwayat = [
+    JadwalSesi? jadwal,
+    DateTime Function()? jam,
+    PengingatTitikUkur? pengingat,
+  }) : jam = jam ?? DateTime.now,
+       pengingat = pengingat ?? const PengingatDiam(),
+       jadwal = jadwal ?? jadwalBawaan,
+       _riwayat = [
          for (final s in riwayatAwal)
            if (!s.status.sedangAktif) s,
        ],
@@ -87,20 +96,60 @@ class SesiMakanController extends ChangeNotifier {
         // atau ARM-nya kedaluwarsa 4 jam, §5.1). Siapkan ulang.
         _sesiDiarm = null;
       }
-      if (!status.tersambung) _sesiDiarm = null;
+      if (!status.tersambung) {
+        _sesiDiarm = null;
+        // Jam yang terputus melupakan ARM titiknya juga (ia mungkin sempat
+        // mati). Kunci yang tertinggal akan menahan ARM ulang saat ia kembali.
+        _titikDiarm = null;
+      }
 
       unawaited(_siapkanJam());
+      unawaited(_armTitikBerikutnya());
       notifyListeners();
     });
 
     if (_sesiAktif != null) {
       unawaited(_siapkanJam()); // sesi draft yang dipulihkan perlu di-ARM lagi
+      unawaited(_armTitikBerikutnya());
       _jadwalkanTenggat();
     }
   }
 
   final BleService ble;
   final NutrisiService nutrisi;
+
+  /// Jadwal titik ukur sesi baru — docs/jadwal-titik-ukur.md.
+  ///
+  /// Data, bukan literal, sejak protokol v1.3 memindahkan penjadwalan dari
+  /// firmware ke sini (§9, §12). Bawaannya [jadwalBawaan], yang mengikuti
+  /// `--dart-define=PAKAI_JADWAL_UJI`; test menyuntikkan jadwalnya sendiri.
+  ///
+  /// **Sesi yang sudah berjalan tidak memakainya.** Jadwal sebuah sesi ikut
+  /// tersimpan sebagai `detikRelatifT0` tiap barisnya, jadi sesi yang dipulihkan
+  /// dari basis data tetap memakai jadwal yang berlaku saat ia dibuat — bukan
+  /// yang berlaku saat aplikasi dibuka. Rakitan uji yang membuka sesi sungguhan
+  /// lama tidak boleh memendekkannya jadi dua menit.
+  final JadwalSesi jadwal;
+
+  /// Sumber "sekarang" untuk seluruh perhitungan jadwal.
+  ///
+  /// Disuntikkan, bukan `DateTime.now()` langsung, dan alasannya bukan
+  /// kerapian. Sejak protokol v1.3 memindahkan `t0` dan seluruh jadwal titik
+  /// ukur ke aplikasi (§5.3), jam dinding ponsel menjadi bahan perhitungan —
+  /// dan `tester.pump(Duration)` memajukan timer tanpa memajukan
+  /// `DateTime.now()`. Tanpa seam ini, jendela toleransi, hitung mundur, dan
+  /// penundaan `ARM_TITIK` adalah tiga hal yang tidak ada satu pun test bisa
+  /// memeriksanya.
+  final DateTime Function() jam;
+
+  /// Pengingat kapan titik ukur berikutnya jatuh tempo
+  /// (docs/jadwal-titik-ukur.md §6).
+  ///
+  /// Bawaannya [PengingatDiam], bukan yang sungguhan, karena `main()` yang
+  /// merakitnya — sama seperti `repo` dan `repoKalibrasi`. Tanpa itu setiap test
+  /// yang menyentuh sesi akan mencoba memanggil platform channel notifikasi yang
+  /// tidak ada di bawah `flutter_test`.
+  final PengingatTitikUkur pengingat;
   final SesiRepository? repo;
   final KalibrasiRepository? repoKalibrasi;
 
@@ -110,7 +159,11 @@ class SesiMakanController extends ChangeNotifier {
   /// Bukan nol: sampel yang datang terlambat lewat buffer jam adalah perilaku
   /// normal (§6), dan sesi yang gugur satu detik setelah tenggat akan menolak
   /// data yang sebenarnya sudah terkumpul dengan benar di pergelangan tangan.
-  static const Duration tenggatSampelTerakhir = Duration(minutes: 30);
+  ///
+  /// Kini bagian dari [jadwal], supaya mode uji mengecilkannya bersama titiknya
+  /// — tenggat 30 menit di atas sesi dua menit akan membuat setiap sesi uji
+  /// menggantung setengah jam sesudah titik terakhirnya.
+  Duration get tenggatSampelTerakhir => jadwal.tenggatSetelahAkhir;
 
   StreamSubscription<({String sesiId, Sampel sampel})>? _langgananSampel;
   StreamSubscription<({String sesiId, DateTime t0, bool waktuTidakPasti})>?
@@ -155,6 +208,44 @@ class SesiMakanController extends ChangeNotifier {
 
   StatusPerangkat get statusPerangkat => _statusPerangkat;
 
+  /// Ada sesi mode uji tersimpan — dipakai Profil untuk memunculkan tombol
+  /// pembersihannya.
+  ///
+  /// Sengaja diturunkan dari isi riwayat, bukan dari `pakaiJadwalUji`. Sesi uji
+  /// tetap ada di basis data tester lama setelah build ujinya diganti, dan
+  /// justru rakitan **tanpa** flag itulah yang paling perlu bisa
+  /// membersihkannya.
+  bool get adaSesiUji => _riwayat.any((s) => s.sesiUji);
+
+  /// Menghapus seluruh sesi mode uji, berikut sampel dan hasil deteksinya.
+  ///
+  /// Ada supaya tester bisa membersihkan sendiri tanpa menghapus data aplikasi
+  /// — yang juga akan menghapus penyandingan jamnya, dan menyandingkan ulang
+  /// adalah alur terpanjang di aplikasi ini.
+  Future<void> hapusSesiUji() async {
+    final uji = [
+      for (final s in _riwayat)
+        if (s.sesiUji) s,
+    ];
+    if (uji.isEmpty) return;
+
+    _riwayat.removeWhere((s) => s.sesiUji);
+    if (_hasilBelumDibaca?.sesiUji ?? false) _hasilBelumDibaca = null;
+    notifyListeners();
+
+    for (final s in uji) {
+      _lupakanKunci(s.id);
+      try {
+        await repo?.hapus(s.id);
+      } catch (e) {
+        // Barisnya sudah hilang dari layar; gagal menghapusnya di basis data
+        // berarti ia kembali saat aplikasi dibuka lagi. Itu mengganggu, bukan
+        // merusak — dan sesi uji memang tidak ikut hitungan apa pun.
+        debugPrint('Sesi uji ${s.id} gagal dihapus: $e');
+      }
+    }
+  }
+
   SesiMakan? get sesiTerakhir => _riwayat.isEmpty ? null : _riwayat.first;
 
   /// Sesi hari ini, dipakai ringkasan nutrisi harian di Beranda.
@@ -164,10 +255,13 @@ class SesiMakanController extends ChangeNotifier {
   /// (docs/protokol-jam.md §4.3). Memasukkannya berarti total nutrisi harian yang
   /// mungkin milik hari lain.
   List<SesiMakan> sesiHariIni({DateTime? sekarang}) {
-    final now = sekarang ?? DateTime.now();
+    final now = sekarang ?? jam();
     final hariIni = DateTime(now.year, now.month, now.day);
     bool samaHari(SesiMakan s) {
-      if (s.waktuTidakPasti) return false;
+      // Sesi uji tidak ikut ringkasan hari ini karena kalorinya bukan kalori
+      // siapa pun: `nutrisiHariIni` menjumlahkannya, dan angka itu tampil di
+      // Beranda sebagai fakta tentang penggunanya.
+      if (s.waktuTidakPasti || s.sesiUji) return false;
       final d = s.t0 ?? s.waktuFoto;
       return !d.isBefore(hariIni) &&
           d.isBefore(hariIni.add(const Duration(days: 1)));
@@ -230,7 +324,7 @@ class SesiMakanController extends ChangeNotifier {
     final batas = _batasTunggu(sesi);
     if (batas == null) return;
 
-    final sisa = batas.difference(DateTime.now());
+    final sisa = batas.difference(jam());
     if (!sisa.isNegative) {
       _tenggat = Timer(sisa, _lewatTenggat);
       return;
@@ -277,7 +371,7 @@ class SesiMakanController extends ChangeNotifier {
       );
     }
 
-    final sekarang = DateTime.now();
+    final sekarang = jam();
     // UUID, bukan stempel waktu: protokol membawa `sesiId` sebagai 16 byte biner
     // (§5.1), jadi id harus bisa bolak-balik utuh ke sana.
     final id = buatIdSesi();
@@ -286,12 +380,15 @@ class SesiMakanController extends ChangeNotifier {
       fotoPath: fotoPath,
       waktuFoto: sekarang,
       status: StatusSesi.draft,
-      sampel: const [
-        Sampel.menunggu(index: 0, detikRelatifT0: 0),
-        Sampel.menunggu(index: 1, detikRelatifT0: 0),
-        Sampel.menunggu(index: 2, detikRelatifT0: 3600),
-        Sampel.menunggu(index: 3, detikRelatifT0: 7200),
+      sampel: [
+        for (final t in jadwal.titik)
+          Sampel.menunggu(index: t.index, detikRelatifT0: t.detikNominal),
       ],
+      // Ditandai di sini, saat sesinya lahir, karena inilah satu-satunya saat
+      // fakta ini masih diketahui. Sesudah tersimpan, sesi dua menit tidak bisa
+      // dibedakan dengan pasti dari sesi sungguhan yang semua titiknya
+      // terlewat.
+      sesiUji: jadwal.uji,
     );
     // Ditulis sejak draft, bukan menunggu sesi berakhir: foto sudah diambil dan
     // baseline sudah diminta ke jam, jadi aplikasi yang ditutup sekarang tetap
@@ -356,6 +453,162 @@ class SesiMakanController extends ChangeNotifier {
   /// Dipanggil saat draft dibuat dan setiap kali jam tersambung kembali:
   /// selama jam belum tersambung, penyiapannya tidak pernah sampai dan sesi
   /// berdiri di `menungguPerangkat`.
+  /// Titik yang sedang ditunggu pengukurannya, atau null bila tidak ada.
+  ///
+  /// Hanya titik berjendela — baseline dan t0 dipicu peristiwa, bukan jadwal.
+  TitikJadwal? get titikBerikutnya {
+    final sesi = _sesiAktif;
+    if (sesi == null || sesi.t0 == null) return null;
+    final menunggu = [
+      for (final t in sesi.jadwal.titik)
+        if (t.berjendela &&
+            sesi.sampel.any(
+              (s) => s.index == t.index && s.status == StatusSampel.menunggu,
+            ))
+          t,
+    ]..sort((a, b) => a.detikNominal.compareTo(b.detikNominal));
+    return menunggu.isEmpty ? null : menunggu.first;
+  }
+
+  /// Berapa lama lagi sampai [titikBerikutnya] boleh diukur. Nol atau negatif
+  /// berarti jendelanya sudah terbuka.
+  Duration? get sisaSampaiTitikBerikutnya {
+    final titik = titikBerikutnya;
+    final t0 = _sesiAktif?.t0;
+    if (titik == null || t0 == null) return null;
+    return Duration(seconds: titik.jendelaAwal!) -
+        jam().difference(t0);
+  }
+
+  /// Mengukur titik sesi berikutnya dari aplikasi (`UKUR`, protokol §5.1).
+  ///
+  /// Pasangan tombol fisik di jam, bukan penggantinya — keduanya mengirim
+  /// perintah yang sama dan hasilnya masuk lewat jalur yang sama. Yang membuat
+  /// keduanya perlu ada: jam dimatikan di antara titik ukur, dan orang yang
+  /// menyalakannya kembali belum tentu sedang memegang ponselnya.
+  ///
+  /// Rangkap dari dua tombol tidak perlu ditangani di sini — dedup
+  /// `(sesiId, index)` di [_terimaSampel] sudah membuangnya diam-diam, dan
+  /// memang tidak boleh ada balapan yang terlihat pengguna.
+  ///
+  /// Mengembalikan pesan galat, atau null bila perintahnya terkirim. Yang
+  /// ditunggu sesudahnya adalah sampelnya sendiri: layar tidak boleh menyatakan
+  /// titik itu terisi sebelum jamnya menjawab.
+  Future<String?> ukurTitikSekarang() async {
+    final sesi = _sesiAktif;
+    final titik = titikBerikutnya;
+    if (sesi == null || titik == null) return null;
+
+    if (!_statusPerangkat.tersambung) {
+      return _statusPerangkat.namaPerangkat == null
+          ? 'Belum ada jam yang tersandingkan.'
+          : 'Jam belum tersambung. Nyalakan jam dan dekatkan ke ponsel, lalu '
+                'coba lagi.';
+    }
+
+    // Terlalu cepat ditahan, bukan ditandai: titik ini belum lewat dan masih
+    // bisa diukur dengan benar sebentar lagi (docs/jadwal-titik-ukur.md §3).
+    final sisa = sisaSampaiTitikBerikutnya;
+    if (sisa != null && sisa.inSeconds > 0) {
+      return 'Titik ${titik.label} belum waktunya diukur.';
+    }
+
+    if (!await ble.mintaUkur(sesi.id, titik.index)) {
+      return 'Jam tidak menerima perintahnya. Pastikan jam menyala dan '
+          'terpakai rapat di pergelangan, lalu coba lagi.';
+    }
+    return null;
+  }
+
+  /// Menyiapkan tombol ukur **fisik** jam untuk titik berikutnya yang belum
+  /// terisi (`ARM_TITIK`, protokol §5.1 v1.3).
+  ///
+  /// **Dikirim hanya saat titiknya sudah jatuh tempo.** Rancangan pertama v1.3
+  /// menaruh penundaannya di kawat (`detik_tunda`) supaya jam menyalakan
+  /// tombolnya sendiri saat jendela terbuka; itu dibuang karena penundaan
+  /// tersebut tidak pernah selamat melewati pemutusan daya, dan pemutusan daya
+  /// adalah keadaan normal di v1.3. Perintah ini sama-sama butuh koneksi seperti
+  /// `UKUR`, jadi tidak ada yang hilang dengan mengirimnya belakangan — dan
+  /// batas awal jendela toleransi (docs/jadwal-titik-ukur.md §3) jadi ditegakkan
+  /// di sini, sebagai keputusan penjadwalan, bukan sebagai mekanisme di kawat
+  /// yang harus tetap benar melintasi mati-hidup.
+  ///
+  /// Selebihnya ditulis pada **setiap koneksi** selama titiknya jatuh tempo,
+  /// seperti `ANCHOR_WAKTU`: murah, idempoten, dan melewatkannya sekali berarti
+  /// tombol fisiknya padam justru saat ia paling dibutuhkan.
+  Future<void> _armTitikBerikutnya() async {
+    final sesi = _sesiAktif;
+    final t0 = sesi?.t0;
+    if (sesi == null || t0 == null) return;
+    if (!sesi.status.sedangAktif || !_statusPerangkat.tersambung) return;
+
+    final titik = titikBerikutnya;
+    if (titik == null) {
+      _titikDiarm = null;
+      return;
+    }
+
+    // Pengingat ikut disegarkan di sini, bukan di tempat terpisah: keduanya
+    // menjawab pertanyaan yang sama persis — titik mana yang sedang ditunggu
+    // dan kapan — dan memisahkannya berarti dua jawaban yang bisa berselisih.
+    unawaited(
+      pengingat.jadwalkan(
+        t0: t0,
+        titik: [
+          for (final t in sesi.jadwal.titik)
+            if (t.berjendela &&
+                sesi.sampel.any(
+                  (s) => s.index == t.index && s.status == StatusSampel.menunggu,
+                ))
+              t,
+        ],
+        sekarang: jam(),
+      ),
+    );
+
+    final sisa = sisaSampaiTitikBerikutnya ?? Duration.zero;
+    if (sisa.inSeconds > 0) {
+      // Belum waktunya. Tombol jam dibiarkan padam — itu yang menahan
+      // pengukuran terlalu cepat — dan ARM-nya dijadwalkan untuk saat
+      // jendelanya terbuka.
+      _jadwalkanArmTitik(sisa);
+      return;
+    }
+
+    if (_titikDiarm == '${sesi.id}#${titik.index}') return;
+    if (await ble.armTitik(sesi.id, titik.index)) {
+      _titikDiarm = '${sesi.id}#${titik.index}';
+    }
+  }
+
+  /// Kunci `sesiId#index` terakhir yang berhasil di-ARM.
+  ///
+  /// Menahan penulisan berulang untuk titik yang sama, dengan alasan yang sama
+  /// seperti [_sesiDiarm]: `ARM_TITIK` mengubah keadaan jam, dan keadaan yang
+  /// berubah memicu notifikasi status berikutnya.
+  String? _titikDiarm;
+
+  Timer? _timerArm;
+
+  /// Membangunkan [_armTitikBerikutnya] saat jendela titik berikutnya terbuka.
+  ///
+  /// Diperlukan sejak penundaannya tidak lagi dititipkan ke jam: tanpa timer ini
+  /// tidak ada apa pun yang terjadi antara t0 dan titik pertama, jadi tombol
+  /// fisik jam tidak akan pernah menyala kecuali kebetulan ada notifikasi status
+  /// yang lewat.
+  ///
+  /// Hanya berumur selama proses aplikasi hidup — dan itu memang cukup, karena
+  /// `ARM_TITIK` juga menuntut koneksi BLE yang sama-sama mati bersama proses.
+  /// Yang menjaga pengguna saat aplikasi tertutup adalah notifikasi terjadwal
+  /// (docs/jadwal-titik-ukur.md §6), bukan timer ini.
+  void _jadwalkanArmTitik(Duration sisa) {
+    _timerArm?.cancel();
+    _timerArm = Timer(sisa, () {
+      _timerArm = null;
+      unawaited(_armTitikBerikutnya());
+    });
+  }
+
   Future<void> _siapkanJam() async {
     final sesi = _sesiAktif;
     if (sesi == null || sesi.t0 != null) return;
@@ -398,11 +651,12 @@ class SesiMakanController extends ChangeNotifier {
 
     // Baseline diukur sebelum makan; jaraknya ke t0 baru diketahui sekarang.
     final detikBaseline = sesi.waktuFoto.difference(pesan.t0).inSeconds;
+    // Hanya baseline yang bergeser; sisanya apa adanya. Ditulis sebagai
+    // pemetaan, bukan empat baris, karena jumlah titik tidak lagi tetap sejak
+    // jadwal menjadi data (docs/jadwal-titik-ukur.md §1).
     final sampel = [
-      _geser(sesi.sampel[0], detikBaseline),
-      sesi.sampel[1],
-      sesi.sampel[2],
-      sesi.sampel[3],
+      for (final s in sesi.sampel)
+        if (s.index == 0) _geser(s, detikBaseline) else s,
     ];
 
     _sesiAktif = sesi.salin(
@@ -414,6 +668,9 @@ class SesiMakanController extends ChangeNotifier {
     // Sejak t0 ada, sesi ini punya tenggat: sampel terakhir dijadwalkan dua jam
     // sesudahnya, dan sesudah itu tidak ada lagi yang ditunggu.
     _jadwalkanTenggat();
+    // Sejak t0 ada, titik ukur punya waktu — dan tombol fisik jam bisa
+    // disiapkan untuk yang pertama.
+    unawaited(_armTitikBerikutnya());
     _simpanAktif();
     notifyListeners();
   }
@@ -449,6 +706,42 @@ class SesiMakanController extends ChangeNotifier {
     return ble.mulaiSesi(sesi.id);
   }
 
+  /// `detikRelatifT0` yang benar-benar disimpan untuk sampel yang baru masuk.
+  ///
+  /// **Ini yang berubah di protokol v1.3 (§5.3), dan perubahannya halus.**
+  /// Sampai v1.2 nilai ini selalu dipaksa ke jadwal nominal titiknya: label di
+  /// layar menjanjikan "+1 jam", bukan "+1 jam 40 detik", dan penundaan
+  /// berskala detik tidak perlu terlihat. Alasan itu **berbalik pada skala
+  /// menit** — sejak jam dimatikan di antara titik dan pengukurannya dipicu
+  /// manusia yang bisa terlambat, memaksa nilai ke slot yang rapi berhenti
+  /// merapikan label dan mulai memalsukan sumbu x. Ambangnya ada di
+  /// [TitikJadwal.ambangNormalisasiDetik].
+  ///
+  /// Dari mana angka mentahnya diambil bergantung pada satu hal:
+  ///
+  /// - **Sampel yang datang dari buffer jam** membawa waktunya sendiri, yang
+  ///   diterjemahkan `BleAsliService` lewat anchor boot-nya (§4.2). Ia diukur
+  ///   entah kapan sebelum tiba di sini — memakai jam dinding sekarang akan
+  ///   mencatat kapan **ponselnya tersambung**, bukan kapan pengukurannya
+  ///   terjadi, dan itu bisa meleset berjam-jam.
+  /// - **Sampel yang tiba langsung** diukur pada detik ini, atas perintah
+  ///   aplikasi yang memang harus tersambung untuk mengirimkannya. Jam dinding
+  ///   ponsel karena itu adalah sumber yang paling tepat yang ada.
+  int _detikRelatifT0(SesiMakan sesi, Sampel masuk) {
+    final titik = sesi.jadwal.titik.where((t) => t.index == masuk.index);
+    final nominal = titik.isEmpty
+        ? masuk.detikRelatifT0
+        : titik.first.detikNominal;
+
+    final t0 = sesi.t0;
+    final terukur = (masuk.dariBuffer || t0 == null)
+        ? masuk.detikRelatifT0
+        : jam().difference(t0).inSeconds;
+
+    if (titik.isEmpty) return terukur;
+    return titik.first.normalkan(terukur) == nominal ? nominal : terukur;
+  }
+
   Sampel _geser(Sampel s, int detikRelatifT0) => Sampel(
     index: s.index,
     detikRelatifT0: detikRelatifT0,
@@ -467,8 +760,12 @@ class SesiMakanController extends ChangeNotifier {
     if (sesi == null) return;
 
     await ble.batalkanSesi(sesi.id);
+    unawaited(pengingat.batalkanSemua());
     _lupakanKunci(sesi.id);
     _sesiDiarm = null;
+    _titikDiarm = null;
+    _timerArm?.cancel();
+    _timerArm = null;
     _tenggat?.cancel();
     _tenggat = null;
     _sesiAktif = null;
@@ -586,11 +883,11 @@ class SesiMakanController extends ChangeNotifier {
   /// mengatakannya, bukan diam: angkanya masih keluar, hanya tidak lagi bisa
   /// dipertanggungjawabkan.
   bool get kalibrasiKedaluwarsa =>
-      _kalibrasiTerakhir?.kedaluwarsaPada(DateTime.now()) ?? false;
+      _kalibrasiTerakhir?.kedaluwarsaPada(jam()) ?? false;
 
   /// Sisa hari masa berlaku kalibrasi, null bila belum pernah dikalibrasi.
   int? get sisaHariKalibrasi =>
-      _kalibrasiTerakhir?.sisaHariPada(DateTime.now());
+      _kalibrasiTerakhir?.sisaHariPada(jam());
 
   /// Meminta jam mengukur bersamaan dengan tensimeter.
   Future<Sampel> ukurUntukKalibrasi() => ble.ukurSekarang();
@@ -650,7 +947,7 @@ class SesiMakanController extends ChangeNotifier {
     notifyListeners();
     try {
       final sampel = await ble.ukurSekarang();
-      final hasil = HasilPindai(waktu: DateTime.now(), sampel: sampel);
+      final hasil = HasilPindai(waktu: jam(), sampel: sampel);
       _pindaiTerakhir = hasil;
       return hasil;
     } finally {
@@ -686,7 +983,18 @@ class SesiMakanController extends ChangeNotifier {
 
   void _terimaSampel(({String sesiId, Sampel sampel}) pesan) {
     final sesi = _sesiAktif;
-    if (sesi == null || sesi.id != pesan.sesiId) return;
+    if (sesi == null || sesi.id != pesan.sesiId) {
+      // Dicatat, bukan dibuang diam-diam. Sampel yang tidak cocok memang tidak
+      // ada tempatnya di sini — ia bisa milik sesi yang sudah ditutup, atau
+      // jawaban `UKUR_SEKARANG` yang ber-`sesiId` nol — tetapi kalau titik ukur
+      // yang benar-benar ditunggu ternyata jatuh ke sini, satu-satunya gejalanya
+      // adalah titik yang tetap kosong. Itu terlalu mahal untuk didiamkan.
+      debugPrint(
+        'Sampel index ${pesan.sampel.index} untuk sesi ${pesan.sesiId} '
+        'diabaikan: sesi aktif ${sesi?.id ?? "tidak ada"}.',
+      );
+      return;
+    }
 
     // Pengiriman jam at-least-once: sampel yang sama bisa datang dua kali.
     final kunci = '${pesan.sesiId}#${pesan.sampel.index}';
@@ -696,7 +1004,7 @@ class SesiMakanController extends ChangeNotifier {
     final masuk = pesan.sampel;
     sampel[masuk.index] = masuk.index == 0 && sesi.t0 == null
         ? masuk // jarak baseline ke t0 dihitung nanti di _terimaT0
-        : _geser(masuk, sampel[masuk.index].detikRelatifT0);
+        : _geser(masuk, _detikRelatifT0(sesi, masuk));
 
     final diperbarui = sesi.salin(sampel: sampel);
     final tuntas = sampel.every((s) => s.status != StatusSampel.menunggu);
@@ -721,6 +1029,8 @@ class SesiMakanController extends ChangeNotifier {
         ? diperbarui.salin(status: StatusSesi.berjalan)
         : diperbarui;
     _simpanAktif();
+    // Titik ini sudah terisi; yang berikutnya perlu tombolnya sendiri.
+    unawaited(_armTitikBerikutnya());
     notifyListeners();
   }
 
@@ -728,10 +1038,25 @@ class SesiMakanController extends ChangeNotifier {
     _tenggat?.cancel();
     _tenggat = null;
     _sesiDiarm = null;
+    _titikDiarm = null;
+    _timerArm?.cancel();
+    _timerArm = null;
     _riwayat.insert(0, sesi);
     _sesiAktif = null;
     _hasilBelumDibaca = sesi;
     _lupakanKunci(sesi.id);
+
+    // Sesi yang berakhir harus **melepas ARM tombol ukur di jam**, bukan
+    // meninggalkannya menyala.
+    //
+    // Sejak `ARM_TITIK` ada (protokol §5.1 v1.3), tombol fisik jam bisa
+    // tertinggal ter-ARM untuk titik yang sudah tidak akan pernah diminta lagi.
+    // Ditekan sesudah itu, jam akan mengirim sampel untuk sesi yang sudah
+    // ditutup — yang di aplikasi tidak jatuh ke mana-mana, tetapi di jam
+    // menyalakan sensor tanpa ada yang memintanya, pada perangkat yang tidak
+    // bertahan lima puluh menit.
+    unawaited(ble.batalkanSesi(sesi.id));
+    unawaited(pengingat.batalkanSemua());
     unawaited(_simpan(sesi));
     notifyListeners();
   }
@@ -777,6 +1102,7 @@ class SesiMakanController extends ChangeNotifier {
   @override
   void dispose() {
     _tenggat?.cancel();
+    _timerArm?.cancel();
     _langgananSampel?.cancel();
     _langgananT0?.cancel();
     _langgananStatus?.cancel();

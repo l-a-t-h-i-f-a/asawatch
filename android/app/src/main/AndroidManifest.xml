@@ -11,6 +11,18 @@
         pemindaian BLE ke izin lokasi, dan dibatasi `maxSdkVersion="30"` supaya
         tidak ikut diminta di versi yang tidak membutuhkannya.
     -->
+    <!-- Pengingat titik ukur (docs/jadwal-titik-ukur.md §6). Wajib sejak
+         Android 13; tanpa ini notifikasinya dijadwalkan tetapi tidak pernah
+         terlihat, dan gejalanya sama persis dengan penjadwalan yang gagal. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Titik ukur punya jendela toleransi semenit-menitan, jadi pengingatnya
+         tidak boleh digeser Doze ke waktu yang nyaman bagi sistem. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- Sesi bisa melintasi restart perangkat; tanpa ini seluruh pengingat yang
+         sudah dijadwalkan hilang tanpa jejak. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />

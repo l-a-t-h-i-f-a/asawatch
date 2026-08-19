@@ -3,7 +3,10 @@
 Kontrak antara firmware jam tangan dan aplikasi Flutter. Dokumen ini **normatif**: bila kode dan
 dokumen ini berbeda, salah satunya bug.
 
-Status: **v1.2 — terimplementasi di sisi aplikasi (Tahap B), firmware menyusul.**
+Status: **v1.3 — terimplementasi di kedua sisi, integrasi belum dijalankan.** Sisi aplikasi selesai
+dan lulus tesnya; sisi firmware terkompilasi, belum pernah bertemu aplikasi di udara. Checklist
+integrasi ada di §11 dan itulah yang tersisa. v1.3 membalik siapa yang menjadwalkan sesi; alasannya
+batasan daya jam, dan seluruhnya diringkas di §12.
 Riwayat perubahan versi ada di §12; naikkan `versi_minor` setiap kali perilaku kawat berubah.
 Codec-nya ada di [../lib/services/protokol_jam.dart](../lib/services/protokol_jam.dart) dan diuji
 offset demi offset di [../test/protokol_jam_test.dart](../test/protokol_jam_test.dart); yang memakai
@@ -17,9 +20,16 @@ Pengarahan untuk mengerjakan sisi firmware-nya — stack, urutan, dan jebakan kh
 [firmware-esp32.md](firmware-esp32.md). Berkas itu **tidak** mengulang tabel paket mana pun dari
 sini; dokumen ini tetap satu-satunya sumber kebenaran untuk byte.
 
-**Batasan perangkat keras yang membentuk seluruh dokumen ini: jam tidak punya RTC.** Ia tidak
-punya cara apa pun untuk mengetahui jam berapa sekarang, dan kehilangan seluruh pengetahuan waktu
-setiap kali daya putus. Konsekuensinya dijabarkan di §4 dan menyentuh hampir setiap paket.
+**Dua batasan perangkat keras membentuk seluruh dokumen ini.**
+
+**Pertama: jam tidak punya RTC.** Ia tidak punya cara apa pun untuk mengetahui jam berapa sekarang,
+dan kehilangan seluruh pengetahuan waktu setiap kali daya putus. Konsekuensinya dijabarkan di §4 dan
+menyentuh hampir setiap paket.
+
+**Kedua (v1.3): jam tidak bertahan lebih dari ~50 menit menyala, sedangkan satu sesi berdurasi lebih
+dari dua jam.** Jam karena itu pasti dimatikan di tengah setiap sesi — keadaan yang dirancang untuk
+terjadi, bukan kegagalan. Akibatnya jam tidak bisa menjadi penjadwal sesi, dan sejak v1.3 ia tidak
+lagi menjadi penjadwal apa pun (§9).
 
 ---
 
@@ -328,6 +338,7 @@ mengirim entrinya lagi, dan duplikat memang perilaku normal (§1 aturan 5).
 | `0x07` | `SINKRON` | 1B seq terakhir yang sudah diterima app | `sinkronkan()` |
 | `0x08` | `ACK_EVENT` | 1B seq | (internal, §6) |
 | `0x09` | `MULAI_SESI` | 16B sesiId | `mulaiSesi()` |
+| `0x0A` | `ARM_TITIK` | 16B sesiId + 1B index | `armTitik()` |
 
 Catatan per opcode:
 
@@ -347,6 +358,14 @@ Catatan per opcode:
   Kenapa dibuat begini, bukan aplikasi mengirim `t0`-nya sendiri: jam tidak punya RTC (§4), jadi
   satu-satunya `t0` yang bisa dibandingkan dengan `uptime_s` sampelnya adalah yang berasal dari
   pencacah yang sama.
+
+  **Alasan itu gugur di v1.3, tetapi bentuk perintahnya tidak berubah.** Sejak jam dimatikan di
+  antara titik ukur, tidak ada lagi `uptime_s` bersama untuk dibandingkan, dan `t0` yang mengikat
+  dipegang aplikasi sebagai `DateTime` (§5.3). Payload `MULAI_SESI` tetap `sesiId` saja dan jam tetap
+  mengirim `TOMBOL_SELESAI_MAKAN` — bukan karena `uptime_s`-nya masih dipakai, melainkan karena
+  peristiwa itulah yang menandai tombol benar-benar ditekan, dan aplikasi menstempelnya dengan jam
+  dindingnya sendiri saat peristiwa itu tiba. Menaruh epoch di payload tetap terlarang: ia akan
+  membuat firmware punya dua sumber waktu yang salah satunya pasti bohong.
 
   **Tombol fisik di jam tetap ada dan tetap yang utama.** Ia satu-satunya yang bekerja saat ponsel
   jauh, mati, atau tidak dipegang — dan itu justru keadaan yang paling lazim saat orang sedang makan.
@@ -396,8 +415,11 @@ Catatan per opcode:
   masa berlaku kalibrasi.** Ia tidak punya jam dinding (§4), jadi ia terus memakai offset terakhir
   selamanya; "kalibrasi kedaluwarsa" sepenuhnya penilaian aplikasi, dan firmware tidak boleh
   mencoba membantu dengan menghapus offsetnya sendiri.
-- **`UKUR` dipakai untuk baseline (index 0)** saat shutter kamera ditekan — sebelum `t0` ada. Karena
-  itu ia membawa `sesiId` yang sama dengan `ARM_SESI`.
+- **`UKUR` adalah satu-satunya cara sebuah titik sesi terukur** (v1.3). Sampai v1.2 ia hanya dipakai
+  untuk baseline (index 0) saat shutter kamera ditekan, dan titik `+1 jam`/`+2 jam` dijadwalkan jam
+  sendiri; sejak jam berhenti menjadwalkan (§9), **setiap** titik datang lewat opcode ini. Ia membawa
+  `sesiId` yang sama dengan `ARM_SESI`, dan jam meneruskan pasangan `(sesiId, index)` itu apa adanya
+  ke paket Sampel tanpa memvalidasinya.
   **`ARM_SESI` harus mendahuluinya**, bukan menyusul: jam hanya melayani `UKUR` dalam status ARMED
   (§9), dan permintaan baseline yang tiba selagi jam masih IDLE ditolak. Kegagalan itu tidak
   bergema — ketiga titik lain tetap masuk dengan benar, dan sesinya baru terlihat salah dua jam
@@ -455,25 +477,43 @@ Firmware tidak perlu tahu keduanya.
 
 ### 5.3 Dari `uptime_s` ke `detikRelatifT0`
 
-Kontrak Dart memakai `detikRelatifT0` (negatif untuk baseline). Konversinya di `BleAsliService`,
-dua langkah:
+**Direvisi total di v1.3 (§12).** Sampai v1.2, `detikRelatifT0` adalah selisih dua `uptime_s` dan
+`t0` hidup di pencacah jam. Sejak jam berhenti menjadwalkan sendiri dan setiap titik ukur diambil
+dari penyalaan daya yang berbeda, selisih itu **tidak lagi bisa dihitung**: `uptime_s` titik `+1 jam`
+dan `uptime_s` `t0` berada di garis waktu yang berlainan. Perlindungannya sudah hilang dengan
+sendirinya, bukan dilepas.
+
+Yang berlaku sekarang:
 
 ```
-detikRelatifT0 = sampel.uptime_s − t0.uptime_s        // butuh boot_id sama
-waktuUkur      = epoch(t0) + detikRelatifT0            // via anchor, §4.2
+t0             = DateTime aplikasi, saat TOMBOL_SELESAI_MAKAN diterima
+detikRelatifT0 = (waktu aplikasi memerintahkan UKUR) − t0        // detik, bisa negatif
 ```
 
-Dua hal yang membuat ini bekerja rapi:
+Tiga hal yang membuat ini tetap benar, dan satu yang harus dijaga:
 
-- **Baseline gratis.** Ia diukur sebelum tombol ditekan, jadi `uptime_s`-nya lebih kecil dari
-  `t0.uptime_s` dan selisihnya negatif dengan sendirinya — persis yang diminta model. Firmware tidak
-  perlu menahan sampel baseline sampai `t0` ada.
-- **`detikRelatifT0` kebal terhadap anchor yang salah.** Ia hanya selisih dua pencacah. Anchor yang
-  meleset menggeser posisi sesi di kalender, tetapi **bentuk kurvanya tetap benar** — dan bentuk
-  kurva itulah isi seluruh halaman ringkasan sesi.
+- **Baseline tetap negatif dengan sendirinya.** Ia diukur sebelum tombol ditekan, jadi selisihnya
+  negatif tanpa perlakuan khusus — sama seperti sebelumnya.
+- **Aplikasi selalu tersambung saat titik diukur.** Itu konsekuensi dari `UKUR` yang dikirim
+  aplikasi: ia tidak bisa mengirim perintah tanpa tautan, jadi tidak ada titik sesi yang waktunya
+  harus ditebak dari anchor. `waktuTidakPasti` karena itu tidak pernah menyentuh titik sesi lagi —
+  ia tetap berlaku untuk isi buffer dan untuk `UKUR_SEKARANG`.
+- **Tombol fisik jam adalah satu-satunya jalur yang bisa menghasilkan sampel selagi HP jauh.**
+  Sampel itu masuk buffer dan `uptime_s`-nya diterjemahkan lewat anchor boot itu (§4.2) seperti
+  entri buffer mana pun. Kalau boot itu tidak punya anchor, titiknya diberi waktu dari saat ia tiba
+  di aplikasi dan **ditandai telat** (lihat aturan jendela toleransi di
+  [jadwal-titik-ukur.md](jadwal-titik-ukur.md)), bukan dibuang.
+- **Yang hilang harus diganti secara eksplisit.** Kekebalan terhadap anchor yang meleset dulu gratis;
+  sekarang ketepatan `detikRelatifT0` bergantung pada jam dinding ponsel. Itu dapat diterima karena
+  yang dipertaruhkan berskala menit dan jam dinding ponsel disinkronkan jaringan — tetapi ia harus
+  disebut, bukan diasumsikan.
 
-Bila `boot_id` sampel berbeda dari `boot_id` `t0`-nya, sampel itu **dibuang**. Jam yang reboot di
-tengah sesi telah kehilangan garis waktunya; sesi berakhir `tidakLengkap`.
+**Aturan `boot_id` dilonggarkan.** Sampai v1.2, sampel yang `boot_id`-nya berbeda dari `boot_id`
+`t0`-nya dibuang. Aturan itu **dicabut**: dengan jam yang dimatikan di antara titik, `boot_id` yang
+berbeda adalah keadaan normal, bukan gejala kerusakan. Yang menggantikannya: `sesiId` di paket
+Sampel yang menentukan sampel itu milik sesi mana, dan `index` yang menentukan ia titik yang mana.
+`boot_id` tetap dikirim dan tetap dipakai untuk menerjemahkan entri buffer, tidak lagi untuk
+menyaring.
 
 ### 5.4 Peristiwa (`A5A70004`, Notify) — 26 byte
 
@@ -640,27 +680,169 @@ terbentuk adalah kesempatan memasang anchor, jadi koneksi yang sering justru men
 
 ## 9. Mesin status di firmware
 
+**Disederhanakan di v1.3 (§12): jam tidak lagi menjadwalkan apa pun.** Sebabnya hardware — jam tidak
+bertahan lebih dari ~50 menit menyala, sedangkan satu sesi berdurasi lebih dari dua jam. Jam **pasti**
+mati di tengah sesi, setiap kali, dan itu keadaan yang dirancang untuk terjadi, bukan kegagalan.
+Penjadwal di firmware karena itu tidak pernah bisa menyelesaikan tugasnya, dan mempertahankannya
+hanya menghasilkan sesi yang selalu berakhir `tidakLengkap`.
+
 ```
      ┌──────┐  ARM_SESI          ┌───────┐  tombol ditekan   ┌─────────┐
      │ IDLE │ ─────────────────▶ │ ARMED │ ────────────────▶ │ RUNNING │
      └──────┘                    └───────┘  atau MULAI_SESI  └─────────┘
         ▲                            │  timeout 4 jam            │
-        │                            │  / BATAL_SESI             │ sampel index 3
-        └────────────────────────────┴───────────────────────────┘  terkirim
+        │                            │  / BATAL_SESI             │ BATAL_SESI
+        └────────────────────────────┴───────────────────────────┘  atau daya putus
 
-     ANCHOR_WAKTU boleh masuk di status mana pun — ia tidak menyentuh mesin ini.
+     ANCHOR_WAKTU, UKUR, UKUR_SEKARANG, dan ARM_TITIK boleh masuk di status mana pun —
+     tidak satu pun menyentuh mesin ini.
 ```
 
-- Di **IDLE**: tombol "Selesai Makan" tidak berfungsi.
-- Di **ARMED**: tombol aktif, dan `MULAI_SESI` (§5.1) melakukan hal yang sama persis dengan
-  menekannya. `UKUR` index 0 (baseline) dilayani.
-- Di **RUNNING**: jam menjadwalkan sendiri index 2 pada `t0.uptime_s + 3600` dan index 3 pada
-  `+ 7200`. Index 1 diukur segera saat tombol ditekan.
-- Sesi selesai → IDLE. Sampel yang belum terkirim tetap di buffer.
+- Di **IDLE**: tombol "Selesai Makan" tidak berfungsi. Tombol ukur berfungsi bila ada `ARM_TITIK`
+  tersimpan di NVS — ada atau tidak ada, tidak ada keadaan antara.
+- Di **ARMED**: tombol "Selesai Makan" aktif, dan `MULAI_SESI` (§5.1) melakukan hal yang sama persis.
+  `UKUR` index 0 (baseline) dilayani.
+- Di **RUNNING**: jam mengukur index 1 segera setelah tombol ditekan, lalu **tidak menjadwalkan apa
+  pun**. Titik berikutnya datang sebagai `UKUR` dari aplikasi atau dari tombol ukur yang di-ARM.
 
-**`UKUR_SEKARANG` boleh masuk di ketiga status** (v1.2) dan, seperti `ANCHOR_WAKTU`, tidak menyentuh
-mesin ini sama sekali: tidak memindahkan status, tidak menggeser jadwal, tidak menghabiskan satu
-index pun. Ia sepenuhnya di luar diagram di atas.
+  **Index 1 tetap diukur jam sendiri, dan itu satu-satunya pengukuran yang tersisa atas inisiatif
+  jam.** Aturan v1.3 adalah "jam tidak pernah **menjadwalkan**", bukan "jam tidak pernah mengukur
+  tanpa disuruh" — dan index 1 bukan jadwal, melainkan akibat langsung sebuah peristiwa lokal, satu
+  kelas dengan jawaban atas `UKUR_SEKARANG`.
+
+  Bedanya menentukan. Tombol "Selesai Makan" fisik ada justru untuk keadaan ponsel tidak di tangan,
+  dan itu keadaan yang paling lazim saat orang sedang makan. Kalau index 1 menunggu `UKUR` dari
+  aplikasi, tombol yang ditekan tanpa HP di dekatnya akan menghasilkan `t0` **tanpa** pengukurannya —
+  dan pengukuran itu baru terjadi saat HP tersambung, bisa berjam-jam kemudian, di titik yang sudah
+  bukan "baru selesai makan" lagi. Yang hilang bukan presisi melainkan artinya.
+
+  Karena itu `SESI_RUNNING` **tidak** menjadi status kosong dan tidak dihapus. Ia masih menegakkan
+  tiga hal: tombol hanya bekerja di ARMED, `MULAI_SESI` tidak pernah menetapkan `t0` kedua, dan
+  index 1 diukur tepat satu kali.
+- **Daya putus tidak lagi mengakhiri sesi.** Jam kembali ke IDLE dan lupa sesinya; yang mengingat
+  sesi itu aplikasi. Satu-satunya hal yang bertahan di NVS adalah `ARM_TITIK` yang belum terpakai.
+
+**`UKUR` dilayani di ketiga status** (v1.3), tidak lagi hanya index 0 di ARMED. Jam tidak perlu
+mengenali sesi yang diminta — ia meneruskan `sesiId` dan `index` dari payload apa adanya ke paket
+Sampel. Yang memvalidasi sesi adalah aplikasi, yang memang satu-satunya yang tahu sesi apa yang
+sedang berjalan.
+
+**`UKUR` idempoten per `(sesiId, index)` dalam satu masa hidup daya.** Permintaan kedua untuk
+pasangan yang sama cukup di-`ACK` lalu diabaikan — alasannya sama dengan `MULAI_SESI` (§5.1): dua
+tombol memicu perintah yang sama dan ACK bisa hilang di udara. Di sisi aplikasi rangkapnya sudah
+tersaring oleh dedup `(sesiId, index)` di `SesiMakanController`, jadi ini murni penghematan sensor
+dan baterai.
+
+Perhatikan ini **menuntut firmware tetap menyimpan `sesiId`**, meski ia berhenti memvalidasinya.
+Keduanya tidak bertentangan: yang dicabut adalah `sesiId` sebagai **izin** ("sesi ini bukan sesiku,
+tolak"), yang tersisa adalah `sesiId` sebagai **kunci dedup**. Bentuknya persis:
+
+```
+di RAM (bukan NVS):  sesi_dedup[16]  +  index_selesai bitmask
+
+UKUR(sesiId, index):
+  bila sesiId != sesi_dedup:            sesi_dedup = sesiId; index_selesai = 0
+  bila bit index sudah menyala:         ACK, lalu berhenti
+  selain itu:                           ACK, ukur
+  bit index dinyalakan SETELAH pengukurannya tuntas, bukan sebelum
+```
+
+Tiga hal yang membuat bentuk ini yang dipilih:
+
+- **RAM, bukan NVS.** Cakupannya memang satu masa hidup daya, jadi reboot yang menghapusnya adalah
+  perilaku yang benar, bukan kehilangan. Ini juga membuat dedup tidak menyentuh flash sama sekali.
+- **`sesiId` berbeda me-reset bitmask, tidak pernah menolak.** Jam tidak tahu sesi mana yang sedang
+  berjalan dan tidak boleh berpura-pura tahu — satu sesi baru cukup menggantikan yang lama.
+- **Bit dinyalakan sesudah pengukuran tuntas.** Sama seperti `index_selesai` yang sudah ada: titik
+  yang tertunda karena sensor sibuk harus bisa dicoba lagi, bukan tercatat selesai padahal belum.
+
+### ARM_TITIK (`0x0A`)
+
+Menyalakan tombol ukur di jam untuk **satu** titik tertentu, mengikuti pola `ARM_SESI` persis:
+sebelum di-ARM, menekan tombolnya tidak menghasilkan apa-apa.
+
+Payload-nya `sesiId` + `index` saja. **Tidak ada waktu di dalamnya**, dan itu disengaja — lihat
+"Kenapa tidak ada penundaan" di bawah.
+
+- **Disimpan ke NVS begitu diterima**, sehingga tombolnya **tetap menyala setelah jam dimatikan dan
+  dihidupkan lagi.** Itu justru keadaan yang paling sering: di v1.3 jam memang dimatikan di antara
+  titik ukur, dan tombol yang lupa dirinya setiap kali daya diputus tidak akan pernah berguna.
+- **Padam sendiri setelah satu kali tekan** yang berhasil, dan catatan NVS-nya dihapus. Tekanan kedua
+  tidak menghasilkan apa-apa sampai aplikasi meng-ARM titik berikutnya. Ini yang mencegah satu
+  tekanan tidak sengaja mengisi titik yang belum jatuh tempo — titik yang sudah terisi tidak bisa
+  diperbaiki.
+- **Pengukuran yang gagal meninggalkan tombolnya tetap menyala**, sehingga masih bisa dipakai sebagai
+  percobaan ulang. Padam mengikuti keberhasilan, bukan penekanan.
+- Menerima `ARM_TITIK` baru **menimpa** yang lama, di RAM maupun di NVS. Hanya satu titik ter-ARM
+  pada satu waktu, dan tidak ada keadaan setengah jalan yang perlu dijaga.
+- **`UKUR` untuk titik yang sedang ter-ARM memadamkan tombolnya dan menghapus catatan NVS-nya**,
+  sesudah pengukurannya tuntas. Jam tahu apakah keduanya titik yang sama: `ARM_TITIK` menyimpan
+  `(sesiId, index)` dan `UKUR` membawa `(sesiId, index)`.
+
+  Tanpa ini, jalur yang paling lazim meninggalkan tombol menyala untuk titik yang sudah terisi:
+  pengguna mengukur dari aplikasi, dan tombol di jam tetap menyala. Dua akibatnya, dan yang kedua
+  yang lebih penting: pengguna yang tidak yakin pengukurannya berhasil akan menekan tombol itu juga —
+  wajar, apalagi bagi pengguna lansia — dan satu siklus sensor terbuang pada perangkat yang umur
+  nyalanya ~50 menit; dan **tombol yang menyala tetapi tidak menghasilkan apa-apa adalah kebohongan
+  di layar jam.** Tombol menyala berarti "ada yang menunggu ditekan"; setelah titiknya terukur, tidak
+  ada.
+- **Dedup dipakai di kedua jalur**, handler `UKUR` maupun penekanan tombol. Menaruhnya hanya di
+  handler `UKUR` menyisakan jalur tombol yang melewatinya sama sekali.
+
+### Kenapa `ARM_TITIK` tidak membawa penundaan
+
+Rancangan pertama v1.3 membawa `2B detik_tunda`: jam menyalakan tombolnya sendiri setelah sekian
+detik, sehingga batas awal jendela toleransi ditegakkan di jam. **Dibuang, dan bersamanya lima
+mekanisme.**
+
+Sebabnya satu kalimat: **penundaan itu tidak pernah selamat melewati mati-hidup, dan mati-hidup
+adalah keadaan normal di v1.3.** Aturannya sendiri mengharuskan penundaan yang belum matang dibuang
+saat boot — jam tidak bisa tahu berapa lama ia mati (§4). Jadi begitu jam menyala lagi, aplikasi
+harus mengirim ulang. Penundaan hanya berguna bila jam **tetap menyala** sementara ponselnya yang
+pergi — dan pada jam yang tahan ~50 menit sementara jarak antar titik satu jam, itu tidak pernah
+terjadi.
+
+Karena `ARM_TITIK` sama-sama butuh koneksi seperti `UKUR`, **aplikasi yang mengirimnya saat titiknya
+jatuh tempo**, bukan di awal sesi. Penjaga "jangan diukur terlalu cepat" pindah sepenuhnya ke sisi
+aplikasi, di mana ia cuma keputusan penjadwalan — bukan mekanisme di kawat yang harus tetap benar
+melintasi pemutusan daya.
+
+Yang lenyap dari firmware: tabel matang/belum-matang, aturan tentang apa yang ditulis ke NVS dan
+kapan, pematangan di loop, pemulihan penundaan saat boot, dan seluruh asimetri pengetahuan yang
+menyertainya. Satu field, lima mekanisme.
+
+Yang **tidak** ikut lenyap, dan jangan dihidupkan lagi karena kelihatan seperti pasangannya: premis
+bahwa **tombol fisik `t0` harus tetap bekerja saat ponsel tidak di tangan** tetap berlaku penuh
+(§5.1, `MULAI_SESI`). Orang tidak memegang ponselnya sambil makan. Yang berubah hanya premis untuk
+**titik ukur**, di mana ponsel memang ada di dekat jam — karena penggunanya yang menyalakan jam itu
+untuk mengukur.
+
+### Satu tombol fisik, dua makna
+
+**Keputusan (v1.3): jam punya satu tombol, dan artinya ditentukan keadaannya.** ARMED berarti
+"Selesai Makan"; `ARM_TITIK` yang tersimpan berarti "Ukur". Layar LVGL yang menuliskan artinya
+saat itu, sehingga tidak ada yang perlu menghafal konteks.
+
+Dua tombol fisik lebih mahal daripada satu tombol yang layarnya menjelaskan diri — dan penggunanya
+lansia. Risikonya nyata dan sudah diredam sebagian oleh aturan padam-setelah-satu-tekan di atas:
+satu tekanan salah konteks tidak bisa merembet ke titik berikutnya.
+
+**Bila keduanya bisa aktif bersamaan, `ARM_SESI` yang menang — dan ia menghapus `ARM_TITIK`.**
+
+Ini kebalikan dari yang disarankan asimetri §9.1 ("titik ukur selalu menang, ia tidak bisa
+diulang"), dan alasannya harus dibaca sampai habis sebelum diubah. Aplikasi hanya mengizinkan
+**satu sesi aktif pada satu waktu** (`SesiMakanController`), dan `ARM_TITIK` hanya dikirim setelah
+`t0` ada — saat itu jam sudah RUNNING, bukan ARMED. Maka satu-satunya cara `ARM_SESI` dan
+`ARM_TITIK` bertemu adalah: `ARM_TITIK` itu **milik sesi yang sudah berakhir**, dan `BATAL_SESI`
+penutupnya tidak sampai karena jam sedang mati.
+
+Jadi "titik ukur menang" di sini bukan menyelamatkan titik yang tidak tergantikan — ia membiarkan
+tombol basi milik sesi mati mencuri `t0` sesi yang hidup, lalu mengirim sampel yang di aplikasi
+tidak jatuh ke mana-mana. Yang hilang justru yang tidak bisa diulang.
+
+Menghapusnya, bukan sekadar mengalahkannya, karena `ARM_SESI` adalah **bukti dari aplikasi** bahwa
+sesi baru sedang dimulai — dan itu berarti yang lama sudah selesai. Menyelesaikan ambiguitasnya di
+sumber lebih murah daripada aturan prioritas yang harus diingat di setiap penekanan tombol.
 
 ### 9.1 Perebutan sensor
 
@@ -716,7 +898,8 @@ Ditulis eksplisit supaya tidak diam-diam masuk:
 | OTA firmware | Butuh infrastruktur sendiri. Bit `kemampuan` sudah disediakan. |
 | Koreksi drift osilator | §4.4. Skema anchor sudah menyiapkan tempatnya. |
 | Satu jam dipakai lintas HP | Anchor hidup di satu HP. Butuh sinkronisasi anchor lewat backend (K5). |
-| Melanjutkan sesi lintas reboot | Tidak mungkin tanpa RTC (§9). |
+| ~~Melanjutkan sesi lintas reboot~~ | **Tidak berlaku lagi (v1.3).** Sesi tidak lagi hidup di jam sama sekali, jadi tidak ada yang perlu dilanjutkan: jam kembali IDLE dan aplikasi yang memegang sesinya utuh. Yang tetap tidak mungkin tanpa RTC adalah jam mengetahui sudah lewat berapa lama — dan itu sekarang tidak pernah ditanyakan kepadanya. |
+| Penjadwal di firmware | Dicabut di v1.3 (§9). Jadwal titik ukur hidup di aplikasi, sebagai data per sesi, sehingga menambah atau menggeser titik tidak menuntut flash ulang. |
 | Pengukuran **terjadwal** di luar sesi | Keputusan produk yang sudah dikunci: jam tidak pernah mengukur atas kemauannya sendiri di luar sesi makan. Yang **tidak** dilarang oleh baris ini adalah pengukuran atas permintaan pengguna (`UKUR_SEKARANG`, §5.1) — yang memicunya jari manusia, bukan timer di firmware, jadi tidak ada baterai yang terkuras diam-diam dan tidak ada angka yang muncul tanpa ada yang memintanya. |
 | Notifikasi dari HP ke jam | Bukan bagian dari konsep produk. |
 | Multi-sesi bersamaan | `SesiMakanController` mengizinkan tepat satu sesi aktif. |
@@ -762,9 +945,38 @@ Dipakai kedua tim sebelum integrasi dinyatakan selesai.
 - [ ] Titik ukur sesi yang jatuh tempo selagi `UKUR_SEKARANG` berjalan **ditunda, bukan terlewat**,
       dan diambil segera setelah sensor bebas (§9.1). Penjaga "sedang mengukur" wajib ada di
       penjadwalnya — tanpa sensor sungguhan, ketiadaannya tidak menimbulkan gejala apa pun.
-- [ ] ARM timeout 4 jam menghasilkan `SESI_KEDALUWARSA`.
-- [ ] Reboot saat RUNNING → kembali IDLE, sampel lama tetap di buffer dengan `boot_id` lama.
-- [ ] Siklus sesi penuh selesai tanpa HP tersambung sama sekali.
+- [ ] `UKUR` dilayani di **IDLE, ARMED, maupun RUNNING** (v1.3, §9), dan `(sesiId, index)` dari
+      payload diteruskan apa adanya ke paket Sampel tanpa divalidasi terhadap sesi mana pun.
+- [ ] `UKUR` untuk `(sesiId, index)` yang sudah terukur dalam masa hidup daya yang sama di-`ACK`
+      lalu **diabaikan**, bukan diukur ulang.
+- [ ] `ARM_TITIK` menyalakan tombol ukur seketika, dan tombolnya **padam setelah satu kali
+      pengukuran yang berhasil**.
+- [ ] `ARM_TITIK` **bertahan melewati pemutusan daya**: ARM titik, matikan jam, hidupkan lagi —
+      tombolnya harus menyala tanpa aplikasi mengirim apa pun.
+- [ ] `ARM_TITIK` baru menimpa yang lama, di RAM maupun NVS; hanya satu titik ter-ARM pada satu
+      waktu.
+- [ ] Firmware **tidak menjadwalkan** index mana pun sendiri (v1.3). Tidak ada timer `t0 + 3600`.
+- [ ] ARM timeout 4 jam menghasilkan `SESI_KEDALUWARSA`. **Tetap ada di v1.3**, dan bersamanya
+      pemercepat waktu di firmware tetap perlu — mencabut penjadwal titik ukur tidak mencabut
+      satu-satunya cara menguji tenggat empat jam tanpa menunggu empat jam.
+- [ ] `ARM_SESI` menghapus `ARM_TITIK` yang tersimpan (§9).
+- [ ] `UKUR` untuk titik yang sedang ter-ARM **memadamkan tombolnya dan menghapus catatan NVS-nya**,
+      sesudah pengukurannya tuntas (§9). Diperiksa dengan: ARM titik, ukur titik itu lewat `UKUR`,
+      lalu tekan tombolnya — tidak boleh ada pengukuran kedua, dan tombolnya harus sudah padam
+      sebelum ditekan.
+- [ ] Pengukuran yang **gagal** meninggalkan tombolnya tetap menyala, sehingga masih bisa dipakai
+      sebagai percobaan ulang.
+- [ ] Dedup `(sesiId, index)` dipakai jalur `UKUR` **dan** jalur tombol, bukan salah satu (§9).
+- [ ] Kunci dedup `UKUR` hidup di RAM, dan `sesiId` yang berbeda **me-reset** bitmask-nya alih-alih
+      menolak perintahnya (§9).
+- [ ] Reboot saat RUNNING → kembali IDLE, sampel lama tetap di buffer dengan `boot_id` lama. Sejak
+      v1.3 ini **keadaan normal yang diharapkan**, bukan kegagalan: sesinya tetap hidup di aplikasi.
+- [x] ~~Siklus sesi penuh selesai tanpa HP tersambung sama sekali.~~ **Dicabut di v1.3.** Ini premis
+      lama, dan v1.3 membatalkannya: tanpa HP tidak ada `UKUR` dan tidak ada `ARM_TITIK`, jadi tidak
+      ada titik yang terukur. Yang menggantikannya ada di bawah.
+- [ ] Sesi yang tombolnya ditekan tanpa HP di dekatnya tetap menghasilkan **`t0` dan index 1**, dan
+      keduanya menunggu di buffer sampai HP datang (§9). Inilah sisa terakhir dari "jam bekerja
+      sendirian", dan ia memang harus tetap ada.
 - [ ] Ring buffer bertahan melewati reset dan memuat entri lintas boot.
 - [ ] Entri kirim-ulang menyalakan flag `dariBuffer`.
 - [ ] Metrik gagal dikirim sebagai `0`, bukan nilai terakhir yang diketahui.
@@ -783,8 +995,9 @@ Dipakai kedua tim sebelum integrasi dinyatakan selesai.
 - [x] Konversi `uptime_s` → epoch benar untuk entri **sebelum** anchor dipasang (selisih negatif).
 - [x] Entri `waktu_tidak_pasti` tidak masuk `sesiHariIni()`, `WaktuMakan`, maupun `AnalisisSesi`
       (`sesi_makan_controller_test.dart`, `analisis_test.dart`).
-- [x] Sampel dengan `boot_id` berbeda dari `t0`-nya dibuang (`BleAsliService._emitSampel`); sesinya
-      berakhir `tidakLengkap` lewat tenggat di controller, bukan dibatalkan dari layer BLE.
+- [x] ~~Sampel dengan `boot_id` berbeda dari `t0`-nya dibuang~~ — **dicabut di v1.3** (§5.3). Dengan
+      jam yang dimatikan di antara titik ukur, `boot_id` yang berbeda adalah keadaan normal. Yang
+      menentukan sampel milik siapa adalah `sesiId` + `index`.
 - [x] Sentinel `0` dikonversi ke `null` sebelum meninggalkan layer BLE (`bacaSampel`), dan yang null
       ditulis "Tidak terbaca" di halaman pindai — bukan `—` di tempat angka (`pindai_kesehatan_test.dart`).
 - [x] Bit `kemampuan` (§3) dihormati: metrik yang tidak dimiliki jam **hilang dari layar**, bukan
@@ -813,8 +1026,9 @@ Dipakai kedua tim sebelum integrasi dinyatakan selesai.
 - [ ] Satu sesi penuh (baseline → t0 → +1 jam → +2 jam) dengan hardware nyata.
 - [ ] Bluetooth HP dimatikan **sebelum** foto diambil dan baru dinyalakan setelah +2 jam → seluruh
       sesi diterjemahkan dengan benar dari satu anchor di akhir. Ini uji inti dari §4.2.
-- [ ] Jam di-reboot di tengah sesi → sesi berakhir `tidakLengkap`, sampel sebelum reboot tetap masuk
-      dengan waktu yang benar.
+- [ ] Jam dimatikan dan dinyalakan lagi di tengah sesi → sesi **tetap berjalan**, dan titik
+      berikutnya masih bisa diukur (v1.3; sebelumnya sesi berakhir `tidakLengkap` di sini). Sampel
+      dari sebelum reboot tetap masuk dengan waktu yang benar.
 - [ ] Jam kehabisan daya, boot, dipakai satu sesi penuh, mati lagi, baru tersambung → sesi itu
       ditandai `waktu_tidak_pasti` dan diperlakukan sesuai §4.3.
 - [ ] Aplikasi di-kill paksa di tengah sesi → sesi dipulihkan dari DB dengan `t0` yang sama.
@@ -842,6 +1056,73 @@ yang diimplementasikannya di byte 0–1 handshake (§3).
 
 Bagian ini adalah satu-satunya tempat yang memberi arti pada angka itu. Tanpanya, `versi_minor` cuma
 bilangan yang naik.
+
+### v1.3
+
+Satu penyebab, dan seluruh isi versi ini adalah akibatnya: **jam tidak bertahan lebih dari ~50 menit
+menyala, sedangkan satu sesi berdurasi lebih dari dua jam.** Jam pasti mati di tengah setiap sesi.
+
+> **Premis itu terkonfirmasi, tetapi lewat kendala perangkat keras, bukan lewat pengukuran runtime.**
+> Angka ~50 menit sendiri berasal dari perhitungan spesifikasi dan konsumsi daya, bukan dari stopwatch
+> di papan. Yang membuatnya mengikat adalah temuan lain: **layar tidak bisa dimatikan.** Tim jam sudah
+> mencobanya dan tidak berhasil, lalu memutuskan mematikan perangkat lewat pemutusan daya.
+>
+> Itu menutup satu-satunya celah yang tersisa di perhitungan tersebut. Kekhawatiran yang wajar
+> terhadap angka hasil hitungan adalah bahwa ia mengasumsikan seluruh sistem menyala terus-menerus,
+> sementara light sleep dan layar yang padam di sela titik ukur akan mengubah duty cycle-nya jauh.
+> Ternyata asumsi itu **memang keadaan operasinya**: layar tidak bisa padam, jadi tidak ada duty cycle
+> yang lebih rendah untuk diraih. Light sleep pun tidak menolong, karena yang mendominasi anggaran
+> daya bukan radio melainkan layar yang tetap menyala di dalamnya.
+>
+> Maka satu-satunya tuas penghematan yang tersedia adalah memutus daya — dan sesi dua jam lebih
+> panjang daripada masa hidup daya berapa pun yang bisa dicapai tanpa tuas lain. Jam **pasti** mati di
+> tengah sesi. Seluruh v1.3 berlaku, termasuk pencabutan penjadwal (perubahan 3) dan kepindahan `t0`
+> (perubahan 4).
+>
+> **Satu-satunya keadaan yang membatalkan ini kembali** adalah bila layar ternyata bisa dipadamkan —
+> lewat papan display yang berbeda, kendali backlight yang belum ditemukan, atau revisi perangkat
+> keras. Bila itu terjadi, yang pertama harus ditinjau ulang adalah perubahan 4: `detikRelatifT0`
+> sebagai selisih dua `uptime_s` kebal terhadap anchor yang meleset (§5.3 versi lama), dan kepindahan
+> ke jam dinding ponsel menukar sifat itu. Pertukarannya hanya setimpal selama selisih pencacah
+> memang tidak bisa dihitung — yaitu selama jam masih dimatikan di antara titik ukur.
+
+Itu membatalkan premis §9 versi sebelumnya — "seluruh siklus harus selesai walau HP tidak pernah
+tersambung sekali pun" — yang mengandaikan jam hidup 2,5 jam terus-menerus. Premis itu tidak bisa
+ditambal; ia harus dibalik. **Yang menjadwalkan sesi sekarang aplikasi, dan jam menjadi sensor yang
+mengukur saat disuruh.**
+
+Lima perubahan kawat:
+
+1. **`UKUR` (`0x04`) dilayani di ketiga status**, bukan hanya index 0 di ARMED. Setiap titik sesi
+   datang lewat opcode ini. Bentuk paketnya **tidak berubah sama sekali** — ia sejak awal sudah
+   berarti "ukur titik index N milik sesi S, sekarang"; yang berubah hanya siapa yang memicunya.
+   Batas `index` dilonggarkan ke 1 byte penuh, karena jadwal titik kini data sisi aplikasi.
+2. **Opcode baru `ARM_TITIK` (`0x0A`)**, 16B `sesiId` + 1B `index`. Ia menyalakan tombol ukur fisik
+   di jam untuk satu titik tertentu, mengikuti pola `ARM_SESI` persis, dan disimpan ke NVS supaya
+   tombolnya tetap menyala melewati pemutusan daya berikutnya. Ada karena jam yang baru dinyalakan
+   tidak tahu ia sedang mengukur titik yang mana — pengetahuan yang tidak bisa ia simpulkan sendiri
+   setelah dimatikan. Rancangan pertamanya membawa `2B detik_tunda`; itu dibuang sebelum
+   implementasi, dan alasannya ada di §9.
+3. **Firmware berhenti menjadwalkan.** Tidak ada lagi timer `t0 + 3600` / `+ 7200`. Ini membuat
+   firmware lebih sederhana, bukan lebih rumit. Yang **tetap** diukur jam atas inisiatifnya sendiri
+   hanya index 1, karena ia akibat langsung tombol yang ditekan — bukan jadwal (§9).
+4. **`t0` pindah ke aplikasi** sebagai `DateTime` (§5.3). Bukan karena rancangan lama salah,
+   melainkan karena landasannya lenyap: dengan jam yang mati di antara titik, tidak ada lagi
+   `uptime_s` bersama untuk dibandingkan. `MULAI_SESI` dan `TOMBOL_SELESAI_MAKAN` tidak berubah
+   bentuknya — payload tetap tanpa waktu.
+5. **Aturan buang-sampel-beda-`boot_id` dicabut** (§5.3). `boot_id` yang berbeda antar titik adalah
+   keadaan normal sekarang. `sesiId` + `index` yang menentukan sampel milik siapa.
+
+Ditambah tiga keputusan yang tidak menambah paket tetapi mengikat firmware: **satu tombol fisik
+dengan makna kontekstual**, **`ARM_SESI` menghapus titik yang ter-ARM**, dan **dedup `(sesiId,
+index)` di RAM yang dipakai jalur `UKUR` maupun jalur tombol** (§9).
+
+Yang **tidak** berubah, dan sengaja: jam tetap tidak punya wall clock, anchor tetap ditulis di setiap
+koneksi, buffer dan `SINKRON` tetap apa adanya, ARM timeout 4 jam tetap ada, dan tombol fisik tetap
+ada di kedua tempat — untuk `t0` maupun untuk tiap titik ukur.
+
+Jadwal titik, jendela toleransi, dan mode jadwal uji seluruhnya hidup di sisi aplikasi dan tidak
+punya wakil di kawat mana pun; keduanya dijelaskan di [jadwal-titik-ukur.md](jadwal-titik-ukur.md).
 
 ### v1.2
 

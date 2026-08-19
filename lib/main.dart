@@ -15,6 +15,7 @@ import 'package:asawatch/analisis_tab.dart';
 import 'package:asawatch/profil_tab.dart';
 import 'package:asawatch/deteksi_makanan_page.dart';
 import 'package:asawatch/sesi_berjalan_page.dart';
+import 'package:asawatch/services/pengingat_titik_ukur.dart';
 import 'package:asawatch/controllers/sesi_makan_controller.dart';
 import 'package:asawatch/models/sesi_makan.dart';
 import 'package:drift_flutter/drift_flutter.dart';
@@ -100,6 +101,10 @@ Future<SesiMakanController> buatControllerBawaan() async {
     repo: repo,
     repoKalibrasi: repoKalibrasi,
     kalibrasiAwal: await repoKalibrasi.terbaru(),
+    // Dirakit di sini, bukan di dalam controller: sejak jam berhenti
+    // menjadwalkan titik ukurnya sendiri (protokol §9 v1.3), tidak ada lagi
+    // yang mengingatkan penggunanya selain ini.
+    pengingat: PengingatLokal(),
   );
 }
 

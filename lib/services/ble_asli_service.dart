@@ -673,6 +673,22 @@ class BleAsliService implements BleService {
   }
 
   @override
+  Future<bool> armTitik(String sesiId, int index) async {
+    if (!idSesiValid(sesiId) || !_status.tersambung) return false;
+    try {
+      await _kirimPerintah(tulisArmTitik(sesiId, index));
+      return true;
+    } catch (e) {
+      // Tidak fatal, dan sengaja tidak dilaporkan ke UI: yang gagal hanyalah
+      // tombol **fisik** jam untuk titik ini. Tombol di aplikasi tetap bekerja,
+      // dan perintah ini ditulis ulang di setiap koneksi berikutnya — seperti
+      // `ANCHOR_WAKTU`, ia murah dan idempoten.
+      debugPrint('ARM_TITIK index $index gagal: $e');
+      return false;
+    }
+  }
+
+  @override
   Future<bool> mintaUkur(String sesiId, int index) async {
     if (!idSesiValid(sesiId) || !_status.tersambung) return false;
     try {
@@ -1112,21 +1128,31 @@ class BleAsliService implements BleService {
   void _emitSampel(EntriSampel entri) {
     final t0 = _t0Sesi[entri.sesiId];
 
-    // Sampel dari boot yang berbeda dengan `t0`-nya dibuang (§5.3): jam yang
-    // menyala ulang di tengah sesi telah kehilangan garis waktunya, dan
-    // `uptime_s` keduanya tidak lagi sebanding. Sesinya berakhir `tidakLengkap`
-    // lewat tenggat.
-    if (t0 != null && t0.bootId != entri.bootId) {
-      debugPrint(
-        'Sampel index ${entri.index} dibuang: boot ${entri.bootId} != '
-        'boot t0 ${t0.bootId}.',
-      );
-      return;
-    }
+    // **Sampel dengan `boot_id` berbeda TIDAK dibuang** (§5.3, v1.3).
+    //
+    // Sampai v1.2 ia dibuang, dan alasannya masuk akal saat itu: jam yang
+    // menyala ulang di tengah sesi telah kehilangan garis waktunya. v1.3
+    // mencabutnya karena jam sekarang **dirancang** untuk dimatikan di antara
+    // titik ukur — `boot_id` yang berbeda adalah keadaan normal, bukan gejala
+    // kerusakan. Yang menentukan sampel ini milik siapa adalah `sesiId` dan
+    // `index`, bukan garis waktu pencacahnya.
+    //
+    // Aturan lama itu membuang **setiap** titik setelah yang pertama, diam-diam,
+    // dengan satu baris debugPrint sebagai satu-satunya jejak.
+    final bootSama = t0 != null && t0.bootId == entri.bootId;
 
-    // Baseline gratis: ia diukur sebelum tombol ditekan, jadi selisihnya negatif
-    // dengan sendirinya — persis yang diminta model (§5.3).
-    final detikRelatifT0 = t0 == null ? 0 : entri.uptimeS - t0.uptimeS;
+    // Selisih dua pencacah hanya sah di dalam satu boot. Di luar itu angkanya
+    // tidak berarti apa-apa, dan **0 bukan tebakan melainkan penanda**:
+    // `SesiMakanController._detikRelatifT0` menghitung ulang nilai yang benar
+    // dari jam dindingnya sendiri untuk sampel yang tiba langsung, dan untuk
+    // sampel dari buffer ia memakai nilai ini apa adanya — yang untuk lintas
+    // boot berarti titik itu jatuh di slot jadwalnya. Itu penyederhanaan yang
+    // diterima: yang menentukan posisi x sebuah titik adalah `index`-nya (§5.3),
+    // dan menormalkannya ke slot persis yang dilakukan `_geser` sejak awal.
+    //
+    // Baseline tetap gratis di dalam satu boot: ia diukur sebelum tombol
+    // ditekan, jadi selisihnya negatif dengan sendirinya.
+    final detikRelatifT0 = bootSama ? entri.uptimeS - t0.uptimeS : 0;
 
     final sampel = Sampel(
       index: entri.index,

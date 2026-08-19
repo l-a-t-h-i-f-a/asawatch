@@ -70,8 +70,14 @@ class AnalisisSesi {
         // "membaik atau tidak" — dan itu pertanyaan tentang urutan waktu.
         // Sesi yang posisinya di kalender tidak diketahui akan menyisip di
         // tempat yang salah dan mengubah kesimpulannya.
+        //
+        // Sesi mode uji dikeluarkan dengan alasan yang berbeda dan lebih keras:
+        // angkanya bukan sekadar tidak bisa diurutkan, ia **bukan pengukuran
+        // seseorang**. Satu sesi dua menit di dalam garis tren akan terlihat
+        // persis seperti data sungguhan besok pagi, dan tidak ada satu pun
+        // gejala yang memberitahu bahwa tren itu sudah tercemar.
         for (final s in sesi)
-          if (!s.status.sedangAktif && !s.waktuTidakPasti) s,
+          if (!s.status.sedangAktif && !s.waktuTidakPasti && !s.sesiUji) s,
       ];
 
   final List<SesiMakan> sesi;

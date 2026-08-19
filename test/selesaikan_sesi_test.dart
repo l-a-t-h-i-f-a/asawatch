@@ -30,6 +30,13 @@ Future<void> jalankanSesi(
 }
 
 Future<void> ketuk(WidgetTester tester, String teks) async {
+  // Digulir ke tampak lebih dulu: sejak `PetunjukTombolUkur` ikut dirender,
+  // kedua tombol jalan keluar jatuh di bawah lipatan layar 412x915. `tap` pada
+  // widget di luar viewport tidak gagal — ia mengetuk titik yang salah dan
+  // hanya meninggalkan peringatan, sehingga test yang lulus pun tidak
+  // membuktikan apa-apa.
+  await tester.ensureVisible(find.text(teks));
+  await tester.pump();
   await tester.tap(find.text(teks));
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 300)); // dialog terbuka

@@ -195,6 +195,26 @@ abstract class BleService {
   /// menampilkannya sebagai "menunggu data" selama dua jam untuk pengukuran yang
   /// sudah pasti tidak akan pernah datang.
   Future<bool> mintaUkur(String sesiId, int index); // baseline
+
+  /// Menyalakan tombol ukur **di jam** untuk satu titik (`ARM_TITIK`,
+  /// §5.1 v1.3).
+  ///
+  /// Padanan [mintaUkur] untuk keadaan yang sebaliknya: [mintaUkur] mengukur
+  /// sekarang atas perintah ponsel, ini menyiapkan jam agar bisa mengukur
+  /// **tanpa** ponsel. Keduanya perlu ada karena jam dimatikan di antara titik
+  /// ukur, dan orang yang menyalakannya kembali belum tentu sedang memegang
+  /// ponselnya.
+  ///
+  /// **Dikirim saat titiknya jatuh tempo, bukan di awal sesi.** Tombolnya
+  /// menyala seketika dan bertahan melewati pemutusan daya berikutnya, jadi
+  /// penjaga "jangan diukur terlalu cepat" ada sepenuhnya di sisi aplikasi —
+  /// sebagai keputusan penjadwalan, bukan mekanisme di kawat.
+  ///
+  /// Mengembalikan false bila perintahnya tidak sampai. Itu bukan kegagalan
+  /// sesi: tombol di aplikasi tetap bekerja, dan perintah ini ditulis ulang di
+  /// setiap koneksi berikutnya.
+  Future<bool> armTitik(String sesiId, int index);
+
   Future<void> batalkanSesi(String sesiId);
   Future<void> sinkronkan(); // tarik buffer jam
 
@@ -427,6 +447,15 @@ class FakeBleService implements BleService {
     if (!_status.tersambung || _sesiSiap != sesiId) return false;
     if (lewatkan.contains(index)) return false;
 
+    // `UKUR` untuk titik yang sedang ter-ARM memadamkan tombolnya (§9). Tanpa
+    // ini, tombol jam tetap menyala setelah pengguna mengukur dari aplikasi —
+    // dan tombol menyala yang tidak menghasilkan apa-apa adalah kebohongan yang
+    // mengundang tekanan kedua, pada perangkat yang umur nyalanya ~50 menit.
+    if (titikDiarm?.sesiId == sesiId && titikDiarm?.index == index) {
+      titikDiarm = null;
+      tombolUkurMenyala = false;
+    }
+
     // Pengukuran atas permintaan tetap butuh waktu di jam sungguhan.
     _timer.add(
       Timer(_jeda(20), () {
@@ -437,7 +466,43 @@ class FakeBleService implements BleService {
   }
 
   @override
+  Future<bool> armTitik(String sesiId, int index) async {
+    if (!_status.tersambung) return false;
+
+    // Menyala seketika: tidak ada penundaan di kawat lagi, dan aplikasi hanya
+    // mengirim perintah ini saat titiknya memang sudah jatuh tempo.
+    titikDiarm = (sesiId: sesiId, index: index);
+    tombolUkurMenyala = true;
+    return true;
+  }
+
+  /// Titik yang tombol ukurnya sedang di-ARM, atau null. Hanya satu pada satu
+  /// waktu, seperti di jam — dan di jam sungguhan ia bertahan di NVS melewati
+  /// pemutusan daya.
+  ({String sesiId, int index})? titikDiarm;
+
+  /// Tombol ukur fisik jam sedang menyala dan belum ada yang menekannya.
+  bool tombolUkurMenyala = false;
+
+  /// Menekan tombol ukur **di jam**, padanan [tekanSelesaiMakan] untuk titik
+  /// ukur.
+  ///
+  /// Mengembalikan false bila tombolnya sedang padam — yang di jam sungguhan
+  /// berarti ketukan yang tidak menghasilkan apa-apa, bukan galat.
+  bool tekanTombolUkur() {
+    final titik = titikDiarm;
+    if (!tombolUkurMenyala || titik == null) return false;
+
+    tombolUkurMenyala = false;
+    titikDiarm = null;
+    _kirim(titik.sesiId, _buatSampel(titik.index, 0));
+    return true;
+  }
+
+  @override
   Future<void> batalkanSesi(String sesiId) async {
+    titikDiarm = null;
+    tombolUkurMenyala = false;
     _bersihkanTimer();
     _sesiSiap = null;
     _sudahDitekan = false;

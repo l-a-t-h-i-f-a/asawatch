@@ -353,8 +353,47 @@ void main() {
       expect(data[17], 0);
     });
 
-    test('UKUR menolak index di luar 0..3', () {
-      expect(() => tulisUkur(sesiId, 4), throwsA(isA<GalatProtokol>()));
+    // Batasnya 1 byte, bukan 0..3, sejak protokol v1.3 (§12). Jadwal titik ukur
+    // kini data sisi aplikasi (docs/jadwal-titik-ukur.md §1), jadi menambah
+    // titik tidak boleh tertahan oleh penjaga di codec — dan yang benar-benar
+    // menentukan bentuk paketnya cuma lebar bytenya.
+    test('UKUR menerima index di luar empat titik hari ini', () {
+      expect(tulisUkur(sesiId, 4)[17], 4);
+      expect(tulisUkur(sesiId, 255)[17], 255);
+    });
+
+    test('UKUR menolak index yang tidak muat dalam 1 byte', () {
+      expect(() => tulisUkur(sesiId, 256), throwsA(isA<GalatProtokol>()));
+      expect(() => tulisUkur(sesiId, -1), throwsA(isA<GalatProtokol>()));
+    });
+
+    group('ARM_TITIK (§5.1, v1.3)', () {
+      test('18 byte: opcode, sesiId, index', () {
+        final data = tulisArmTitik(sesiId, 2);
+
+        expect(data.length, 18);
+        expect(data[0], Opcode.armTitik);
+        expect(data[0], 0x0A);
+        expect(binerKeUuid(data.sublist(1, 17)), sesiId);
+        expect(data[17], 2);
+      });
+
+      // Rancangan pertama v1.3 membawa 2B `detik_tunda` di ujung. Dibuang
+      // sebelum implementasi: penundaan itu tidak pernah selamat melewati
+      // pemutusan daya, dan pemutusan daya adalah keadaan normal di v1.3.
+      // Yang dijaga di sini adalah paketnya benar-benar berhenti di byte 17.
+      test('tidak membawa penundaan', () {
+        expect(tulisArmTitik(sesiId, 3).length, 18);
+      });
+
+      test('menolak index yang tidak muat dalam 1 byte', () {
+        expect(() => tulisArmTitik(sesiId, 256), throwsA(isA<GalatProtokol>()));
+        expect(() => tulisArmTitik(sesiId, -1), throwsA(isA<GalatProtokol>()));
+      });
+
+      test('opcode punya nama untuk log', () {
+        expect(Opcode.nama(Opcode.armTitik), 'ARM_TITIK');
+      });
     });
 
     test('SET_KALIBRASI mengirim offset int16, termasuk yang negatif', () {

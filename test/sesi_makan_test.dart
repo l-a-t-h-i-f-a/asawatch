@@ -53,6 +53,27 @@ void main() {
       expect(contohSesiSelesai().waktuPemulihan, const Duration(hours: 2));
     });
 
+    // Regresi untuk jebakan yang menunggu orang berikutnya yang menambah titik
+    // ukur (docs/jadwal-titik-ukur.md §5). Versi lama membandingkan `index`
+    // sebagai pengganti urutan waktu — benar selama keempat titik kebetulan
+    // berurutan, dan salah tanpa satu pun gejala pada titik pertama yang
+    // disisipkan. Di sini `+30 menit` masuk sebagai index 4, seperti yang akan
+    // terjadi bila jadwal ditambah tanpa menyentuh baris ini.
+    test('pemulihan memakai urutan waktu, bukan urutan index', () {
+      final sesi = sesiDengan([
+        terisi(0, -1500, 90),
+        terisi(1, 0, 95),
+        terisi(4, 1800, 165), // +30 mnt — puncak sesungguhnya
+        terisi(2, 3600, 150),
+        terisi(3, 7200, 96), // kembali ke sekitar baseline
+      ]);
+
+      expect(sesi.puncakGulaDarah, 165);
+      // Versi lama melewatkan titik ini: index 2 dan 3 keduanya "<= 4", jadi
+      // tidak ada satu pun titik yang dianggap sesudah puncak.
+      expect(sesi.waktuPemulihan, const Duration(hours: 2));
+    });
+
     test('belum kembali ke baseline menghasilkan pemulihan null', () {
       final sesi = sesiDengan([
         terisi(0, -1500, 92),

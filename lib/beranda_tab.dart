@@ -13,6 +13,7 @@ import 'utils/ikon.dart';
 import 'widgets/foto_makanan.dart';
 import 'widgets/judul_bagian.dart';
 import 'widgets/petunjuk_tombol_jam.dart';
+import 'widgets/petunjuk_tombol_ukur.dart';
 import 'widgets/ringkasan_nutrisi.dart';
 import 'widgets/sparkline.dart';
 import 'widgets/timeline_sampel.dart';
@@ -463,7 +464,15 @@ class _KartuSesiBerjalan extends StatelessWidget {
             status: sesi.status,
             perangkat: controller.statusPerangkat,
           )
-        else
+        else ...[
+          // Titik ukur tidak datang sendiri sejak protokol v1.3 (§9), dan
+          // notifikasinya mendarat di ponsel — jadi tombolnya harus ada di
+          // layar yang pertama dibuka, bukan hanya satu ketukan lebih dalam di
+          // SesiBerjalanPage. Widget ini menyembunyikan dirinya sendiri bila
+          // tidak ada titik yang menunggu, jadi kartu ini tidak berubah bentuk
+          // di sebagian besar waktu sesi.
+          const PetunjukTombolUkur(),
+          const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: OutlinedButton(
@@ -485,6 +494,7 @@ class _KartuSesiBerjalan extends StatelessWidget {
               ),
             ),
           ),
+        ],
       ],
     );
   }

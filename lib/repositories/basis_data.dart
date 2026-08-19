@@ -47,6 +47,20 @@ class TabelSesi extends Table {
   BoolColumn get waktuTidakPasti =>
       boolean().withDefault(const Constant(false))();
 
+  /// Sesi ini dibuat oleh rakitan `--dart-define=PAKAI_JADWAL_UJI=true`, jadwal
+  /// dua menit (docs/jadwal-titik-ukur.md §7).
+  ///
+  /// Disimpan, bukan diturunkan, dan alasannya dua. Pertama sama dengan
+  /// [waktuTidakPasti]: begitu sesinya tersimpan tidak ada lagi jejak yang bisa
+  /// dipakai memastikannya — sesi dua menit memang mencurigakan, tetapi sesi
+  /// sungguhan yang semua titiknya terlewat terlihat mirip, dan menebak di sini
+  /// berarti menyembunyikan data sungguhan seseorang. Kedua, dan yang
+  /// menentukan: **rakitan tanpa flag itu tetap harus bisa membaca baris yang
+  /// ditulis rakitan yang punya flag.** Sesi uji akan tetap ada di basis data
+  /// tester lama setelah build ujinya diganti, dan hanya kolom ini yang masih
+  /// mengetahuinya.
+  BoolColumn get sesiUji => boolean().withDefault(const Constant(false))();
+
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -250,7 +264,7 @@ class BasisData extends _$BasisData {
   BasisData(super.e);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -318,6 +332,22 @@ class BasisData extends _$BasisData {
                   },
                 ),
               );
+            }
+          case 4: // v4 → v5: penandaan sesi dari mode jadwal uji
+            // Sama seperti langkah v3 → v4 di atas, `createTable` memakai
+            // definisi hari ini, jadi perangkat yang melompat dari versi lama
+            // bisa saja tiba di sini dengan tabel yang sudah berbentuk v5.
+            // Karena itu ditanya lebih dulu, bukan diasumsikan — `addColumn`
+            // pada kolom yang sudah ada akan gagal dan menggagalkan seluruh
+            // pembukaan basis data.
+            final kolomSesi = await m.database
+                .customSelect('PRAGMA table_info(tabel_sesi)')
+                .get();
+            final sudahAda = kolomSesi.any(
+              (baris) => baris.read<String>('name') == 'sesi_uji',
+            );
+            if (!sudahAda) {
+              await m.addColumn(tabelSesi, tabelSesi.sesiUji);
             }
           default:
             throw UnsupportedError(

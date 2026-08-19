@@ -409,6 +409,10 @@ class _EntriSesi extends StatelessWidget {
                       Expanded(
                         child: Text(
                           [
+                            // Disebut lebih dulu, bukan diselipkan di ujung:
+                            // seluruh sisa baris ini adalah angka, dan pembaca
+                            // harus tahu angka siapa sebelum membacanya.
+                            if (sesi.sesiUji) 'SESI UJI',
                             sesi.labelWaktuMakan,
                             // Nutrisi yang belum dianalisis ditulis apa
                             // adanya (§8).

@@ -165,6 +165,9 @@ void main() {
       final db = BasisData(NativeDatabase(berkas));
       await SesiRepositoryDrift(db).simpan(sesi);
 
+      if (versi < 5) {
+        await db.customStatement('ALTER TABLE tabel_sesi DROP COLUMN sesi_uji');
+      }
       if (versi < 4) {
         await db.customStatement('DROP TABLE tabel_putaran_kalibrasi');
         await db.customStatement('ALTER TABLE tabel_kalibrasi DROP COLUMN sisi');
@@ -198,7 +201,7 @@ void main() {
       return berkas;
     }
 
-    test('basis data v1 naik ke v4 tanpa kehilangan sesi', () async {
+    test('basis data v1 naik ke v5 tanpa kehilangan sesi', () async {
       final sesi = contohRiwayatSesi().first;
       final berkas = await siapkanBerkasVersi(1, sesi);
 
@@ -220,9 +223,37 @@ void main() {
       // Kolom yang lahir di v3 punya nilai bawaan yang benar untuk baris lama:
       // sesi yang direkam sebelum Tahap B jelas bukan sesi berwaktu tidak pasti.
       expect(riwayat.single.waktuTidakPasti, isFalse);
+      // Sama untuk kolom yang lahir di v5: sesi yang direkam sebelum mode uji
+      // ada jelas bukan sesi uji, dan menandainya begitu akan menyembunyikannya
+      // dari Analisis tanpa ada yang meminta.
+      expect(riwayat.single.sesiUji, isFalse);
     });
 
-    test('basis data v2 naik ke v4 dan bisa menyimpan kalibrasi', () async {
+    // Penjaga `PRAGMA table_info` di langkah v4 → v5 **belum** benar-benar
+    // terpakai hari ini: `tabel_sesi` tidak pernah dibuat ulang oleh
+    // `createTable` di langkah mana pun, jadi tidak ada jalur yang tiba di sini
+    // dengan kolomnya sudah ada. Ia dipasang karena langkah berikutnya yang
+    // membuat ulang tabel itu akan membuatnya perlu, dan karena kegagalannya
+    // tidak sopan: `addColumn` di atas kolom yang sudah ada menggagalkan
+    // seluruh pembukaan basis data, dan yang terlihat pengguna adalah
+    // `AplikasiGagalMulai`. Yang diuji di sini adalah langkahnya sendiri.
+    test('basis data v4 naik ke v5 dan sesi uji bisa ditulis', () async {
+      final sesi = contohRiwayatSesi().first;
+      final berkas = await siapkanBerkasVersi(4, sesi);
+
+      final db = BasisData(NativeDatabase(berkas));
+      addTearDown(db.close);
+
+      final repo = SesiRepositoryDrift(db);
+      await repo.simpan(
+        sesi.salin(status: StatusSesi.selesai, sesiUji: true),
+      );
+
+      final riwayat = await repo.muatSemua();
+      expect(riwayat.single.sesiUji, isTrue);
+    });
+
+    test('basis data v2 naik ke v5 dan bisa menyimpan kalibrasi', () async {
       final sesi = contohRiwayatSesi().first;
       final berkas = await siapkanBerkasVersi(2, sesi);
 
@@ -267,7 +298,7 @@ void main() {
     // Kalibrasi yang dibuat sebelum metode tiga putaran tidak boleh menguap:
     // jam masih memakai offsetnya, jadi aplikasi yang tiba-tiba menganggap
     // dirinya "belum pernah dikalibrasi" akan berbohong tentang keadaan jam.
-    test('kalibrasi satu putaran dari v3 selamat menyeberang ke v4', () async {
+    test('kalibrasi satu putaran dari v3 selamat menyeberang ke v5', () async {
       final sesi = contohRiwayatSesi().first;
       final berkas = await siapkanBerkasVersi(
         3,

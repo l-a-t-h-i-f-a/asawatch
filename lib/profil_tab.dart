@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import 'controllers/sesi_makan_controller.dart';
 import 'informasi_pribadi_page.dart';
 import 'kalibrasi_tekanan_darah_page.dart';
 import 'menghubungkan_perangkat_page.dart';
@@ -212,6 +215,16 @@ class _ProfilTabState extends State<ProfilTab> {
                       );
                     },
                   ),
+                  // Hanya muncul bila memang ada yang bisa dibersihkan.
+                  // Ditanyakan ke riwayat, bukan ke `pakaiJadwalUji`: sesi uji
+                  // tetap tersimpan setelah build ujinya diganti, dan rakitan
+                  // biasalah yang kemudian memegangnya.
+                  if (context.watch<SesiMakanController>().adaSesiUji)
+                    _buildProfileMenu(
+                      icon: Icons.science_rounded,
+                      title: 'Hapus Semua Sesi Uji',
+                      onTap: _konfirmasiHapusSesiUji,
+                    ),
                   _buildProfileMenu(
                     icon: Icons.logout_rounded,
                     title: 'Keluar',
@@ -228,6 +241,39 @@ class _ProfilTabState extends State<ProfilTab> {
               ),
             ),
     );
+  }
+
+  /// Selalu dikonfirmasi, walau yang dihapus "cuma" data uji: tidak ada yang
+  /// bisa mengembalikannya, dan sebuah sesi uji yang sedang dipakai memeriksa
+  /// persistensi punya nilai justru karena ia bertahan.
+  Future<void> _konfirmasiHapusSesiUji() async {
+    final controller = context.read<SesiMakanController>();
+    final jumlah = controller.riwayat.where((s) => s.sesiUji).length;
+
+    final ya = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Hapus Sesi Uji?'),
+        content: Text(
+          '$jumlah sesi dari mode jadwal uji akan dihapus permanen, berikut '
+          'seluruh pengukurannya. Sesi sungguhan tidak tersentuh.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Batal'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+            child: const Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+
+    if (ya != true) return;
+    await controller.hapusSesiUji();
   }
 
   Widget _buildProfileMenu({

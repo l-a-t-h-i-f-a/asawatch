@@ -13,6 +13,7 @@
 /// tidak menyeret satu baris pun kode demo ke dalam jalur produksinya.
 library;
 
+import 'models/jadwal_sesi.dart';
 import 'services/auth_http_service.dart';
 import 'services/auth_service.dart';
 import 'services/izin_ble.dart';
@@ -52,6 +53,42 @@ const String basisUrlApi = String.fromEnvironment(
   'BASIS_URL_API',
   defaultValue: 'https://api.asawatch.id',
 );
+
+/// Sakelar ketiga: jadwal sesi yang dikecilkan untuk pengujian.
+///
+/// ```bash
+/// flutter run --dart-define=PAKAI_JADWAL_UJI=true
+/// ```
+///
+/// Menguji sesi penuh tidak boleh menuntut menunggu dua jam. Mode ini
+/// mengecilkan **jadwalnya** dengan faktor [faktorJadwalUji] dan tidak
+/// memalsukan apa pun yang lain: jendela toleransi, tenggat, dan seluruh alur
+/// BLE berjalan apa adanya, hanya dengan angka yang dibagi 60. Sesi penuh
+/// selesai dalam dua menit.
+///
+/// **Berbeda dari `FakeBleService(percepatan:)`, dan keduanya boleh dipakai
+/// bersamaan.** Yang itu mempercepat perilaku jam palsu; yang ini mengecilkan
+/// jadwal sesi. Karena `ARM_TITIK` membawa penundaan yang dihitung aplikasi
+/// (protokol §9), firmware tidak perlu tahu apa-apa tentang mode ini — jadi ia
+/// bekerja dengan **jam sungguhan**, dan itulah nilai utamanya: integrasi
+/// hardware bisa diuji end-to-end berkali-kali dalam satu sore.
+///
+/// Tiga pengaman menyertainya, dan ketiganya perlu — lihat
+/// docs/jadwal-titik-ukur.md §7.1. Yang pertama ada di sini: `bool.fromEnvironment`
+/// dievaluasi saat kompilasi, jadi rakitan rilis biasa tidak menyeret satu baris
+/// pun jadwal uji.
+const bool pakaiJadwalUji = bool.fromEnvironment('PAKAI_JADWAL_UJI');
+
+/// Jadwal yang dipakai sesi baru. Padanan [izinBleBawaan] dan [buatAuthBawaan]:
+/// satu titik yang menentukan, supaya tidak ada layar yang memilih sendiri.
+///
+/// `final`, bukan `const`, dan itu disengaja. Versi const menuntut jadwal uji
+/// ditulis ulang sebagai daftar literal kedua — persis dua daftar yang harus
+/// dijaga sebanding, yang [JadwalSesi.dibagi] ada untuk mencegahnya. Yang
+/// dijaga oleh kompilasi tetap dijaga: [pakaiJadwalUji] const, jadi tidak ada
+/// rakitan rilis yang bisa **berperilaku** memakai jadwal uji. Yang ikut
+/// terbawa hanyalah satu struktur data empat elemen.
+final JadwalSesi jadwalBawaan = pakaiJadwalUji ? jadwalUji : jadwalNormal;
 
 /// Auth yang dipakai alur masuk.
 ///
