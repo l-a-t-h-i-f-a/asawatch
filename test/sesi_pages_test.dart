@@ -15,6 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:asawatch/controllers/sesi_makan_controller.dart';
 import 'package:asawatch/services/nutrisi_service.dart';
 import 'package:asawatch/models/contoh_sesi.dart';
+import 'package:asawatch/widgets/foto_makanan.dart';
 import 'package:asawatch/models/sesi_makan.dart';
 import 'package:asawatch/ringkasan_sesi_page.dart';
 import 'package:asawatch/services/ble_service.dart';
@@ -372,15 +373,18 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('verdict, puncak, delta, dan pemulihan ditampilkan', (
+    testWidgets('puncak, delta, dan pemulihan ditampilkan tanpa verdict', (
       tester,
     ) async {
       await pumpHalaman(tester, RingkasanSesiPage(sesi: contohSesiSelesai()));
       await tester.pumpAndSettle();
 
+      // Verdict-nya berbunyi "puncak +48 mg/dL · normal dalam 2 jam": persis
+      // angka besar di atasnya ditambah persis isi kotak Pemulihan di bawahnya.
+      // Sesi yang sudah punya hasil tidak mendapatkannya lagi.
       expect(
         find.text('puncak +48 mg/dL · normal dalam 2 jam'),
-        findsOneWidget,
+        findsNothing,
       );
       // Detail tiap titik masih terlipat, jadi puncak baru muncul sekali.
       expect(find.text('140'), findsOneWidget);
@@ -436,21 +440,75 @@ void main() {
       expect(find.text('Baseline'), findsOneWidget);
     });
 
-    testWidgets('karbohidrat dikaitkan langsung dengan lonjakannya', (
+    // Kaitan "45 g karbohidrat → puncak +48 mg/dL" dihapus: itu penyebutan
+    // ketiga untuk delta yang sudah menjadi angka 46 px di kartu teratas.
+    // Karbohidratnya tetap disebut — ia yang memberi konteks pada kurva — hanya
+    // saja tanpa membawa serta angka yang sudah ada di tempat lain.
+    testWidgets('karbohidrat disebut tanpa mengulang deltanya', (tester) async {
+      await pumpHalaman(tester, RingkasanSesiPage(sesi: contohSesiSelesai()));
+      await tester.pumpAndSettle();
+
+      await tester.dragUntilVisible(
+        find.textContaining('g karbohidrat'),
+        find.byType(SingleChildScrollView),
+        const Offset(0, -200),
+      );
+      expect(find.textContaining('g karbohidrat'), findsOneWidget);
+      expect(find.textContaining('→ puncak'), findsNothing);
+      expect(find.textContaining('+48 mg/dL'), findsNothing);
+    });
+
+    // Dulu empat kartu bertumpuk: empat bingkai, empat baris waktu yang isinya
+    // hampir sama, dan satuan yang ditulis empat kali untuk empat angka yang
+    // sudah jelas semuanya gula darah.
+    // Seluruh angka di kartu nutrisi adalah perkiraan dari foto itu, dan baris
+    // "keyakinan 82%" duduk di kartu yang sama — sementara fotonya dulu berada
+    // 600 px di atas, sebagai jempol 72 px. Porsi yang meleset baru kelihatan
+    // meleset ketika piringnya ada di layar yang sama dengan angkanya.
+    testWidgets('foto makanan berdiri di kartu nutrisi, dan hanya di sana', (
       tester,
     ) async {
       await pumpHalaman(tester, RingkasanSesiPage(sesi: contohSesiSelesai()));
       await tester.pumpAndSettle();
 
-      await tester.dragUntilVisible(
-        find.textContaining('karbohidrat → puncak'),
-        find.byType(SingleChildScrollView),
-        const Offset(0, -200),
-      );
-      expect(
-        find.textContaining('karbohidrat → puncak +48 mg/dL'),
-        findsOneWidget,
-      );
+      expect(find.byType(FotoMakanan), findsOneWidget);
+
+      final foto = tester.getTopLeft(find.byType(FotoMakanan)).dy;
+      final judulNutrisi = tester.getTopLeft(find.text('Nutrisi Sesi Ini')).dy;
+      final judulKurva = tester.getTopLeft(find.text('Respons Gula Darah')).dy;
+      expect(foto, greaterThan(judulNutrisi));
+      expect(judulNutrisi, greaterThan(judulKurva));
+    });
+
+    testWidgets('rincian titik menjadi satu tabel, satuan sekali saja', (
+      tester,
+    ) async {
+      await pumpHalaman(tester, RingkasanSesiPage(sesi: contohSesiSelesai()));
+      await tester.pumpAndSettle();
+      await bukaDetailTitik(tester);
+
+      // Satuan hidup di kepala kolom, bukan di samping tiap angka: sekali
+      // untuk empat baris.
+      expect(find.text('bpm'), findsOneWidget);
+      expect(find.text('mmHg'), findsOneWidget);
+      // Keempat titik tetap ada, masing-masing sebagai satu baris.
+      for (final label in ['Baseline', 'Selesai makan', '+1 jam', '+2 jam']) {
+        expect(find.text(label), findsWidgets, reason: label);
+      }
+      // Waktu relatif tidak diulang per baris — ia sama untuk keempatnya dan
+      // sudah tertulis sekali di kepala halaman.
+      expect(find.textContaining('lalu'), findsOneWidget);
+    });
+
+    testWidgets('tabel rincian muat di layar 360 px', (tester) async {
+      await pumpHalaman(tester, RingkasanSesiPage(sesi: contohSesiSelesai()));
+      tester.view.physicalSize = const Size(360, 800);
+      await tester.pumpAndSettle();
+      await bukaDetailTitik(tester);
+
+      // `flutter_test` melaporkan overflow sebagai galat, jadi memompanya di
+      // lebar tersempit yang didukung sudah menjadi asersinya.
+      expect(find.text('mmHg'), findsOneWidget);
     });
 
     testWidgets('sampel terlewat menulis em dash di seluruh metriknya', (
@@ -465,7 +523,8 @@ void main() {
       // Terlipat: hanya kotak "Pemulihan" yang belum punya nilai.
       expect(find.text('—'), findsOneWidget);
       expect(find.text('belum kembali'), findsOneWidget);
-      expect(find.textContaining('+63 mg/dL'), findsWidgets);
+      // Delta sesi ini tetap ditulis, sekali, sebagai angka besar.
+      expect(find.text('+63'), findsOneWidget);
 
       await bukaDetailTitik(tester);
       // Ditambah empat metrik pada kartu +2 jam yang terlewat.
@@ -508,7 +567,10 @@ void main() {
       ]) {
         expect(find.text(label), findsOneWidget, reason: 'nutrisi $label');
       }
-      expect(find.textContaining('Keyakinan deteksi 82%'), findsOneWidget);
+      // Karbohidrat, indeks glikemik, dan keyakinan kini satu baris — dulu dua
+      // blok bertumpuk yang memakan empat baris untuk tiga angka.
+      expect(find.textContaining('keyakinan 82%'), findsOneWidget);
+      expect(find.textContaining('indeks glikemik'), findsOneWidget);
     });
   });
 }

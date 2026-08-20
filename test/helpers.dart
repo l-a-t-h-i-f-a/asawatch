@@ -11,7 +11,9 @@ import 'package:asawatch/controllers/sesi_makan_controller.dart';
 import 'package:asawatch/models/jadwal_sesi.dart';
 import 'package:asawatch/models/sesi_makan.dart';
 import 'package:asawatch/repositories/sesi_repository.dart';
+import 'package:asawatch/repositories/sesi_login_repository.dart';
 import 'package:asawatch/services/ble_service.dart';
+import 'package:asawatch/services/sesi_server_service.dart';
 import 'package:asawatch/services/nutrisi_service.dart';
 import 'package:asawatch/services/pengingat_titik_ukur.dart';
 
@@ -97,6 +99,8 @@ SesiMakanController buatControllerUji({
   JadwalSesi? jadwal,
   DateTime Function()? jam,
   PengingatTitikUkur? pengingat,
+  SesiServerService? serverSesi,
+  SesiLoginRepository? sesiLogin,
 }) {
   return SesiMakanController(
     ble:
@@ -112,6 +116,8 @@ SesiMakanController buatControllerUji({
     // Dibiarkan null kecuali test memang menguji penyimpanannya: sesi yang
     // selesai cukup hidup di memori controller seperti sebelumnya.
     repo: repo,
+    serverSesi: serverSesi,
+    sesiLogin: sesiLogin,
     // Jadwal ikut dimampatkan dengan faktor yang sama seperti jam palsunya.
     //
     // Ini bukan kenyamanan melainkan syarat kebenaran sejak protokol v1.3.

@@ -5,7 +5,15 @@ import 'repositories/profil_repository.dart';
 import 'utils/format_waktu.dart';
 
 class InformasiPribadiPage extends StatefulWidget {
-  const InformasiPribadiPage({super.key});
+  const InformasiPribadiPage({
+    super.key,
+    this.profil = const ProfilRepository(),
+  });
+
+  /// Pintu ke profil. Bawaannya bentuk **tanpa server**, jadi halaman ini tetap
+  /// bekerja apa adanya di test dan saat aplikasi dipakai tanpa akun;
+  /// `MyHomePage` yang menyuntikkan bentuk yang tersambung.
+  final ProfilRepository profil;
 
   @override
   State<InformasiPribadiPage> createState() => _InformasiPribadiPageState();
@@ -40,7 +48,10 @@ class _InformasiPribadiPageState extends State<InformasiPribadiPage> {
   }
 
   Future<void> _loadSavedData() async {
-    final profil = await const ProfilRepository().muat();
+    // Versi segar, bukan sekadar salinan lokal: halaman inilah tempat orang
+    // datang untuk memastikan datanya benar, jadi di sinilah selisih dengan
+    // server paling pantas diselesaikan.
+    final profil = await widget.profil.muatSegar();
     if (!mounted) return;
     setState(() {
       _nameController.text = profil.nama;
@@ -68,9 +79,9 @@ class _InformasiPribadiPageState extends State<InformasiPribadiPage> {
   static String _hanyaAngka(String nilai) =>
       nilai.replaceAll(RegExp(r'[^0-9.]'), '');
 
-  Future<void> _saveData() async {
+  Future<StatusSimpanProfil> _saveData() async {
     final lahir = _tanggalLahir;
-    await const ProfilRepository().simpan(
+    return widget.profil.simpan(
       Profil(
         nama: _nameController.text.trim(),
         // ISO 8601, bukan "21 Mei 2004": yang disimpan harus bisa diurai
@@ -132,11 +143,20 @@ class _InformasiPribadiPageState extends State<InformasiPribadiPage> {
                       setState(() {
                         _isLoading = true;
                       });
-                      await _saveData();
+                      final status = await _saveData();
+                      // Kalimatnya mengikuti apa yang benar-benar terjadi.
+                      // "Berhasil disimpan" untuk sesuatu yang belum sampai ke
+                      // server membuat orang mengira datanya sudah aman di
+                      // akunnya, lalu kehilangannya saat ganti ponsel.
                       messenger.showSnackBar(
-                        const SnackBar(
-                          content: Text('Perubahan berhasil disimpan!'),
-                          backgroundColor: Color(0xFF0EAD69),
+                        SnackBar(
+                          content: Text(
+                            status == StatusSimpanProfil.tersinkron
+                                ? 'Perubahan berhasil disimpan!'
+                                : 'Tersimpan di ponsel ini. Akan disamakan '
+                                      'dengan akun Anda saat ada koneksi.',
+                          ),
+                          backgroundColor: const Color(0xFF0EAD69),
                         ),
                       );
                       navigator.pop(true); // Return true to indicate saved data

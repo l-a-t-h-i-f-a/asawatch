@@ -3,14 +3,32 @@ import 'dart:math' as math;
 import 'login_page.dart';
 import 'register_page.dart';
 import 'services/auth_service.dart';
+import 'repositories/profil_repository.dart';
+import 'repositories/sesi_login_repository.dart';
+import 'services/kamera_service.dart';
 
 class WelcomePage extends StatelessWidget {
-  const WelcomePage({super.key, this.auth});
+  const WelcomePage({
+    super.key,
+    this.auth,
+    this.kamera,
+    this.sesiLogin,
+    this.profil,
+  });
 
   /// Diteruskan apa adanya ke [LoginPage] — halaman ini tidak memakainya
   /// sendiri. Pola yang sama dengan `MenghubungkanPerangkatPage` yang menerima
   /// `izin:` semata-mata untuk meneruskannya.
   final AuthService? auth;
+
+  /// Hanya diteruskan — lihat `MyApp.kamera`.
+  final KameraService? kamera;
+
+  /// Hanya diteruskan ke `LoginPage` — lihat `MyApp.sesiLogin`.
+  final SesiLoginRepository? sesiLogin;
+
+  /// Hanya diteruskan ke `LoginPage` — lihat `MyApp.profil`.
+  final ProfilRepository? profil;
 
   @override
   Widget build(BuildContext context) {
@@ -188,7 +206,12 @@ class WelcomePage extends StatelessWidget {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) => const RegisterPage(),
+                                builder: (context) => RegisterPage(
+                                  auth: auth,
+                                  kamera: kamera,
+                                  sesiLogin: sesiLogin,
+                                  profil: profil,
+                                ),
                               ),
                             );
                           },
@@ -219,7 +242,12 @@ class WelcomePage extends StatelessWidget {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) => LoginPage(auth: auth),
+                                builder: (context) => LoginPage(
+                                  auth: auth,
+                                  kamera: kamera,
+                                  sesiLogin: sesiLogin,
+                                  profil: profil,
+                                ),
                               ),
                             );
                           },

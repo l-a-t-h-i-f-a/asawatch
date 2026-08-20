@@ -41,6 +41,20 @@ import 'widgets/timeline_sampel.dart';
 ///    **baseline**, yang sebelumnya hanya terselip di keterangan kecil — sehingga
 ///    ketiganya membaca sebagai satu kalimat kiri ke kanan: mulai dari mana,
 ///    setinggi apa, berapa lama kembali.
+///
+/// **Aturan ketiga itu ternyata baru setengah ditegakkan, dan sisanya dibereskan
+/// kemudian.** Delta masih muncul tiga kali (angka besar, kalimat verdict, baris
+/// kaitan karbo), baseline tiga kali (subjudul kartu hasil, kotak nilai,
+/// keterangan judul kurva), dan jumlah titik dua kali. Halaman terasa
+/// bertele-tele bukan karena bagiannya banyak, melainkan karena tiap angka
+/// diulang sampai pembacanya ragu apakah dua angka yang sama itu memang hal yang
+/// sama. Yang berlaku sekarang: **satu angka, satu tempat**, dan tempatnya
+/// adalah yang paling menonjol — subjudul, keterangan, dan kalimat pendukung
+/// menyebut *apa* angka itu, tidak pernah mengulang *berapa*.
+/// Batas bawah SpO₂ yang masih dianggap wajar. Di bawah ini bentuk kurvanya
+/// mulai berarti, jadi kurvanya ditampilkan.
+const int ambangSpo2Wajar = 95;
+
 class RingkasanSesiPage extends StatelessWidget {
   const RingkasanSesiPage({super.key, required this.sesi});
 
@@ -51,7 +65,6 @@ class RingkasanSesiPage extends StatelessWidget {
     final t0 = sesi.t0;
     final pemulihan = sesi.waktuPemulihan;
     final baseline = sesi.gulaDarahBaseline;
-    final terukur = sesi.sampelTerisi.length;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4FAF7),
@@ -102,9 +115,7 @@ class RingkasanSesiPage extends StatelessWidget {
                       ikon: Icons.trip_origin_rounded,
                       label: 'Baseline',
                       nilai: baseline?.toString() ?? tandaKosong,
-                      satuan: baseline == null
-                          ? 'belum terukur'
-                          : 'mg/dL sebelum makan',
+                      satuan: baseline == null ? 'belum terukur' : 'mg/dL',
                     ),
                     const SizedBox(width: 10),
                     _KotakNilai(
@@ -113,7 +124,7 @@ class RingkasanSesiPage extends StatelessWidget {
                       nilai: sesi.puncakGulaDarah?.toString() ?? tandaKosong,
                       satuan: sesi.sampelPuncak == null
                           ? 'mg/dL'
-                          : 'mg/dL di ${sesi.sampelPuncak!.label.toLowerCase()}',
+                          : 'mg/dL · ${sesi.sampelPuncak!.label.toLowerCase()}',
                     ),
                     const SizedBox(width: 10),
                     _KotakNilai(
@@ -124,20 +135,20 @@ class RingkasanSesiPage extends StatelessWidget {
                           : formatDurasiRingkas(pemulihan),
                       satuan: pemulihan == null
                           ? 'belum kembali'
-                          : 'setelah t0',
+                          : 'sejak selesai makan',
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 28),
 
-              JudulBagian(
+              // Tanpa keterangan: jumlah titik terukur adalah milik "Detail Tiap
+              // Titik" di bawah, dan baseline sudah berdiri sebagai kotak nilai
+              // beberapa piksel di atas — lengkap dengan garis acuannya sendiri
+              // di dalam kurva.
+              const JudulBagian(
                 ikon: ikonGulaDarah,
                 judul: 'Respons Gula Darah',
-                keterangan: [
-                  '$terukur dari ${sesi.sampel.length} titik terukur',
-                  if (baseline != null) 'baseline $baseline mg/dL',
-                ].join(' · '),
               ),
               KurvaSampel(
                 sampel: sesi.sampel,
@@ -147,15 +158,21 @@ class RingkasanSesiPage extends StatelessWidget {
               ),
               const SizedBox(height: 24),
 
+              // Tekanan darah berdiri sejajar dengan gula darah, bukan
+              // terkubur di dalam tabel rincian: keduanya adalah yang berubah
+              // karena makan, dan keduanya yang dipantau orang dengan alasan
+              // medis. SpO₂ menyusul di bawahnya sebagai satu baris — ia diukur
+              // di titik yang sama, tetapi bukan alasan sesi ini dijalankan.
+              _TekananDarahSesi(sesi: sesi),
+
               // Hanya bila jam ini memang punya sensornya **dan** ada angkanya.
               // Kurva kosong berjudul "Oksigen" pada jam tanpa pulse oximeter
               // adalah persis yang §3 protokol larang.
-              _KurvaSpo2(sesi: sesi),
+              _Spo2Sesi(sesi: sesi),
 
               const JudulBagian(
                 ikon: Icons.restaurant_menu_rounded,
                 judul: 'Nutrisi Sesi Ini',
-                keterangan: 'Yang masuk sebelum kurva di atas terbentuk',
               ),
               Container(
                 padding: const EdgeInsets.symmetric(
@@ -173,12 +190,27 @@ class RingkasanSesiPage extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Fotonya berdiri di sini, bukan sebagai jempol 72 px di
+                    // kepala halaman.
+                    //
+                    // Seluruh angka di kartu ini adalah **perkiraan dari foto
+                    // itu**, dan baris di bawahnya menyebut seberapa yakin
+                    // perkiraannya. "Keyakinan 82%" tidak bisa dinilai siapa pun
+                    // tanpa melihat apa yang dilihat detektornya: porsi yang
+                    // jelas meleset baru kelihatan meleset ketika piringnya ada
+                    // di layar yang sama. Di kepala halaman ia hanya menandai
+                    // sesi yang mana — dan itu sudah dikerjakan oleh nama
+                    // makanan tepat di sebelahnya.
+                    FotoMakanan(
+                      fotoPath: sesi.fotoPath,
+                      lebar: double.infinity,
+                      tinggi: 150,
+                    ),
+                    const SizedBox(height: 14),
                     RingkasanNutrisi(hasil: sesi.hasil),
                     if (sesi.hasil != null) ...[
-                      const SizedBox(height: 16),
-                      _KaitanKarbo(sesi: sesi),
-                      const SizedBox(height: 12),
-                      _CatatanKeyakinan(hasil: sesi.hasil!),
+                      const SizedBox(height: 14),
+                      _CatatanMakanan(hasil: sesi.hasil!),
                     ],
                   ],
                 ),
@@ -193,7 +225,6 @@ class RingkasanSesiPage extends StatelessWidget {
               const JudulBagian(
                 ikon: Icons.insights_rounded,
                 judul: 'Telusuri Metrik',
-                keterangan: 'Bandingkan sesi ini dengan sesi lain',
               ),
               _PintuMetrik(sesi: sesi),
               const SizedBox(height: 24),
@@ -219,53 +250,50 @@ class _KepalaSesi extends StatelessWidget {
   Widget build(BuildContext context) {
     final t0 = sesi.t0;
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
+    // Tanpa foto: fotonya turun ke kartu nutrisi, di samping angka-angka yang
+    // diperkirakan darinya, dan tidak ditampilkan dua kali di satu halaman.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        FotoMakanan(fotoPath: sesi.fotoPath, lebar: 56, tinggi: 56, radius: 18),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                sesi.hasil?.ringkasanNama ?? 'Makanan',
+        Text(
+          sesi.hasil?.ringkasanNama ?? 'Makanan',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF1E3A34),
+          ),
+        ),
+        const SizedBox(height: 5),
+        Row(
+          children: [
+            Icon(
+              ikonWaktuMakan(sesi.waktuMakan),
+              size: 13,
+              color: const Color(0xFF8FA7A1),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                // "Makan Siang" tidak ikut ditulis di samping "12.40",
+                // karena ia **diturunkan dari jam itu** (`waktuMakan` di
+                // sesi_makan.dart): pukul 12.40 justru sebabnya disebut
+                // makan siang. Label itu baru membawa keterangan baru
+                // ketika jam pastinya tidak diketahui — dan di situlah ia
+                // satu-satunya yang bisa dikatakan.
+                sesi.waktuTidakPasti
+                    ? sesi.labelWaktuMakan
+                    : t0 == null
+                    ? '${formatTanggal(sesi.waktuFoto)} · '
+                          '${sesi.labelWaktuMakan}'
+                    : '${formatJam(t0)} · ${formatWaktuRelatif(t0)}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1E3A34),
-                ),
+                style: const TextStyle(fontSize: 12, color: Color(0xFF7E9A94)),
               ),
-              const SizedBox(height: 5),
-              Row(
-                children: [
-                  Icon(
-                    ikonWaktuMakan(sesi.waktuMakan),
-                    size: 13,
-                    color: const Color(0xFF8FA7A1),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      t0 == null
-                          ? formatTanggal(sesi.waktuFoto)
-                          : '${formatJam(t0)} · '
-                                '${formatWaktuRelatif(t0)} · '
-                                '${sesi.labelWaktuMakan}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF7E9A94),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ],
     );
@@ -286,7 +314,6 @@ class _KartuHasil extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final delta = sesi.deltaPuncak;
-    final baseline = sesi.gulaDarahBaseline;
     final warna = warnaKualitas(sesi.kualitasRespons);
     final aktif = sesi.status.sedangAktif;
     final jadwal = sesi.jadwalBerikutnya;
@@ -342,11 +369,12 @@ class _KartuHasil extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 2),
-            Text(
-              baseline == null
-                  ? 'kenaikan puncak dari baseline'
-                  : 'kenaikan puncak dari baseline $baseline mg/dL',
-              style: const TextStyle(fontSize: 11.5, color: Color(0xFF6B807B)),
+            // Angkanya tidak diulang: baseline berdiri sebagai kotak nilai
+            // sendiri tepat di bawah kartu ini. Kalimat ini hanya menerangkan
+            // **apa** angka besar di atasnya, bukan menyebut ulang berapa.
+            const Text(
+              'kenaikan puncak dari baseline',
+              style: TextStyle(fontSize: 11.5, color: Color(0xFF6B807B)),
             ),
           ] else ...[
             Row(
@@ -365,15 +393,25 @@ class _KartuHasil extends StatelessWidget {
             ),
           ],
 
-          const SizedBox(height: 14),
-          Text(
-            sesi.verdict,
-            style: const TextStyle(
-              fontSize: 13,
-              color: Color(0xFF1E3A34),
-              height: 1.45,
+          // Verdict hanya dipasang bila angkanya **tidak** ada.
+          //
+          // Kalimatnya berbunyi "puncak +50 mg/dL · belum kembali ke baseline
+          // dalam 2 jam" — persis angka 46 px di atasnya ditambah persis isi
+          // kotak Pemulihan di bawahnya. Di sesi yang sudah punya hasil ia tidak
+          // menambahkan satu fakta pun, hanya mengucapkannya untuk kedua kali.
+          // Di sesi yang belum punya hasil ia satu-satunya yang bercerita, jadi
+          // di sanalah ia tinggal.
+          if (!adaAngka) ...[
+            const SizedBox(height: 14),
+            Text(
+              sesi.verdict,
+              style: const TextStyle(
+                fontSize: 13,
+                color: Color(0xFF1E3A34),
+                height: 1.45,
+              ),
             ),
-          ),
+          ],
 
           // Sesi yang masih berjalan tidak berpura-pura sudah punya hasil:
           // yang ditawarkan adalah jalan kembali ke layar sesi berjalan.
@@ -441,14 +479,20 @@ class _KartuHasil extends StatelessWidget {
   }
 }
 
-/// Kurva SpO2 satu sesi.
+/// Tekanan darah satu sesi — kurva sistolik dan diastolik.
 ///
-/// Terpisah jadi widget sendiri semata-mata karena ia perlu membaca kemampuan
-/// jam dari controller, sementara [RingkasanSesiPage] sengaja tetap menerima
-/// [SesiMakan] lewat konstruktor — halaman ini dipakai untuk sesi lama di
-/// riwayat, bukan hanya sesi terbaru.
-class _KurvaSpo2 extends StatelessWidget {
-  const _KurvaSpo2({required this.sesi});
+/// **Bagian ini sebelumnya tidak ada sama sekali**, padahal tekanan darah diukur
+/// di keempat titik yang sama dan ikut tersimpan sejak Tahap A. Satu-satunya
+/// tempatnya muncul adalah sel di tabel rincian yang terlipat, dan pintu ke
+/// halaman detail — dua tempat yang keduanya menuntut ketukan lebih dulu.
+/// Sementara itu SpO₂, yang pada sesi sehat tidak bergerak, mendapat judul dan
+/// kurva penuh. Urutan penekanannya terbalik dari alasan orang membuka aplikasi
+/// ini.
+///
+/// Keterangannya menyebut yang **tertinggi**, dengan alasan cermin dari SpO₂:
+/// di sana yang berarti adalah titik terendah, di sini titik tertinggi.
+class _TekananDarahSesi extends StatelessWidget {
+  const _TekananDarahSesi({required this.sesi});
 
   final SesiMakan sesi;
 
@@ -458,19 +502,88 @@ class _KurvaSpo2 extends StatelessWidget {
         .watch<SesiMakanController>()
         .statusPerangkat
         .metrikTampil;
-    final ada = sesi.sampel.any((s) => s.terisi && s.spo2 != null);
 
-    // Dua syarat, dan keduanya perlu. Tanpa sensor: bagian ini tidak boleh ada
-    // sama sekali. Dengan sensor tetapi tanpa angka: ia hanya akan menampilkan
-    // "Belum ada sampel" di bawah judul yang menjanjikan grafik — sementara
-    // ketiadaan angkanya sudah terbaca di detail tiap titik.
-    if (!kemampuan.spo2 || !ada) return const SizedBox.shrink();
+    final terisi = [
+      for (final s in sesi.sampel)
+        if (s.terisi && s.sistolik != null && s.diastolik != null) s,
+    ];
+    if (!kemampuan.tekananDarah || terisi.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final puncak = terisi.reduce((a, b) => b.sistolik! > a.sistolik! ? b : a);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        JudulBagian(
+          ikon: ikonTekananDarah,
+          judul: 'Tekanan Darah',
+          keterangan:
+              'Tertinggi ${puncak.tekananDarah} mmHg '
+              'di ${puncak.label.toLowerCase()}',
+        ),
+        KurvaSampel(
+          sampel: sesi.sampel,
+          seri: const [seriSistolik, seriDiastolik],
+          pesanKosong: 'Belum ada sampel tekanan darah',
+        ),
+        const SizedBox(height: 24),
+      ],
+    );
+  }
+}
+
+/// SpO₂ satu sesi: satu baris bila wajar, kurva penuh bila tidak.
+///
+/// **Kurvanya dulu selalu digambar, dan itu seperempat halaman untuk garis yang
+/// sengaja kami ratakan sendiri.** `seriSpo2.rentangMinimum` bernilai 8 justru
+/// supaya SpO₂ 96–98 tidak terlihat bergelombang — sehat memang berarti datar.
+/// Jadi bagian itu memakai satu judul, satu keterangan, dan kurva 170 px untuk
+/// menggambar bentuk yang sudah diputuskan tidak boleh bercerita apa-apa.
+///
+/// Sekarang bentuknya baru ditampilkan ketika bentuk itu berarti: satu saja
+/// pembacaan di bawah [ambangSpo2Wajar] dan seluruh bagian lamanya kembali,
+/// lengkap dengan kurvanya, karena yang ingin dilihat di sana adalah **kapan**
+/// turunnya dan seberapa lama. Selebihnya cukup satu baris.
+///
+/// Yang tidak berubah: jam tanpa sensor SpO₂ tidak menampilkan apa pun (§3),
+/// bukan baris berisi `—`.
+class _Spo2Sesi extends StatelessWidget {
+  const _Spo2Sesi({required this.sesi});
+
+  final SesiMakan sesi;
+
+  @override
+  Widget build(BuildContext context) {
+    final kemampuan = context
+        .watch<SesiMakanController>()
+        .statusPerangkat
+        .metrikTampil;
 
     final nilai = [
       for (final s in sesi.sampel)
         if (s.terisi && s.spo2 != null) s.spo2!,
     ];
+    if (!kemampuan.spo2 || nilai.isEmpty) return const SizedBox.shrink();
+
     final terendah = nilai.reduce((a, b) => a < b ? a : b);
+    final tertinggi = nilai.reduce((a, b) => a > b ? a : b);
+
+    if (terendah >= ambangSpo2Wajar) {
+      final rentang = terendah == tertinggi
+          ? '$terendah%'
+          : '$terendah–$tertinggi%';
+      return Column(
+        children: [
+          _BarisCatatan(
+            ikon: Icons.air_rounded,
+            teks: 'Oksigen darah $rentang sepanjang sesi · dalam rentang wajar',
+          ),
+          const SizedBox(height: 24),
+        ],
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -490,6 +603,45 @@ class _KurvaSpo2 extends StatelessWidget {
         ),
         const SizedBox(height: 24),
       ],
+    );
+  }
+}
+
+/// Satu baris berlatar tipis dengan ikon — bentuk yang dipakai catatan yang
+/// tidak cukup penting untuk menjadi bagian sendiri, tetapi terlalu penting
+/// untuk dihilangkan.
+class _BarisCatatan extends StatelessWidget {
+  const _BarisCatatan({required this.ikon, required this.teks});
+
+  final IconData ikon;
+  final String teks;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
+      ),
+      child: Row(
+        children: [
+          Icon(ikon, size: 16, color: const Color(0xFF0EAD69)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              teks,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF1E3A34),
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -547,18 +699,27 @@ class _KotakNilai extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 4),
-            Text(
-              nilai,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 21,
-                fontWeight: FontWeight.bold,
-                height: 1.1,
-                // Angka yang belum ada tidak boleh sepekat angka yang ada:
-                // tiga kotak dengan `—` sehitam angkanya membuat halaman
-                // terlihat penuh data padahal kosong.
-                color: ada ? const Color(0xFF1E3A34) : const Color(0xFF9CB1AC),
+            // Dikecilkan bila perlu, tidak pernah dipotong. Nilai pemulihan
+            // ditulis dengan satuan ("1 jam 30 menit", "0 menit"), jadi pada
+            // sepertiga lebar layar ia melewati batas kotaknya dan berakhir
+            // sebagai "0 me…" — potongan yang menyembunyikan justru angkanya.
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                nilai,
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: 21,
+                  fontWeight: FontWeight.bold,
+                  height: 1.1,
+                  // Angka yang belum ada tidak boleh sepekat angka yang ada:
+                  // tiga kotak dengan `—` sehitam angkanya membuat halaman
+                  // terlihat penuh data padahal kosong.
+                  color: ada
+                      ? const Color(0xFF1E3A34)
+                      : const Color(0xFF9CB1AC),
+                ),
               ),
             ),
             const SizedBox(height: 3),
@@ -642,148 +803,190 @@ class _DetailTitikState extends State<_DetailTitik> {
           ),
         ),
         if (_terbuka)
-          for (final s in sesi.sampel)
-            _KartuSampel(
-              sampel: s,
-              t0: widget.t0,
-              kemampuan: context
-                  .watch<SesiMakanController>()
-                  .statusPerangkat
-                  .metrikTampil,
-            ),
+          _TabelTitik(
+            sampel: sesi.sampel,
+            t0: widget.t0,
+            kemampuan: context
+                .watch<SesiMakanController>()
+                .statusPerangkat
+                .metrikTampil,
+          ),
       ],
     );
   }
 }
 
-/// Satu titik pengukuran beserta seluruh metriknya. Metrik yang tidak
-/// berhasil diukur ditulis `—` (§8).
-class _KartuSampel extends StatelessWidget {
-  const _KartuSampel({
+/// Seluruh titik pengukuran sebagai satu tabel, bukan satu kartu per titik.
+///
+/// Bentuk lamanya adalah empat kartu bertumpuk, masing-masing dengan bingkai,
+/// bantalan, judul, dan empat metrik yang menuliskan satuannya sendiri. Untuk 16
+/// angka itu berarti empat bingkai, empat baris keterangan waktu yang isinya
+/// hampir sama, dan satuan yang ditulis empat kali — "mg/dL" muncul empat kali
+/// untuk empat angka yang sudah jelas semuanya gula darah.
+///
+/// Sebagai tabel, tiap hal ditulis sekali di tempat yang benar: nama metrik dan
+/// satuannya di kepala kolom, waktu di sisi kiri barisnya, angka di dalam sel.
+/// Yang paling dicari di sini — membandingkan satu metrik antar titik —
+/// akhirnya menjadi gerakan mata lurus ke bawah, bukan melompati empat kartu.
+///
+/// Aturan §3 tidak berubah, hanya berpindah tempat: kolom untuk sensor yang
+/// tidak dimiliki jam **dihapus seluruhnya**, kecuali bila ada angka tersimpan
+/// di dalamnya — sesi lama bisa saja diukur jam lain, dan menyembunyikan angka
+/// sungguhan adalah kerugian yang pasti. Sel kosong tetap `—`, yang berarti
+/// "diukur tetapi gagal".
+class _TabelTitik extends StatelessWidget {
+  const _TabelTitik({
     required this.sampel,
     required this.t0,
     required this.kemampuan,
   });
 
-  final KemampuanPerangkat kemampuan;
-
-  final Sampel sampel;
+  final List<Sampel> sampel;
   final DateTime? t0;
+  final KemampuanPerangkat kemampuan;
 
   @override
   Widget build(BuildContext context) {
-    final waktu = t0 == null ? null : sampel.waktuUkur(t0!);
-    final terlewat = sampel.status == StatusSampel.terlewat;
+    // Detak jantung tidak punya bit kemampuan di §3, jadi selalu ada.
+    final kolom =
+        <({String nama, String satuan, String? Function(Sampel) ambil})>[
+          (
+            nama: 'Gula',
+            satuan: 'mg/dL',
+            ambil: (s) => s.gulaDarah?.toString(),
+          ),
+          (
+            nama: 'Jantung',
+            satuan: 'bpm',
+            ambil: (s) => s.detakJantung?.toString(),
+          ),
+          (nama: 'Tekanan', satuan: 'mmHg', ambil: (s) => s.tekananDarah),
+          (nama: 'SpO₂', satuan: '%', ambil: (s) => s.spo2?.toString()),
+        ];
+    final didukung = {
+      'Gula': kemampuan.gulaDarah,
+      'Jantung': true,
+      'Tekanan': kemampuan.tekananDarah,
+      'SpO₂': kemampuan.spo2,
+    };
+    final tampil = [
+      for (final k in kolom)
+        if (didukung[k.nama]! || sampel.any((s) => k.ambil(s) != null)) k,
+    ];
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2EBE8), width: 1.2),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Expanded(
-                child: Text(
-                  sampel.label,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1E3A34),
+              const SizedBox(width: _lebarKiri),
+              for (final k in tampil)
+                Expanded(
+                  child: Column(
+                    children: [
+                      Text(
+                        k.nama,
+                        maxLines: 1,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF6B807B),
+                        ),
+                      ),
+                      Text(
+                        k.satuan,
+                        maxLines: 1,
+                        style: const TextStyle(
+                          fontSize: 8.5,
+                          color: Color(0xFF9CB1AC),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-              Text(
-                [
-                  if (waktu != null) formatJam(waktu),
-                  if (waktu != null) formatWaktuRelatif(waktu),
-                  if (terlewat) 'terlewat',
-                  if (sampel.dariBuffer) 'dari buffer',
-                ].join(' · '),
-                style: TextStyle(
-                  fontSize: 10,
-                  color: terlewat ? Colors.red : const Color(0xFF8FA7A1),
-                ),
-              ),
             ],
           ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              // `didukung` menentukan apakah metriknya ada di layar sama
-              // sekali; `nilai` menentukan `—` atau angkanya (§3 vs §5.2).
-              _metrik(
-                'Gula',
-                sampel.gulaDarah?.toString(),
-                'mg/dL',
-                didukung: kemampuan.gulaDarah,
-              ),
-              // Detak jantung tidak punya bit kemampuan di §3.
-              _metrik('Jantung', sampel.detakJantung?.toString(), 'bpm'),
-              _metrik(
-                'Tekanan',
-                sampel.tekananDarah,
-                'mmHg',
-                didukung: kemampuan.tekananDarah,
-              ),
-              _metrik(
-                'SpO₂',
-                sampel.spo2?.toString(),
-                '%',
-                didukung: kemampuan.spo2,
-              ),
-            ],
-          ),
+          const SizedBox(height: 8),
+          const Divider(height: 1, thickness: 1, color: Color(0xFFE2EBE8)),
+          for (final s in sampel) _baris(s, tampil),
         ],
       ),
     );
   }
 
-  /// Satu metrik di kartu titik ukur.
-  ///
-  /// [didukung] false berarti jam ini **tidak punya sensornya**, dan metriknya
-  /// hilang dari layar — bukan ditulis `—`, yang berarti "diukur tetapi gagal"
-  /// dan mengundang orang mencoba lagi untuk sensor yang tidak ada (§3).
-  ///
-  /// Satu pengecualian yang tidak boleh dilewatkan: **angka yang sudah ada tetap
-  /// ditampilkan** meski `didukung` false. Sesi lama di riwayat bisa saja diukur
-  /// jam lain, dan menyembunyikan angka sungguhan yang tersimpan di basis data
-  /// adalah kerugian yang pasti — jauh lebih buruk daripada satu kolom yang
-  /// seharusnya tidak ada.
-  Widget _metrik(
-    String label,
-    String? nilai,
-    String satuan, {
-    bool didukung = true,
-  }) {
-    final ada = nilai != null;
-    if (!didukung && !ada) return const SizedBox.shrink();
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  static const double _lebarKiri = 86;
+
+  Widget _baris(
+    Sampel s,
+    List<({String nama, String satuan, String? Function(Sampel) ambil})> kolom,
+  ) {
+    final waktu = t0 == null ? null : s.waktuUkur(t0!);
+    final terlewat = s.status == StatusSampel.terlewat;
+
+    // Waktu relatif ("2 hari lalu") sengaja tidak ikut: ia sama untuk keempat
+    // baris, dan sudah tertulis satu kali di kepala halaman.
+    final catatan = [
+      if (waktu != null) formatJam(waktu),
+      if (terlewat) 'terlewat',
+      if (s.dariBuffer) 'dari buffer',
+    ].join(' · ');
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Text(
-            label,
-            style: const TextStyle(fontSize: 10, color: Color(0xFF8FA7A1)),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            ada ? nilai : tandaKosong,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: ada ? const Color(0xFF1E3A34) : const Color(0xFF9CB1AC),
+          SizedBox(
+            width: _lebarKiri,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  s.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1E3A34),
+                  ),
+                ),
+                if (catatan.isNotEmpty)
+                  Text(
+                    catatan,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      color: terlewat
+                          ? const Color(0xFFC0392B)
+                          : const Color(0xFF9CB1AC),
+                    ),
+                  ),
+              ],
             ),
           ),
-          if (ada)
-            Text(
-              satuan,
-              style: const TextStyle(fontSize: 9, color: Color(0xFF9CB1AC)),
+          for (final k in kolom)
+            Expanded(
+              child: Center(
+                child: Text(
+                  k.ambil(s) ?? tandaKosong,
+                  maxLines: 1,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: k.ambil(s) == null
+                        ? const Color(0xFF9CB1AC)
+                        : const Color(0xFF1E3A34),
+                  ),
+                ),
+              ),
             ),
         ],
       ),
@@ -791,26 +994,31 @@ class _KartuSampel extends StatelessWidget {
   }
 }
 
-/// Kalimat yang menyambungkan karbohidrat yang masuk dengan lonjakan yang
-/// terjadi — inti nilai aplikasi ini (§2), yang sebelumnya harus disimpulkan
-/// sendiri oleh user dari dua bagian layar yang berjauhan.
-class _KaitanKarbo extends StatelessWidget {
-  const _KaitanKarbo({required this.sesi});
+/// Satu baris fakta tentang makanannya — karbohidrat, indeks glikemik, dan
+/// seberapa yakin deteksinya.
+///
+/// Menggantikan dua blok bertumpuk (`_KaitanKarbo` dan `_CatatanKeyakinan`) yang
+/// bersama-sama memakan empat baris untuk tiga angka. Yang **sengaja hilang**
+/// dari kalimat lamanya adalah panah "45 g karbohidrat → puncak +50 mg/dL": itu
+/// penyebutan ketiga untuk delta yang sudah menjadi angka 46 px di kartu paling
+/// atas halaman ini. Yang tersisa hanya hal yang belum dikatakan di tempat lain.
+///
+/// Keyakinan deteksi tetap disebut apa adanya karena ia menentukan apakah sesi
+/// ini ikut diplot di Analisis (§4.3).
+class _CatatanMakanan extends StatelessWidget {
+  const _CatatanMakanan({required this.hasil});
 
-  final SesiMakan sesi;
+  final HasilDeteksi hasil;
 
   @override
   Widget build(BuildContext context) {
-    final hasil = sesi.hasil;
-    final delta = sesi.deltaPuncak;
-    if (hasil == null) return const SizedBox.shrink();
-
-    final karbo = formatAngka(hasil.total.karbohidrat);
-    final teks = delta == null
-        ? '$karbo g karbohidrat · responsnya belum bisa dinilai'
-        : '$karbo g karbohidrat → puncak '
-              '${delta >= 0 ? '+' : ''}$delta mg/dL '
-              '(indeks glikemik ${hasil.indeksGlikemikPerkiraan})';
+    final bagian = [
+      '${formatAngka(hasil.total.karbohidrat)} g karbohidrat',
+      'indeks glikemik ${hasil.indeksGlikemikPerkiraan}',
+      hasil.dikoreksiUser
+          ? 'porsi dikoreksi'
+          : 'keyakinan ${(hasil.keyakinan * 100).round()}%',
+    ];
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -820,17 +1028,19 @@ class _KaitanKarbo extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.compare_arrows_rounded,
+          Icon(
+            hasil.dikoreksiUser
+                ? Icons.edit_note_rounded
+                : Icons.auto_awesome_rounded,
             size: 16,
-            color: Color(0xFF0EAD69),
+            color: const Color(0xFF0EAD69),
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              teks,
+              bagian.join(' · '),
               style: const TextStyle(
-                fontSize: 12,
+                fontSize: 11.5,
                 color: Color(0xFF1E3A34),
                 height: 1.3,
               ),
@@ -838,41 +1048,6 @@ class _KaitanKarbo extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-/// Keyakinan deteksi menentukan apakah sesi ini ikut diplot di Analisis
-/// (§4.3), jadi ditampilkan apa adanya.
-class _CatatanKeyakinan extends StatelessWidget {
-  const _CatatanKeyakinan({required this.hasil});
-
-  final HasilDeteksi hasil;
-
-  @override
-  Widget build(BuildContext context) {
-    final persen = (hasil.keyakinan * 100).round();
-    final teks = hasil.dikoreksiUser
-        ? 'Porsi sudah dikoreksi user'
-        : 'Keyakinan deteksi $persen%';
-
-    return Row(
-      children: [
-        Icon(
-          hasil.dikoreksiUser
-              ? Icons.edit_note_rounded
-              : Icons.auto_awesome_rounded,
-          size: 16,
-          color: const Color(0xFF0EAD69),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            teks,
-            style: const TextStyle(fontSize: 11, color: Color(0xFF6B807B)),
-          ),
-        ),
-      ],
     );
   }
 }

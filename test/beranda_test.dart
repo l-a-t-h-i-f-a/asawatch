@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:asawatch/beranda_tab.dart';
 import 'package:asawatch/models/contoh_sesi.dart';
+import 'package:asawatch/widgets/timeline_sampel.dart';
 import 'package:asawatch/widgets/tombol_sinkron.dart';
 
 import 'helpers.dart';
@@ -38,8 +39,35 @@ void main() {
       expect(find.text('Puncak Gula Darah'), findsOneWidget);
       expect(find.textContaining('Jam tersambung'), findsOneWidget);
 
-      // Target harian dipakai sebagai pembanding, bukan angka telanjang.
-      expect(find.textContaining('/ 2000 kcal'), findsOneWidget);
+      // Yang ditampilkan hanya yang benar-benar diketahui: jumlah hari ini,
+      // tanpa penyebut. `TargetHarian.bawaan` dihapus — 2000 kcal tidak pernah
+      // dipilih siapa pun, dan sebuah bar yang mengukur terhadapnya menggambar
+      // pecahan yang tidak berarti apa-apa.
+      expect(find.text('kcal hari ini'), findsOneWidget);
+      expect(find.textContaining('/ 2000'), findsNothing);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+    });
+
+    // Ajakan memfoto dulu hanya muncul pada instalasi yang riwayatnya kosong,
+    // jadi ia hilang selamanya setelah sesi pertama — padahal petunjuk memulai
+    // sesi dibutuhkan tiap pagi.
+    testWidgets('hari yang belum ada sesinya mengajak memotret', (tester) async {
+      final c = buatControllerUji(
+        riwayatAwal: contohRiwayatSesi(
+          sekarang: DateTime.now().subtract(const Duration(days: 3)),
+        ),
+      );
+      await pumpHalaman(
+        tester,
+        const Scaffold(body: BerandaTab()),
+        controller: c,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Belum ada sesi hari ini'), findsOneWidget);
+      expect(find.textContaining('tombol kamera'), findsOneWidget);
+      // Riwayatnya tetap ada, jadi kartu sesi terakhir tidak ikut hilang.
+      expect(find.text('Sesi Terakhir'), findsOneWidget);
     });
 
     testWidgets('tidak lagi menampilkan kartu vital "sekarang"', (tester) async {
@@ -64,8 +92,11 @@ void main() {
       await pumpHalaman(tester, const Scaffold(body: BerandaTab()));
       await tester.pumpAndSettle();
 
-      expect(find.text('Belum ada sesi'), findsOneWidget);
+      expect(find.text('Belum ada sesi hari ini'), findsOneWidget);
       expect(find.text('belum ada sesi'), findsOneWidget); // penghitung sesi
+      // Satu ajakan saja: kartu kosong "Sesi Terakhir" yang dulu berdiri di
+      // bawahnya mengatakan hal yang sama untuk kedua kalinya.
+      expect(find.text('Sesi Terakhir'), findsNothing);
       // Satu titik bukan tren: sparkline tidak digambar.
       expect(find.text('Puncak Gula Darah'), findsNothing);
     });
@@ -90,6 +121,51 @@ void main() {
       // Isi wajah idle menyingkir selama sesi berjalan.
       expect(find.text('Ringkasan Hari Ini'), findsNothing);
       expect(find.text('Sesi Terakhir'), findsNothing);
+
+      await hentikanSesi(tester, c);
+    });
+
+    // Hierarki wajah B: hitung mundur ke titik berikutnya adalah satu-satunya
+    // hal di kartu ini yang berubah tiap detik dan satu-satunya yang menentukan
+    // kapan pengguna harus bertindak. Sebelum redesain ia 14 px di ujung salah
+    // satu dari empat baris seragam.
+    testWidgets('hitung mundur titik berikutnya jadi angka terbesar kartu', (
+      tester,
+    ) async {
+      final c = buatControllerUji();
+      await pumpHalaman(
+        tester,
+        const Scaffold(body: BerandaTab()),
+        controller: c,
+      );
+
+      await c.mulaiDraft(contohFotoPath);
+      await tester.pump(const Duration(milliseconds: 50));
+      // Draft belum punya hero: yang ditunggu sebuah tombol, bukan waktu.
+      expect(find.text('TITIK BERIKUTNYA'), findsNothing);
+
+      await tekanTombolJam(tester, c);
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.text('TITIK BERIKUTNYA'), findsOneWidget);
+
+      double terbesar(Finder f) => tester
+          .widgetList<Text>(f)
+          .map((t) => t.style?.fontSize ?? 0)
+          .fold<double>(0, (a, b) => a > b ? a : b);
+
+      // Dua HitungMundur dirender: hero di atas dan baris timeline-nya. Yang
+      // dijaga di sini yang hero — dan bahwa tidak ada teks lain di halaman ini
+      // yang menandinginya.
+      final hitungMundur = terbesar(
+        find.descendant(
+          of: find.byType(HitungMundur),
+          matching: find.byType(Text),
+        ),
+      );
+
+      expect(hitungMundur, greaterThanOrEqualTo(30));
+      expect(terbesar(find.byType(Text)), hitungMundur);
 
       await hentikanSesi(tester, c);
     });

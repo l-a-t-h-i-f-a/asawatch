@@ -11,7 +11,20 @@ import 'tujuan_kesehatan_page.dart';
 import 'repositories/profil_repository.dart';
 
 class ProfilTab extends StatefulWidget {
-  const ProfilTab({super.key});
+  const ProfilTab({
+    super.key,
+    this.onKeluar,
+    this.profil = const ProfilRepository(),
+  });
+
+  /// Pintu ke profil; diteruskan apa adanya ke `InformasiPribadiPage`. Lihat
+  /// `InformasiPribadiPage.profil`.
+  final ProfilRepository profil;
+
+  /// Dijalankan sebelum kembali ke halaman sambutan: mencabut token di server
+  /// dan menghapus salinannya di perangkat. Dirakit `MyHomePage`, karena di
+  /// sanalah `AuthService` dan penyimpanan sesinya hidup.
+  final Future<void> Function()? onKeluar;
 
   @override
   State<ProfilTab> createState() => _ProfilTabState();
@@ -21,6 +34,62 @@ class _ProfilTabState extends State<ProfilTab> {
   Profil _profil = Profil.kosong;
   bool _isLoading = true;
 
+  /// Keluar selalu ditanya dulu.
+  ///
+  /// Bukan karena datanya hilang — sesi makan tersimpan di ponsel dan tetap ada
+  /// setelah masuk lagi — melainkan karena masuk kembali menuntut mengetik
+  /// email dan kata sandi, dan tombolnya duduk tepat di bawah menu yang sering
+  /// disentuh.
+  Future<void> _konfirmasiKeluar() async {
+    final navigator = Navigator.of(context);
+    final ya = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Keluar dari akun?',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF1E3A34),
+          ),
+        ),
+        content: const Text(
+          'Anda perlu memasukkan email dan kata sandi lagi untuk masuk. '
+          'Riwayat sesi yang tersimpan di ponsel ini tidak dihapus.',
+          style: TextStyle(fontSize: 13, color: Color(0xFF6B807B)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text(
+              'Batal',
+              style: TextStyle(
+                color: Color(0xFF6B807B),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(
+              'Keluar',
+              style: TextStyle(
+                color: Colors.redAccent,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (ya != true) return;
+
+    await widget.onKeluar?.call();
+    navigator.pushNamedAndRemoveUntil('/welcome', (route) => false);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -28,7 +97,11 @@ class _ProfilTabState extends State<ProfilTab> {
   }
 
   Future<void> _loadProfileData() async {
-    final profil = await const ProfilRepository().muat();
+    // Sengaja salinan lokal saja: tab ini dibangun bersama seluruh tab lain
+    // saat shell dipasang (IndexedStack membangun semuanya), dan menarik
+    // jaringan di situ berarti setiap pembukaan aplikasi menunggu server.
+    // Penyamaan dengan server terjadi di halaman Informasi Pribadi.
+    final profil = await widget.profil.muat();
     if (!mounted) return;
     setState(() {
       _profil = profil;
@@ -157,7 +230,8 @@ class _ProfilTabState extends State<ProfilTab> {
                       final updated = await Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => const InformasiPribadiPage(),
+                          builder: (context) =>
+                              InformasiPribadiPage(profil: widget.profil),
                         ),
                       );
                       if (updated == true) {
@@ -229,12 +303,7 @@ class _ProfilTabState extends State<ProfilTab> {
                     icon: Icons.logout_rounded,
                     title: 'Keluar',
                     color: Colors.redAccent,
-                    onTap: () {
-                      // Logout to Welcome Page
-                      Navigator.of(
-                        context,
-                      ).pushNamedAndRemoveUntil('/welcome', (route) => false);
-                    },
+                    onTap: _konfirmasiKeluar,
                   ),
                   const SizedBox(height: 24),
                 ],

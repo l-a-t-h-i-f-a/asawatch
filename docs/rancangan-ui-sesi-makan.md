@@ -290,8 +290,9 @@ Ini restrukturisasi arsitektur informasi, **bukan** redesign visual.
    ([lib/services/](../lib/services/)) disediakan lewat satu `ChangeNotifierProvider` di
    [main.dart](../lib/main.dart); tombol tengah sudah kontekstual (§6); shutter kamera membuat
    sesi draft (kartu hasil yang bisa diedit tetap menunggu langkah 6); target kalori/karbohidrat
-   sementara memakai [lib/models/target_harian.dart](../lib/models/target_harian.dart) sampai
-   Tujuan Kesehatan disambungkan (§4.6). `MiniSparklinePainter` sudah data-driven.
+   sempat memakai `lib/models/target_harian.dart`, yang kemudian **dihapus** — angka bawaannya
+   tidak pernah dipilih pengguna, jadi ringkasan harian sekarang menampilkan jumlah tanpa
+   pembanding sampai Tujuan Kesehatan disambungkan (§4.6). `MiniSparklinePainter` sudah data-driven.
 3. ~~Riwayat berbasis sesi (`RiwayatItem` → `SesiMakan`)~~ **selesai** — `RiwayatItem` dihapus;
    daftar membaca `SesiMakanController.riwayat`, dikelompokkan per tanggal, dan tiap entri
    membuka `RingkasanSesiPage`. Waktu makan dan kualitas respons diturunkan di

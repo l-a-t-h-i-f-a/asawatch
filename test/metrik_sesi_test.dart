@@ -108,11 +108,94 @@ void main() {
     });
   });
 
-  group('Kurva SpO₂ di ringkasan sesi', () {
-    testWidgets('digambar saat jam punya sensornya dan ada angkanya', (
+  // Tekanan darah diukur di keempat titik yang sama dan tersimpan sejak Tahap A,
+  // tetapi ringkasan sesi tidak pernah menggambarnya — satu-satunya tempatnya
+  // muncul adalah sel di tabel rincian yang terlipat. SpO₂, yang pada sesi sehat
+  // tidak bergerak, justru mendapat judul dan kurva penuh.
+  group('Tekanan darah di ringkasan sesi', () {
+    testWidgets('digambar sejajar dengan gula darah', (tester) async {
+      await pumpHalaman(tester, RingkasanSesiPage(sesi: _sesiLengkap()));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.text('Tekanan Darah'), findsOneWidget);
+      // Yang **tertinggi**, cermin dari SpO₂ yang menyebut yang terendah.
+      expect(find.textContaining('Tertinggi'), findsOneWidget);
+
+      final kurva = tester
+          .widgetList<KurvaSampel>(find.byType(KurvaSampel))
+          .where((k) => k.seri.contains(seriSistolik));
+      expect(kurva, hasLength(1));
+    });
+
+    testWidgets('tidak ada bagiannya bila jam tidak punya sensornya', (
       tester,
     ) async {
+      final c = buatControllerUji(
+        ble: FakeBleService(
+          percepatan: 3600,
+          otomatisSelesaiMakan: null,
+          kemampuan: const KemampuanPerangkat(
+            gulaDarah: true,
+            tekananDarah: false,
+            spo2: true,
+          ),
+        ),
+      );
+      await pumpHalaman(
+        tester,
+        RingkasanSesiPage(sesi: _sesiLengkap()),
+        controller: c,
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.text('Tekanan Darah'), findsNothing);
+    });
+  });
+
+  group('SpO₂ di ringkasan sesi', () {
+    // Sehat berarti datar, dan `seriSpo2.rentangMinimum` ada justru supaya
+    // 96–98 tidak terlihat bergelombang. Menggambar kurva 170 px untuk bentuk
+    // yang sudah diputuskan tidak boleh bercerita adalah seperempat halaman
+    // yang tidak menghasilkan apa-apa.
+    testWidgets('nilai wajar cukup satu baris, tanpa kurva', (tester) async {
       await pumpHalaman(tester, RingkasanSesiPage(sesi: _sesiLengkap()));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.text('Oksigen Darah'), findsNothing);
+      expect(find.textContaining('Oksigen darah'), findsOneWidget);
+      expect(find.textContaining('rentang wajar'), findsOneWidget);
+
+      final kurva = tester
+          .widgetList<KurvaSampel>(find.byType(KurvaSampel))
+          .where((k) => k.seri.contains(seriSpo2));
+      expect(kurva, isEmpty);
+    });
+
+    // Satu pembacaan di bawah ambang dan bagian penuhnya kembali: yang ingin
+    // dilihat di sana adalah kapan turunnya dan berapa lama.
+    testWidgets('satu nilai di bawah ambang memanggil kurvanya kembali', (
+      tester,
+    ) async {
+      final asli = _sesiLengkap();
+      final sesi = asli.salin(
+        sampel: [
+          for (final s in asli.sampel)
+            if (s.index == 2)
+              Sampel(
+                index: s.index,
+                detikRelatifT0: s.detikRelatifT0,
+                status: s.status,
+                gulaDarah: s.gulaDarah,
+                detakJantung: s.detakJantung,
+                sistolik: s.sistolik,
+                diastolik: s.diastolik,
+                spo2: ambangSpo2Wajar - 3,
+              )
+            else
+              s,
+        ],
+      );
+      await pumpHalaman(tester, RingkasanSesiPage(sesi: sesi));
       await tester.pump(const Duration(milliseconds: 50));
 
       expect(find.text('Oksigen Darah'), findsOneWidget);
@@ -148,6 +231,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
 
       expect(find.text('Oksigen Darah'), findsNothing);
+      expect(find.textContaining('Oksigen darah'), findsNothing);
     });
   });
 

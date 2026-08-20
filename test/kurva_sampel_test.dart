@@ -18,6 +18,52 @@ void main() {
 
   setUpAll(loadMontserrat);
 
+  // Sumbu x pernah dimulai dari lantai `0..7200` — `+2 jam` jadwal produksi
+  // yang ditulis sebagai literal. Ia berhenti benar begitu jadwal menjadi data
+  // per sesi: sesi jadwal uji yang titik terakhirnya di detik ke-120 digambar
+  // pada sumbu selebar dua jam, sehingga keempat titiknya menumpuk di ujung
+  // kiri dan seluruh label sumbunya saling menimpa.
+  group('Rentang sumbu x', () {
+    test('mengikuti jadwal sesi, bukan angka tetap', () {
+      const uji = [
+        Sampel(index: 0, detikRelatifT0: -25, status: StatusSampel.terisi),
+        Sampel(index: 1, detikRelatifT0: 0, status: StatusSampel.terisi),
+        Sampel(index: 2, detikRelatifT0: 60, status: StatusSampel.terisi),
+        Sampel(index: 3, detikRelatifT0: 120, status: StatusSampel.terisi),
+      ];
+
+      expect(rentangDetik(uji), (-25, 120));
+    });
+
+    test('jadwal produksi tetap terentang penuh', () {
+      expect(rentangDetik(contohSesiSelesai().sampel), (-1500, 7200));
+    });
+
+    // Titik yang belum datang tetap memberi lebar sumbunya: sesi yang baru punya
+    // dua titik tidak boleh direntangkan memenuhi lebar kartu, karena kurvanya
+    // lalu terbaca seolah sudah selesai.
+    test('sampel yang masih menunggu ikut memberi lebar', () {
+      const belumLengkap = [
+        Sampel(index: 0, detikRelatifT0: -1500, status: StatusSampel.terisi),
+        Sampel(index: 1, detikRelatifT0: 0, status: StatusSampel.terisi),
+        Sampel(index: 2, detikRelatifT0: 3600, status: StatusSampel.menunggu),
+        Sampel(index: 3, detikRelatifT0: 7200, status: StatusSampel.menunggu),
+      ];
+
+      expect(rentangDetik(belumLengkap), (-1500, 7200));
+    });
+
+    test('seluruh titik pada detik yang sama tidak membagi dengan nol', () {
+      const kembar = [
+        Sampel(index: 0, detikRelatifT0: 0, status: StatusSampel.terisi),
+        Sampel(index: 1, detikRelatifT0: 0, status: StatusSampel.terisi),
+      ];
+
+      expect(rentangDetik(kembar), (0, 1));
+      expect(rentangDetik(const []), (0, 1));
+    });
+  });
+
   group('KurvaSampel', () {
     testWidgets('menggambar kurva saat ada sampel terisi', (tester) async {
       final sesi = contohSesiSelesai();

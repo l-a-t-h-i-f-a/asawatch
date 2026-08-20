@@ -11,6 +11,11 @@
         pemindaian BLE ke izin lokasi, dan dibatasi `maxSdkVersion="30"` supaya
         tidak ikut diminta di versi yang tidak membutuhkannya.
     -->
+    <!-- Masuk akun dan (nanti) cadangan data ke server AsaWatch. Sampai kini
+         izin ini hanya ada di manifest debug — dipasang Flutter untuk hot
+         reload — sehingga semuanya bekerja saat dikembangkan lalu gagal total
+         di rakitan rilis, tanpa satu pun pesan yang menyebut izin. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- Pengingat titik ukur (docs/jadwal-titik-ukur.md §6). Wajib sejak
          Android 13; tanpa ini notifikasinya dijadwalkan tetapi tidak pernah
          terlihat, dan gejalanya sama persis dengan penjadwalan yang gagal. -->

@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:asawatch/beranda_tab.dart';
 import 'package:asawatch/deteksi_makanan_page.dart';
+import 'package:asawatch/services/kamera_service.dart';
 import 'package:asawatch/kalibrasi_tekanan_darah_page.dart';
 import 'package:asawatch/menghubungkan_perangkat_page.dart';
 import 'package:asawatch/models/contoh_sesi.dart';
@@ -74,7 +75,11 @@ void main() {
       tester,
     ) async {
       final c = buatControllerUji();
-      await pumpHalaman(tester, const DeteksiMakananPage(), controller: c);
+      await pumpHalaman(
+        tester,
+        DeteksiMakananPage(kamera: KameraPalsuService()),
+        controller: c,
+      );
 
       await tester.tap(find.byIcon(Icons.photo_camera_rounded));
       await tester.pump();
@@ -90,7 +95,11 @@ void main() {
 
     testWidgets('mengoreksi porsi mengubah angka nutrisi sesi', (tester) async {
       final c = buatControllerUji();
-      await pumpHalaman(tester, const DeteksiMakananPage(), controller: c);
+      await pumpHalaman(
+        tester,
+        DeteksiMakananPage(kamera: KameraPalsuService()),
+        controller: c,
+      );
 
       await tester.tap(find.byIcon(Icons.photo_camera_rounded));
       await tester.pump();
@@ -125,7 +134,11 @@ void main() {
 
     testWidgets('kartu hasil menawarkan dua cara memulai sesi', (tester) async {
       final c = buatControllerUji();
-      await pumpHalaman(tester, const DeteksiMakananPage(), controller: c);
+      await pumpHalaman(
+        tester,
+        DeteksiMakananPage(kamera: KameraPalsuService()),
+        controller: c,
+      );
 
       await tester.tap(find.byIcon(Icons.photo_camera_rounded));
       await tester.pump();
@@ -157,7 +170,11 @@ void main() {
       tester,
     ) async {
       final c = buatControllerUji();
-      await pumpHalaman(tester, const DeteksiMakananPage(), controller: c);
+      await pumpHalaman(
+        tester,
+        DeteksiMakananPage(kamera: KameraPalsuService()),
+        controller: c,
+      );
 
       await tester.tap(find.byIcon(Icons.photo_camera_rounded));
       await tester.pump();
@@ -170,6 +187,74 @@ void main() {
       expect(c.sesiAktif, isNull);
       expect(c.riwayat, isEmpty); // dibatalkan, bukan disimpan
       expect(find.text('Hasil Analisis'), findsNothing);
+    });
+
+    // Kameranya sungguhan sejak langkah ini: jalur foto sesi datang dari
+    // jepretan, bukan dari satu URL contoh yang sama untuk setiap sesi.
+    testWidgets('sesi memakai jalur foto dari kamera, bukan jalur tetap', (
+      tester,
+    ) async {
+      final c = buatControllerUji();
+      await pumpHalaman(
+        tester,
+        DeteksiMakananPage(kamera: KameraPalsuService(jalurFoto: '/tmp/a.jpg')),
+        controller: c,
+      );
+
+      await tester.tap(find.byIcon(Icons.photo_camera_rounded));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(c.sesiAktif!.fotoPath, '/tmp/a.jpg');
+
+      await hentikanSesi(tester, c);
+    });
+
+    testWidgets('kamera yang gagal menawarkan coba lagi, bukan layar hitam', (
+      tester,
+    ) async {
+      final c = buatControllerUji();
+      await pumpHalaman(
+        tester,
+        DeteksiMakananPage(
+          kamera: KameraPalsuService(
+            galat: const GalatKamera('Perangkat ini tidak punya kamera.'),
+          ),
+        ),
+        controller: c,
+      );
+      await tester.pump();
+
+      expect(find.text('Kamera tidak bisa dibuka'), findsOneWidget);
+      expect(find.text('Coba Lagi'), findsOneWidget);
+      // Rana tidak boleh tetap terpampang di atas layar galat.
+      expect(find.byIcon(Icons.photo_camera_rounded), findsNothing);
+      // Jalan keluar yang masih bekerja tanpa kamera tetap ditawarkan.
+      expect(find.text('Pilih Foto dari Galeri'), findsOneWidget);
+    });
+
+    testWidgets('izin kamera yang ditolak menunjuk ke Pengaturan', (
+      tester,
+    ) async {
+      final c = buatControllerUji();
+      await pumpHalaman(
+        tester,
+        DeteksiMakananPage(
+          kamera: KameraPalsuService(
+            galat: const GalatKamera(
+              'Izin kamera belum diberikan.',
+              izinDitolak: true,
+            ),
+          ),
+        ),
+        controller: c,
+      );
+      await tester.pump();
+
+      // "Coba lagi" tidak pernah menolong: sistem tidak menanyakan izin yang
+      // sudah ditolak untuk kedua kalinya.
+      expect(find.text('Buka Pengaturan'), findsOneWidget);
+      expect(find.text('Coba Lagi'), findsNothing);
     });
   });
 

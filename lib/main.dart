@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'
     show LicenseEntryWithLineBreaks, LicenseRegistry;
-import 'package:flutter/services.dart' show SystemChrome, rootBundle;
+import 'package:flutter/services.dart'
+    show SystemChrome, SystemUiOverlayStyle, rootBundle;
 import 'package:asawatch/utils/gaya_sistem.dart';
 import 'package:provider/provider.dart';
 import 'package:asawatch/welcome_page.dart';
@@ -25,11 +26,17 @@ import 'package:asawatch/repositories/basis_data.dart';
 import 'package:asawatch/repositories/entri_jam_repository.dart';
 import 'package:asawatch/repositories/kalibrasi_repository.dart';
 import 'package:asawatch/repositories/perangkat_repository.dart';
+import 'package:asawatch/repositories/sesi_login_repository.dart';
 import 'package:asawatch/repositories/sesi_repository_drift.dart';
 import 'package:asawatch/services/auth_service.dart';
 import 'package:asawatch/services/ble_asli_service.dart';
 import 'package:asawatch/services/ble_service.dart';
+import 'package:asawatch/services/kamera_service.dart';
+import 'package:asawatch/repositories/profil_repository.dart';
 import 'package:asawatch/services/nutrisi_service.dart';
+import 'package:asawatch/services/penjaga_sesi.dart';
+import 'package:asawatch/services/profil_server_service.dart';
+import 'package:asawatch/services/sesi_server_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -49,7 +56,32 @@ Future<void> main() async {
   // yang belum ditulis. Tanpa tangkapan ini `main()` melempar sebelum `runApp`
   // dan pengguna hanya melihat layar kosong tanpa satu pun petunjuk.
   try {
-    runApp(MyApp(controller: await buatControllerBawaan()));
+    // Dibaca **sebelum** `runApp`, bukan di dalam sebuah layar pemuatan: kalau
+    // dibaca belakangan, pengguna yang sudah masuk tetap melihat halaman
+    // sambutan berkedip sekejap sebelum dilempar ke beranda.
+    final sesiLogin = SesiLoginRepositoryAman();
+    // Dirakit di sini karena `SesiHttpService` di dalam controller ikut
+    // memakainya, dan controller lahir sebelum `MyApp`.
+    final navigatorKey = GlobalKey<NavigatorState>();
+    final messengerKey = GlobalKey<ScaffoldMessengerState>();
+    final penjaga = PenjagaSesi(
+      sesiLogin: sesiLogin,
+      navigatorKey: navigatorKey,
+      messengerKey: messengerKey,
+    );
+    runApp(
+      MyApp(
+        controller: await buatControllerBawaan(
+          sesiLogin: sesiLogin,
+          penjaga: penjaga,
+        ),
+        sesiLogin: sesiLogin,
+        sesiAwal: await sesiLogin.muat(),
+        penjaga: penjaga,
+        navigatorKey: navigatorKey,
+        messengerKey: messengerKey,
+      ),
+    );
   } catch (galat, jejak) {
     debugPrint('Gagal menyiapkan aplikasi: $galat\n$jejak');
     runApp(AplikasiGagalMulai(galat: galat));
@@ -74,7 +106,10 @@ Future<void> main() async {
 /// **tidak** ditunggu di sini adalah radio BLE: `BleAsliService.mulai()` berjalan
 /// di belakang, karena menunggu jam tersambung berarti layar putih beberapa
 /// detik setiap kali aplikasi dibuka.
-Future<SesiMakanController> buatControllerBawaan() async {
+Future<SesiMakanController> buatControllerBawaan({
+  SesiLoginRepository? sesiLogin,
+  PenjagaSesi? penjaga,
+}) async {
   final db = BasisData(driftDatabase(name: 'asawatch'));
   final repo = SesiRepositoryDrift(db);
   final repoKalibrasi = KalibrasiRepositoryDrift(db);
@@ -105,6 +140,13 @@ Future<SesiMakanController> buatControllerBawaan() async {
     // menjadwalkan titik ukurnya sendiri (protokol §9 v1.3), tidak ada lagi
     // yang mengingatkan penggunanya selain ini.
     pengingat: PengingatLokal(),
+    // Unggahan riwayat satu arah (§5.2). Tanpa token, keduanya diam saja —
+    // aplikasi tetap berjalan penuh tanpa server.
+    serverSesi: SesiHttpService(
+      basisUrl: basisUrlApi,
+      onTokenDitolak: penjaga?.tokenDitolak,
+    ),
+    sesiLogin: sesiLogin,
   );
 }
 
@@ -183,7 +225,18 @@ class AplikasiGagalMulai extends StatelessWidget {
 }
 
 class MyApp extends StatefulWidget {
-  const MyApp({super.key, required this.controller, this.auth});
+  const MyApp({
+    super.key,
+    required this.controller,
+    this.auth,
+    this.kamera,
+    this.sesiLogin,
+    this.sesiAwal,
+    this.profil,
+    this.penjaga,
+    this.navigatorKey,
+    this.messengerKey,
+  });
 
   /// Dirakit di `main()` — dan di test, agar `FakeBleService` bisa
   /// dikendalikan (§11). Dimiliki pemanggil, bukan widget ini.
@@ -193,6 +246,38 @@ class MyApp extends StatefulWidget {
   /// sini — bukan di tiap pembangunan rute, yang akan membuat satu `http.Client`
   /// baru setiap kali halaman login dibuka.
   final AuthService? auth;
+
+  /// Kamera deteksi makanan. Diteruskan apa adanya ke `DeteksiMakananPage`, dan
+  /// null berarti kamera sungguhan — perannya persis seperti [auth] dan seperti
+  /// `izin:` pada alur pemindaian: di bawah `flutter_test` tidak ada kanal
+  /// platform untuk `camera`.
+  final KameraService? kamera;
+
+  /// Penyimpanan bukti masuk. null berarti rakit yang sungguhan — yang di bawah
+  /// `flutter_test` tidak punya Keystore untuk disentuh.
+  final SesiLoginRepository? sesiLogin;
+
+  /// Sesi yang sudah dibaca `main()` dari penyimpanan, dan **satu-satunya**
+  /// penentu layar pertama. Dibaca sekali di sana, bukan di sini, agar tidak
+  /// ada satu frame pun yang menampilkan halaman sambutan kepada orang yang
+  /// sebenarnya sudah masuk.
+  final SesiLogin? sesiAwal;
+
+  /// Pintu ke profil. null berarti rakit yang tersambung ke server di sini —
+  /// sekali, bukan setiap kali sebuah halaman dibuka, supaya `http.Client`-nya
+  /// tidak lahir berulang.
+  final ProfilRepository? profil;
+
+  /// Apa yang terjadi saat server menolak token. null berarti tidak ada yang
+  /// terjadi — bentuk yang dipakai test, dan yang membuat halaman tidak
+  /// tiba-tiba berpindah di tengah pengujian.
+  final PenjagaSesi? penjaga;
+
+  /// Dipakai [penjaga] untuk berpindah halaman dari luar pohon widget.
+  final GlobalKey<NavigatorState>? navigatorKey;
+
+  /// Dipakai [penjaga] untuk mengatakan **kenapa** halaman sambutan muncul.
+  final GlobalKey<ScaffoldMessengerState>? messengerKey;
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -208,11 +293,25 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   late final AuthService _auth = widget.auth ?? buatAuthBawaan();
   late final bool _authMilikSendiri = widget.auth == null;
+  late final SesiLoginRepository _sesiLogin =
+      widget.sesiLogin ?? SesiLoginRepositoryAman();
+  late final ProfilRepository _profil =
+      widget.profil ??
+      ProfilRepository(
+        server: ProfilHttpService(
+          basisUrl: basisUrlApi,
+          onTokenDitolak: widget.penjaga?.tokenDitolak,
+        ),
+        sesiLogin: _sesiLogin,
+      );
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Sesi yang belum sampai ke server dikirim lagi di sini. Tidak ditunggu:
+    // tidak ada satu pun layar yang bergantung padanya.
+    unawaited(widget.controller.kirimRiwayatKeServer());
   }
 
   @override
@@ -227,12 +326,17 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     if (keadaan != AppLifecycleState.resumed) return;
     final ble = widget.controller.ble;
     if (ble is BleAsliService) unawaited(ble.kembaliKeDepan());
+    // Kembali ke depan biasanya berarti jaringannya juga kembali — titik coba
+    // ulang yang paling murah yang ada.
+    unawaited(widget.controller.kirimRiwayatKeServer());
   }
 
   @override
   Widget build(BuildContext context) {
     final app = MaterialApp(
       title: 'AsaWatch',
+      navigatorKey: widget.navigatorKey,
+      scaffoldMessengerKey: widget.messengerKey,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -247,12 +351,54 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         // atas halaman terang.
         appBarTheme: const AppBarTheme(systemOverlayStyle: gayaSistemTerang),
       ),
-      initialRoute: '/welcome',
+      // Gaya bilah sistem harus hidup **di dalam pohon widget**, bukan hanya
+      // dipasang sekali di `main()`.
+      //
+      // `AnnotatedRegion` milik layar kamera menimpanya selama layar itu
+      // tampak — itu memang yang diinginkan — tetapi saat layar itu di-pop,
+      // Flutter tidak mengembalikan apa pun: ia mencari anotasi teratas di
+      // pohon, dan kalau tidak ada satu pun, gaya terakhir yang terlanjur
+      // dikirim ke sistem dibiarkan begitu saja. Akibatnya bilah navigasi
+      // tetap hitam dan ikon bilah status tetap putih di atas seluruh halaman
+      // terang, sampai aplikasi dijalankan ulang.
+      //
+      // Diletakkan di `builder`, jadi ia membungkus Navigator: setiap rute yang
+      // di-push adalah keturunannya, sehingga anotasi layar kamera menang
+      // selagi terlihat dan yang ini kembali berlaku begitu layar itu hilang.
+      builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+        value: gayaSistemTerang,
+        child: child ?? const SizedBox.shrink(),
+      ),
+      // Gerbang sesi: token yang masih berlaku membuka beranda langsung.
+      // `SesiLoginRepository.muat()` sudah membuang yang kedaluwarsa, jadi yang
+      // sampai ke sini pasti masih sah.
+      initialRoute: widget.sesiAwal != null ? '/home' : '/welcome',
       routes: {
-        '/welcome': (context) => WelcomePage(auth: _auth),
-        '/login': (context) => LoginPage(auth: _auth),
-        '/register': (context) => const RegisterPage(),
-        '/home': (context) => const MyHomePage(title: 'AsaWatch'),
+        '/welcome': (context) => WelcomePage(
+          auth: _auth,
+          kamera: widget.kamera,
+          sesiLogin: _sesiLogin,
+          profil: _profil,
+        ),
+        '/login': (context) => LoginPage(
+          auth: _auth,
+          kamera: widget.kamera,
+          sesiLogin: _sesiLogin,
+          profil: _profil,
+        ),
+        '/register': (context) => RegisterPage(
+          auth: _auth,
+          kamera: widget.kamera,
+          sesiLogin: _sesiLogin,
+          profil: _profil,
+        ),
+        '/home': (context) => MyHomePage(
+          title: 'AsaWatch',
+          kamera: widget.kamera,
+          auth: _auth,
+          sesiLogin: _sesiLogin,
+          profil: _profil,
+        ),
       },
     );
 
@@ -264,8 +410,28 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 }
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+  const MyHomePage({
+    super.key,
+    required this.title,
+    this.kamera,
+    this.auth,
+    this.sesiLogin,
+    this.profil,
+  });
   final String title;
+
+  /// Hanya diteruskan ke `DeteksiMakananPage`; lihat `MyApp.kamera`.
+  final KameraService? kamera;
+
+  /// Dipakai satu kali saja: mencabut token saat pengguna keluar.
+  final AuthService? auth;
+
+  /// Penyimpanan bukti masuk — dibaca untuk mengambil token yang akan dicabut,
+  /// lalu dikosongkan.
+  final SesiLoginRepository? sesiLogin;
+
+  /// Diteruskan ke `ProfilTab`; lihat `MyApp.profil`.
+  final ProfilRepository? profil;
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
@@ -273,6 +439,8 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   int _currentIndex = 0;
+
+  ProfilRepository get _profil => widget.profil ?? const ProfilRepository();
 
   late final List<Widget> _tabs;
 
@@ -284,8 +452,23 @@ class _MyHomePageState extends State<MyHomePage> {
       const RiwayatTab(),
       const Center(child: Text('Kamera')), // Placeholder for camera trigger
       const AnalisisTab(),
-      const ProfilTab(),
+      ProfilTab(onKeluar: _keluarDariAkun, profil: _profil),
     ];
+  }
+
+  /// Keluar dari akun: cabut token di server, lalu hapus salinannya di sini.
+  ///
+  /// Urutannya penting dan tidak boleh dibalik — token harus masih ada saat
+  /// server dikabari. Kegagalan jaringan sengaja tidak menghalangi:
+  /// `AuthService.keluar` menelan galatnya sendiri, sehingga keluar tanpa
+  /// sinyal tetap membersihkan perangkat ini.
+  Future<void> _keluarDariAkun() async {
+    final penyimpanan = widget.sesiLogin;
+    if (penyimpanan == null) return;
+
+    final sesi = await penyimpanan.muat();
+    if (sesi != null) await widget.auth?.keluar(sesi.token);
+    await penyimpanan.hapus();
   }
 
   /// Tombol tengah kontekstual (§6). Strukturnya tetap: index 2 selalu
@@ -303,7 +486,7 @@ class _MyHomePageState extends State<MyHomePage> {
         context,
         MaterialPageRoute(
           builder: (context) => aktif == null
-              ? const DeteksiMakananPage()
+              ? DeteksiMakananPage(kamera: widget.kamera)
               : const SesiBerjalanPage(),
         ),
       );
@@ -316,6 +499,21 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   Widget build(BuildContext context) {
+    return PopScope(
+      // Beranda adalah dasar aplikasi: tidak ada lagi yang di bawahnya, jadi
+      // kembali di sini memang berarti keluar. Dari tab lain, kembali
+      // mengembalikan ke Beranda lebih dulu — keluar dari aplikasi saat sedang
+      // membuka Riwayat adalah kejutan, bukan jalan keluar yang diminta.
+      canPop: _currentIndex == 0,
+      onPopInvokedWithResult: (sudahKeluar, _) {
+        if (sudahKeluar || _currentIndex == 0) return;
+        setState(() => _currentIndex = 0);
+      },
+      child: _bangunShell(context),
+    );
+  }
+
+  Widget _bangunShell(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF4FAF7),
       body: IndexedStack(

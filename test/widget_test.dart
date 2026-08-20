@@ -5,6 +5,7 @@
 // carve-out, and the SharedPreferences-backed profile name.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show SystemChrome;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -17,7 +18,11 @@ import 'package:asawatch/welcome_page.dart';
 import 'package:asawatch/login_page.dart';
 import 'package:asawatch/register_page.dart';
 import 'package:asawatch/deteksi_makanan_page.dart';
+import 'package:asawatch/repositories/profil_repository.dart';
+import 'package:asawatch/repositories/sesi_login_repository.dart';
 import 'package:asawatch/services/auth_service.dart';
+import 'package:asawatch/services/kamera_service.dart';
+import 'package:asawatch/utils/gaya_sistem.dart';
 
 import 'helpers.dart';
 
@@ -44,7 +49,20 @@ Future<void> pumpApp(
   final a = auth ?? FakeAuthService();
   addTearDown(a.dispose);
 
-  await tester.pumpWidget(MyApp(controller: c, auth: a));
+  await tester.pumpWidget(
+    MyApp(
+      controller: c,
+      auth: a,
+      kamera: KameraPalsuService(),
+      // Yang sungguhan menyentuh Keystore Android, yang tidak ada di bawah
+      // `flutter_test`.
+      sesiLogin: SesiLoginRepositoryMemori(),
+      // Bentuk tanpa server: bawaan `MyApp` merakit `ProfilHttpService` ke
+      // alamat produksi, dan sebuah permintaan HTTP di dalam test tidak gagal
+      // dengan jelas.
+      profil: const ProfilRepository(),
+    ),
+  );
   await tester.pumpAndSettle();
 }
 
@@ -167,6 +185,27 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(DeteksiMakananPage), findsNothing);
       expect(find.text('Beranda'), findsOneWidget);
+    });
+
+    // Layar kamera adalah satu-satunya layar gelap, dan ia memasang gayanya
+    // sendiri lewat AnnotatedRegion. Yang dulu tidak terjadi adalah
+    // pengembaliannya: Flutter mencari anotasi teratas di pohon dan, kalau tidak
+    // menemukan satu pun, membiarkan gaya terakhir yang terlanjur dikirim ke
+    // sistem — sehingga bilah navigasi tetap hitam dan ikon bilah status tetap
+    // putih di atas seluruh halaman terang sampai aplikasi dijalankan ulang.
+    testWidgets('bilah sistem kembali terang setelah keluar dari kamera', (
+      tester,
+    ) async {
+      await pumpHome(tester);
+      expect(SystemChrome.latestStyle, gayaSistemTerang);
+
+      await tester.tap(find.byIcon(Icons.photo_camera_rounded));
+      await tester.pumpAndSettle();
+      expect(SystemChrome.latestStyle, gayaSistemGelap);
+
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pumpAndSettle();
+      expect(SystemChrome.latestStyle, gayaSistemTerang);
     });
 
     testWidgets('makna tombol tengah berubah mengikuti status sesi', (tester) async {

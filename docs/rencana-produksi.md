@@ -422,9 +422,12 @@ Sesi berlangsung ~2 jam. Pengguna pasti akan meninggalkan aplikasi.
 
 Bagian ini tidak memblokir rilis, tapi setiap itemnya adalah janji yang belum ditepati aplikasi.
 
-- [ ] [../lib/tujuan_kesehatan_page.dart](../lib/tujuan_kesehatan_page.dart) dan
-      [../lib/models/target_harian.dart](../lib/models/target_harian.dart): target harian harus bisa
-      diatur pengguna dan disimpan.
+- [ ] [../lib/tujuan_kesehatan_page.dart](../lib/tujuan_kesehatan_page.dart): target harian harus
+      bisa diatur pengguna dan disimpan. `target_harian.dart` beserta angka bawaannya
+      (2000 kcal / 250 g / 60 g / 65 g) **sudah dihapus**, bukan dibiarkan menunggu: Beranda
+      menampilkannya sebagai pembanding lengkap dengan bar kemajuan, padahal tidak seorang pun
+      pernah memilih angka itu. Sampai halaman ini punya target kalori sungguhan, ringkasan harian
+      di Beranda menampilkan jumlah tanpa penyebut.
 - [ ] Kotak "rentang normal" di tiga halaman detak/gula/tekanan masih teks tetap. Idealnya
       diturunkan dari profil (usia, kondisi, arahan dokter) — dan bila tidak, kalimatnya harus
       berhenti terdengar seperti nasihat medis personal.

@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import '../konfigurasi.dart';
 import '../models/jadwal_sesi.dart';
 import '../models/sesi_makan.dart';
+import '../repositories/sesi_login_repository.dart';
+import '../services/sesi_server_service.dart';
 import '../repositories/kalibrasi_repository.dart';
 import '../repositories/sesi_repository.dart';
 import '../services/ble_service.dart';
@@ -38,6 +40,8 @@ class SesiMakanController extends ChangeNotifier {
     List<SesiMakan> riwayatAwal = const [],
     this.repo,
     this.repoKalibrasi,
+    this.serverSesi,
+    this.sesiLogin,
     Kalibrasi? kalibrasiAwal,
     JadwalSesi? jadwal,
     DateTime Function()? jam,
@@ -151,6 +155,13 @@ class SesiMakanController extends ChangeNotifier {
   /// tidak ada di bawah `flutter_test`.
   final PengingatTitikUkur pengingat;
   final SesiRepository? repo;
+
+  /// Unggahan riwayat ke server. null berarti aplikasi ini memang tidak
+  /// mengunggah apa pun — keadaan yang sah, dan yang berlaku di seluruh test.
+  final SesiServerService? serverSesi;
+
+  /// Sumber token untuk [serverSesi].
+  final SesiLoginRepository? sesiLogin;
   final KalibrasiRepository? repoKalibrasi;
 
   /// Berapa lama setelah titik terakhir (`t0 + 2 jam`) sebuah sesi berhenti
@@ -1058,6 +1069,7 @@ class SesiMakanController extends ChangeNotifier {
     unawaited(ble.batalkanSesi(sesi.id));
     unawaited(pengingat.batalkanSemua());
     unawaited(_simpan(sesi));
+    unawaited(_kirimKeServer(sesi));
     notifyListeners();
   }
 
@@ -1090,6 +1102,46 @@ class SesiMakanController extends ChangeNotifier {
       _galatPenyimpanan =
           'Sesi terakhir gagal disimpan dan akan hilang saat aplikasi ditutup.';
       notifyListeners();
+    }
+  }
+
+  /// Mengunggah satu sesi yang sudah berakhir.
+  ///
+  /// Diam-diam, dan kegagalannya tidak diperlihatkan: berbeda dengan
+  /// [galatPenyimpanan], gagal mengunggah **tidak menghilangkan apa pun** —
+  /// datanya tetap di ponsel dan akan dikirim lagi pada pembukaan aplikasi
+  /// berikutnya. Memunculkan peringatan untuk sesuatu yang memperbaiki dirinya
+  /// sendiri hanya mengajari pengguna mengabaikan peringatan.
+  Future<void> _kirimKeServer(SesiMakan sesi) async {
+    final server = serverSesi;
+    if (server == null) return;
+    final token = (await sesiLogin?.muat())?.token;
+    if (token == null) return;
+
+    final berhasil = await server.kirim(token, sesi);
+    if (!berhasil) debugPrint('Sesi ${sesi.id} belum sampai ke server.');
+  }
+
+  /// Mengunggah **seluruh** riwayat yang sudah berakhir.
+  ///
+  /// Dipanggil saat aplikasi dibuka dan sesudah masuk. Tidak ada daftar
+  /// "belum terkirim" yang disimpan, dan itu disengaja: `PUT /sesi/{id}`
+  /// idempoten terhadap UUID buatan aplikasi (§2 aturan 2), jadi mengirim ulang
+  /// yang sudah ada di server tidak menghasilkan apa-apa selain satu permintaan
+  /// yang terbuang. Keadaan yang tidak perlu disimpan adalah keadaan yang tidak
+  /// bisa salah — dan sebuah tanda "sudah terkirim" yang meleset justru akan
+  /// menyembunyikan sesi selamanya.
+  ///
+  /// Berurutan, bukan serentak: sepuluh sesi yang dikirim bersamaan di jaringan
+  /// seluler saling memperlambat, dan tidak ada yang menunggu hasilnya.
+  Future<void> kirimRiwayatKeServer() async {
+    final server = serverSesi;
+    if (server == null) return;
+    final token = (await sesiLogin?.muat())?.token;
+    if (token == null) return;
+
+    for (final sesi in List<SesiMakan>.from(_riwayat)) {
+      await server.kirim(token, sesi);
     }
   }
 

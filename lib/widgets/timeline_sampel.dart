@@ -207,10 +207,25 @@ class HitungMundur extends StatefulWidget {
     super.key,
     required this.target,
     this.sekarang = DateTime.now,
+    this.gaya,
+    this.gayaSelesai,
   });
 
   final DateTime target;
   final DateTime Function() sekarang;
+
+  /// Gaya angkanya. Null memakai ukuran baris timeline (14 px); kartu Beranda
+  /// memberinya ukuran hero, karena di sana angka inilah yang dicari mata
+  /// pertama kali dan bukan salah satu dari empat baris.
+  ///
+  /// `fontFeatures: tabularFigures` tetap dipasang di sini apa pun gayanya —
+  /// angka yang lebarnya berubah tiap detik membuat seluruh baris bergoyang,
+  /// dan pada ukuran hero goyangannya sebesar satu huruf.
+  final TextStyle? gaya;
+
+  /// Gaya teks "menunggu data". Terpisah karena ia kalimat, bukan angka: pada
+  /// ukuran hero ia harus turun, bukan ikut membesar.
+  final TextStyle? gayaSelesai;
 
   @override
   State<HitungMundur> createState() => _HitungMundurState();
@@ -262,19 +277,23 @@ class _HitungMundurState extends State<HitungMundur> {
   @override
   Widget build(BuildContext context) {
     if (_sisa == Duration.zero) {
-      return const Text(
+      return Text(
         'menunggu data',
-        style: TextStyle(fontSize: 11, color: Color(0xFF8FA7A1)),
+        style:
+            widget.gayaSelesai ??
+            const TextStyle(fontSize: 11, color: Color(0xFF8FA7A1)),
       );
     }
     return Text(
       formatHitungMundur(_sisa),
-      style: const TextStyle(
-        fontSize: 14,
-        fontWeight: FontWeight.bold,
-        color: Color(0xFF0EAD69),
-        fontFeatures: [FontFeature.tabularFigures()],
-      ),
+      style:
+          (widget.gaya ??
+                  const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF0EAD69),
+                  ))
+              .copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
     );
   }
 }

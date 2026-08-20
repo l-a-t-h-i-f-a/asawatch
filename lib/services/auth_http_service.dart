@@ -29,14 +29,23 @@ import 'package:http/http.dart' as http;
 import 'auth_service.dart';
 
 class AuthHttpService implements AuthService {
-  AuthHttpService({required this.basisUrl, http.Client? klien})
-    : _klien = klien ?? http.Client(),
-      _klienMilikSendiri = klien == null;
+  AuthHttpService({
+    required this.basisUrl,
+    this.namaPerangkat = 'AsaWatch Android',
+    http.Client? klien,
+  }) : _klien = klien ?? http.Client(),
+       _klienMilikSendiri = klien == null;
 
   /// Akar alamat API, tanpa garis miring di ujung — mis.
   /// `https://api.asawatch.id`. Diambil dari `konfigurasi.dart` agar alamat
   /// pengembangan tidak pernah ikut terbawa ke rakitan rilis.
   final String basisUrl;
+
+  /// Label token di sisi server (`nama_perangkat`, §4). Sanctum menyimpannya
+  /// per token, dan itulah yang membuat "keluar dari perangkat lain" bisa
+  /// menyebut perangkat mana. Sekarang masih tetap; begitu ada `device_info`,
+  /// isilah dengan merek dan tipe ponselnya.
+  final String namaPerangkat;
 
   final http.Client _klien;
 
@@ -45,15 +54,19 @@ class AuthHttpService implements AuthService {
   /// mungkin masih dipakai test berikutnya.
   final bool _klienMilikSendiri;
 
+  /// Email dari permintaan terakhir — lihat [_bacaSukses].
+  String _emailTerakhir = '';
+
   @override
   Future<HasilMasuk> masuk({
     required String identifier,
     required String kataSandi,
   }) async {
+    _emailTerakhir = identifier.trim();
     try {
       final jawaban = await _klien
           .post(
-            Uri.parse('$basisUrl/auth/login'),
+            Uri.parse('$basisUrl/api/v1/auth/masuk'),
             headers: const {
               'content-type': 'application/json; charset=utf-8',
               'accept': 'application/json',
@@ -61,8 +74,9 @@ class AuthHttpService implements AuthService {
             // Sandi hanya pernah ada di badan permintaan. Menaruhnya di query
             // string akan menuliskannya ke log akses server dan riwayat proxy.
             body: jsonEncode({
-              'identifier': identifier.trim(),
-              'password': kataSandi,
+              'email': identifier.trim(),
+              'kata_sandi': kataSandi,
+              'nama_perangkat': namaPerangkat,
             }),
           )
           .timeout(AuthService.batasWaktu);
@@ -80,53 +94,179 @@ class AuthHttpService implements AuthService {
   }
 
   HasilMasuk _baca(http.Response jawaban) {
-    if (jawaban.statusCode == 401 || jawaban.statusCode == 403) {
-      return const KredensialSalah();
-    }
-    if (jawaban.statusCode != 200) {
-      // Termasuk 4xx lain: sebuah 400 karena bentuk permintaan salah adalah bug
-      // aplikasi, dan menyuruh pengguna memeriksa kata sandinya untuk itu
-      // adalah menyalahkan orang yang tidak melakukan kesalahan apa pun.
-      return const ServerBermasalah();
-    }
+    if (jawaban.statusCode == 200) return _bacaSukses(jawaban.body);
+    return _bacaGagal(jawaban);
+  }
 
-    // Badan jawaban yang tidak sesuai janji diperlakukan sama dengan server
-    // rusak, bukan dilempar keluar: sebuah pengecualian di sini akan muncul di
-    // layar sebagai galat merah, bukan sebagai kalimat yang bisa ditindaklanjuti.
+  /// Bentuk sukses menurut §3.1 dan §4: `{"data": {"token": ..., "profil": ...}}`.
+  ///
+  /// Badan jawaban yang tidak sesuai janji diperlakukan sama dengan server
+  /// rusak, bukan dilempar keluar: sebuah pengecualian di sini akan muncul di
+  /// layar sebagai galat merah, bukan sebagai kalimat yang bisa ditindaklanjuti.
+  HasilMasuk _bacaSukses(String badan) {
     try {
-      final isi = jsonDecode(jawaban.body);
+      final isi = jsonDecode(badan);
       if (isi is! Map<String, dynamic>) return const ServerBermasalah();
 
-      final token = isi['access_token'];
-      final tokenSegar = isi['refresh_token'];
+      final data = isi['data'];
+      if (data is! Map) return const ServerBermasalah();
+
+      final token = data['token'];
       if (token is! String || token.isEmpty) return const ServerBermasalah();
-      if (tokenSegar is! String) return const ServerBermasalah();
 
-      // `expires_in` dalam detik, dijumlahkan sekali di sini — lihat
-      // `SesiLogin.kedaluwarsa`. Nilai yang hilang dianggap satu jam, angka
-      // yang lazim dan cukup pendek untuk tidak berbahaya bila salah.
-      final detik = isi['expires_in'];
-      final berlaku = Duration(seconds: detik is int ? detik : 3600);
-
-      final pengguna = isi['user'];
-      final nama = pengguna is Map && pengguna['name'] is String
-          ? pengguna['name'] as String
-          : '';
-      final email = pengguna is Map && pengguna['email'] is String
-          ? pengguna['email'] as String
+      // Nama diambil dari `profil`; `masuk` tidak mengembalikan email sama
+      // sekali (§4), jadi yang dipakai adalah email yang barusan dikirim —
+      // satu-satunya yang pasti benar, karena dengan itulah token ini terbit.
+      final profil = data['profil'];
+      final nama = profil is Map && profil['nama'] is String
+          ? profil['nama'] as String
           : '';
 
       return MasukBerhasil(
         SesiLogin(
           token: token,
-          tokenSegar: tokenSegar,
-          kedaluwarsa: DateTime.now().add(berlaku),
+          kedaluwarsa: DateTime.now().add(SesiLogin.masaBerlakuToken),
           nama: nama,
-          email: email,
+          email: _emailTerakhir,
         ),
       );
     } on FormatException {
       return const ServerBermasalah();
+    }
+  }
+
+  /// Selain 200, dan di sini `galat.kode` didahulukan atas kode status HTTP.
+  ///
+  /// Alasannya konkret, bukan kehati-hatian abstrak: backend hari ini membalas
+  /// **422 `validasi_gagal`** untuk kata sandi yang salah, bukan 401 seperti
+  /// yang seharusnya. Kalau aplikasi hanya membaca status, orang yang salah
+  /// mengetik sandinya akan diberi tahu bahwa *servernya* rusak — lalu menunggu
+  /// sesuatu yang tidak akan pernah membaik. Membaca `kode` membuat pesan yang
+  /// benar tetap muncul, baik sebelum maupun sesudah backend diperbaiki.
+  ///
+  /// `validasi_gagal` dipetakan ke [KredensialSalah] karena pada endpoint ini
+  /// keduanya berarti hal yang sama bagi pengguna: yang dia ketik belum
+  /// diterima, dan yang harus berubah adalah isian formulirnya.
+  HasilMasuk _bacaGagal(http.Response jawaban) {
+    final kode = _kodeGalat(jawaban.body);
+    if (kode != null) {
+      return switch (kode) {
+        'tidak_terautentikasi' ||
+        'kredensial_salah' ||
+        'validasi_gagal' => const KredensialSalah(),
+        _ => const ServerBermasalah(),
+      };
+    }
+
+    if (jawaban.statusCode == 401 || jawaban.statusCode == 403) {
+      return const KredensialSalah();
+    }
+    // Termasuk 4xx lain: sebuah 400 karena bentuk permintaan salah adalah bug
+    // aplikasi, dan menyuruh pengguna memeriksa kata sandinya untuk itu adalah
+    // menyalahkan orang yang tidak melakukan kesalahan apa pun.
+    return const ServerBermasalah();
+  }
+
+  String? _kodeGalat(String badan) {
+    try {
+      final isi = jsonDecode(badan);
+      if (isi is! Map<String, dynamic>) return null;
+      final galat = isi['galat'];
+      if (galat is! Map) return null;
+      final kode = galat['kode'];
+      return kode is String && kode.isNotEmpty ? kode : null;
+    } on FormatException {
+      // Portal WiFi yang menjawab dengan HTML-nya sendiri, misalnya.
+      return null;
+    }
+  }
+
+  @override
+  Future<HasilMasuk> daftar({
+    required String nama,
+    required String email,
+    required String kataSandi,
+  }) async {
+    _emailTerakhir = email.trim();
+    try {
+      final jawaban = await _klien
+          .post(
+            Uri.parse('$basisUrl/api/v1/auth/daftar'),
+            headers: const {
+              'content-type': 'application/json; charset=utf-8',
+              'accept': 'application/json',
+            },
+            body: jsonEncode({
+              'nama': nama.trim(),
+              'email': email.trim(),
+              'kata_sandi': kataSandi,
+              'nama_perangkat': namaPerangkat,
+            }),
+          )
+          .timeout(AuthService.batasWaktu);
+
+      // 201 pada pembuatan, 200 pada pembaruan — yang menentukan kelas 2xx-nya,
+      // bukan angka persisnya.
+      if (jawaban.statusCode >= 200 && jawaban.statusCode < 300) {
+        return _bacaSukses(jawaban.body);
+      }
+      return _bacaGagalDaftar(jawaban);
+    } on TimeoutException {
+      return const WaktuHabis();
+    } on SocketException {
+      return const TidakAdaJaringan();
+    } on http.ClientException {
+      return const TidakAdaJaringan();
+    }
+  }
+
+  /// Kegagalan pendaftaran. Bedanya dengan [_bacaGagal] hanya satu, dan itu
+  /// yang paling sering terjadi: **validasi yang menyebut field `email` berarti
+  /// emailnya sudah terdaftar.**
+  ///
+  /// Bentuknya sendiri masih `validasi_gagal` — server tidak punya kode khusus
+  /// untuknya — jadi yang membedakan adalah `detail`-nya. Bentuk email sudah
+  /// divalidasi di layar sebelum permintaan dikirim, jadi keluhan server
+  /// tentang field itu praktis hanya punya satu arti. Salah menebaknya pun
+  /// tidak berbahaya: pesan yang tampil tetap menunjuk ke field email, yang
+  /// memang field yang bermasalah.
+  HasilMasuk _bacaGagalDaftar(http.Response jawaban) {
+    final detail = _detailGalat(jawaban.body);
+    if (detail != null && detail.containsKey('email')) {
+      return const EmailSudahDipakai();
+    }
+    return _bacaGagal(jawaban);
+  }
+
+  Map<String, dynamic>? _detailGalat(String badan) {
+    try {
+      final isi = jsonDecode(badan);
+      if (isi is! Map<String, dynamic>) return null;
+      final galat = isi['galat'];
+      if (galat is! Map) return null;
+      final detail = galat['detail'];
+      return detail is Map<String, dynamic> ? detail : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> keluar(String token) async {
+    try {
+      await _klien
+          .post(
+            Uri.parse('$basisUrl/api/v1/auth/keluar'),
+            headers: {
+              'accept': 'application/json',
+              'authorization': 'Bearer $token',
+            },
+          )
+          .timeout(AuthService.batasWaktu);
+    } catch (_) {
+      // Sengaja ditelan, termasuk 401 yang tidak dilihat sama sekali: token
+      // yang sudah tidak sah di server sudah tercabut dengan sendirinya, dan
+      // keluar tanpa sinyal tetap harus berhasil di sisi ponsel.
     }
   }
 

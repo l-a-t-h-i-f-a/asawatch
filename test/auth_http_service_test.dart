@@ -27,45 +27,63 @@ import 'package:asawatch/services/auth_service.dart';
 const _basis = 'http://uji.lokal:8080';
 
 AuthHttpService _layanan(Future<http.Response> Function(http.Request) tangani) {
-  final layanan = AuthHttpService(
-    basisUrl: _basis,
-    klien: MockClient(tangani),
-  );
+  final layanan = AuthHttpService(basisUrl: _basis, klien: MockClient(tangani));
   addTearDown(layanan.dispose);
   return layanan;
 }
 
-/// Badan jawaban sukses, dalam bentuk yang dijanjikan kontrak API.
-String _badanSukses({int expiresIn = 3600}) => jsonEncode({
-  'access_token': 'token-abc',
-  'refresh_token': 'token-segar-def',
-  'expires_in': expiresIn,
-  'user': {'name': 'Rara', 'email': 'rara@email.com'},
+/// Badan jawaban sukses, dalam bentuk yang dijanjikan kontrak API
+/// (docs/rancangan-api-laravel.md §3.1 dan §4) — dan yang sudah dibuktikan
+/// sama dengan yang dikirim backend lokal.
+String _badanSukses({String nama = 'Rara'}) => jsonEncode({
+  'data': {
+    'token': '1|token-abc',
+    'profil': {
+      'nama': nama,
+      'tanggal_lahir': null,
+      'jenis_kelamin': null,
+      'golongan_darah': null,
+      'tinggi_cm': null,
+      'berat_kg': null,
+      'diperbarui_pada': '2026-08-20T04:39:56.422015Z',
+    },
+  },
+});
+
+/// Badan galat, satu-satunya bentuk yang dipakai backend untuk semua kegagalan.
+String _badanGalat(String kode, [String pesan = 'pesan']) => jsonEncode({
+  'galat': {'kode': kode, 'pesan': pesan},
 });
 
 void main() {
   group('permintaan yang dikirim', () {
-    test('menembak /auth/login dengan JSON dan header yang benar', () async {
-      late http.Request terkirim;
-      final layanan = _layanan((req) async {
-        terkirim = req;
-        return http.Response(_badanSukses(), 200);
-      });
+    test(
+      'menembak /api/v1/auth/masuk dengan JSON dan header yang benar',
+      () async {
+        late http.Request terkirim;
+        final layanan = _layanan((req) async {
+          terkirim = req;
+          return http.Response(_badanSukses(), 200);
+        });
 
-      await layanan.masuk(identifier: 'rara@email.com', kataSandi: 'rahasia');
+        await layanan.masuk(identifier: 'rara@email.com', kataSandi: 'rahasia');
 
-      expect(terkirim.method, 'POST');
-      expect(terkirim.url.toString(), '$_basis/auth/login');
-      expect(terkirim.headers['content-type'], contains('application/json'));
+        expect(terkirim.method, 'POST');
+        expect(terkirim.url.toString(), '$_basis/api/v1/auth/masuk');
+        expect(terkirim.headers['content-type'], contains('application/json'));
 
-      // Sandi hanya boleh ada di badan permintaan — tidak pernah di URL, yang
-      // akan menuliskannya ke log akses server dan riwayat proxy.
-      expect(terkirim.url.query, isEmpty);
+        // Sandi hanya boleh ada di badan permintaan — tidak pernah di URL, yang
+        // akan menuliskannya ke log akses server dan riwayat proxy.
+        expect(terkirim.url.query, isEmpty);
 
-      final badan = jsonDecode(terkirim.body) as Map<String, dynamic>;
-      expect(badan['identifier'], 'rara@email.com');
-      expect(badan['password'], 'rahasia');
-    });
+        final badan = jsonDecode(terkirim.body) as Map<String, dynamic>;
+        expect(badan['email'], 'rara@email.com');
+        expect(badan['kata_sandi'], 'rahasia');
+        // Sanctum menyimpan label ini per token; itulah yang nanti membuat
+        // "keluar dari perangkat lain" bisa menyebut perangkat mana.
+        expect(badan['nama_perangkat'], isNotEmpty);
+      },
+    );
 
     test('memangkas spasi di identifier, tetapi tidak di kata sandi', () async {
       late http.Request terkirim;
@@ -80,8 +98,8 @@ void main() {
       await layanan.masuk(identifier: '  rara@email.com  ', kataSandi: ' abc ');
 
       final badan = jsonDecode(terkirim.body) as Map<String, dynamic>;
-      expect(badan['identifier'], 'rara@email.com');
-      expect(badan['password'], ' abc ');
+      expect(badan['email'], 'rara@email.com');
+      expect(badan['kata_sandi'], ' abc ');
     });
   });
 
@@ -93,54 +111,74 @@ void main() {
 
       expect(hasil, isA<MasukBerhasil>());
       final sesi = (hasil as MasukBerhasil).sesi;
-      expect(sesi.token, 'token-abc');
-      expect(sesi.tokenSegar, 'token-segar-def');
+      expect(sesi.token, '1|token-abc');
       expect(sesi.nama, 'Rara');
-      expect(sesi.email, 'rara@email.com');
+      // `masuk` tidak mengembalikan email sama sekali (§4), jadi yang dipakai
+      // adalah email yang barusan dikirim — dengan itulah token ini terbit.
+      expect(sesi.email, 'a@b.c');
       expect(sesi.masihBerlaku, isTrue);
     });
 
-    test('expires_in dihitung menjadi tanggal kedaluwarsa', () async {
-      final layanan = _layanan(
-        (_) async => http.Response(_badanSukses(expiresIn: 60), 200),
-      );
+    test(
+      'kedaluwarsa dihitung dari masa berlaku Sanctum, bukan dari server',
+      () async {
+        final layanan = _layanan(
+          (_) async => http.Response(_badanSukses(), 200),
+        );
 
-      final sebelum = DateTime.now();
-      final hasil = await layanan.masuk(identifier: 'a@b.c', kataSandi: 'x');
-      final sesi = (hasil as MasukBerhasil).sesi;
+        final sebelum = DateTime.now();
+        final hasil = await layanan.masuk(identifier: 'a@b.c', kataSandi: 'x');
+        final sesi = (hasil as MasukBerhasil).sesi;
 
-      // Detik dari server, bukan tanggal dari server: jam ponsel dan jam server
-      // tidak pernah persis sama.
-      expect(
-        sesi.kedaluwarsa.difference(sebelum).inSeconds,
-        closeTo(60, 2),
-      );
-    });
-
-    test('expires_in yang hilang jatuh ke satu jam', () async {
-      final layanan = _layanan(
-        (_) async => http.Response(
-          jsonEncode({
-            'access_token': 'token-abc',
-            'refresh_token': 'token-segar-def',
-          }),
-          200,
-        ),
-      );
-
-      final hasil = await layanan.masuk(identifier: 'a@b.c', kataSandi: 'x');
-      final sesi = (hasil as MasukBerhasil).sesi;
-      expect(sesi.kedaluwarsa.difference(DateTime.now()).inMinutes, closeTo(60, 1));
-    });
+        // §4 sengaja tidak memakai token penyegar dan tidak mengirim tanggal
+        // kedaluwarsa; umurnya ditetapkan di `config/sanctum.php` dan dicerminkan
+        // di sini. Angka ini harus sama dengan setelan backend.
+        expect(
+          sesi.kedaluwarsa.difference(sebelum).inDays,
+          SesiLogin.masaBerlakuToken.inDays,
+        );
+      },
+    );
 
     test('401 dan 403 menjadi KredensialSalah', () async {
       for (final kode in [401, 403]) {
         final layanan = _layanan(
-          (_) async => http.Response('{"kode":"kredensial_salah"}', kode),
+          (_) async => http.Response(_badanGalat('tidak_terautentikasi'), kode),
         );
         final hasil = await layanan.masuk(identifier: 'a@b.c', kataSandi: 'x');
         expect(hasil, isA<KredensialSalah>(), reason: 'kode $kode');
       }
+    });
+
+    // Backend hari ini membalas 422 `validasi_gagal` untuk kata sandi yang
+    // salah, bukan 401. Tanpa pembacaan `galat.kode`, pengguna yang salah ketik
+    // akan diberi tahu bahwa servernya rusak, lalu menunggu sesuatu yang tidak
+    // akan membaik.
+    test('422 validasi_gagal tetap menjadi KredensialSalah', () async {
+      final layanan = _layanan(
+        (_) async => http.Response(
+          _badanGalat('validasi_gagal', 'Email atau kata sandi salah.'),
+          422,
+        ),
+      );
+
+      expect(
+        await layanan.masuk(identifier: 'a@b.c', kataSandi: 'x'),
+        isA<KredensialSalah>(),
+      );
+    });
+
+    test('kode galat menang atas status HTTP', () async {
+      // Kebalikannya juga harus benar: status 401 dengan kode yang jelas-jelas
+      // bukan soal kredensial tidak boleh menuduh kata sandi pengguna.
+      final layanan = _layanan(
+        (_) async => http.Response(_badanGalat('galat_server'), 401),
+      );
+
+      expect(
+        await layanan.masuk(identifier: 'a@b.c', kataSandi: 'x'),
+        isA<ServerBermasalah>(),
+      );
     });
 
     test('5xx menjadi ServerBermasalah, bukan KredensialSalah', () async {
@@ -154,14 +192,19 @@ void main() {
       expect(hasil, isA<ServerBermasalah>());
     });
 
-    test('400 juga ServerBermasalah — itu bug aplikasi, bukan salah pengguna', () async {
-      final layanan = _layanan((_) async => http.Response('{"pesan":"bad"}', 400));
+    test(
+      '400 juga ServerBermasalah — itu bug aplikasi, bukan salah pengguna',
+      () async {
+        final layanan = _layanan(
+          (_) async => http.Response('{"pesan":"bad"}', 400),
+        );
 
-      expect(
-        await layanan.masuk(identifier: 'a@b.c', kataSandi: 'x'),
-        isA<ServerBermasalah>(),
-      );
-    });
+        expect(
+          await layanan.masuk(identifier: 'a@b.c', kataSandi: 'x'),
+          isA<ServerBermasalah>(),
+        );
+      },
+    );
 
     test('200 dengan badan bukan JSON menjadi ServerBermasalah', () async {
       // Terjadi di dunia nyata saat sebuah portal WiFi atau proxy menjawab
@@ -176,9 +219,16 @@ void main() {
       );
     });
 
-    test('200 tanpa access_token menjadi ServerBermasalah', () async {
+    test('200 tanpa data.token menjadi ServerBermasalah', () async {
       final layanan = _layanan(
-        (_) async => http.Response(jsonEncode({'refresh_token': 'x'}), 200),
+        (_) async => http.Response(
+          jsonEncode({
+            'data': {
+              'profil': {'nama': 'Rara'},
+            },
+          }),
+          200,
+        ),
       );
 
       // Bukan dilempar keluar: sebuah pengecualian di sini sampai ke layar

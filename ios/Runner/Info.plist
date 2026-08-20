@@ -38,6 +38,14 @@
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>AsaWatch memakai Bluetooth untuk menyambung ke jam tangan Anda dan mengambil hasil pengukuran selama sesi makan.</string>
 	<!--
+		Izin kamera dan galeri. Alasannya menyebut apa yang dilakukan foto itu —
+		ia yang memulai sesi makan — bukan sekadar "aplikasi butuh kamera".
+	-->
+	<key>NSCameraUsageDescription</key>
+	<string>AsaWatch memakai kamera untuk memotret makanan Anda; foto itulah yang memulai sesi makan dan menjadi dasar perkiraan gizinya.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>AsaWatch membuka galeri agar Anda bisa memilih foto makanan yang sudah diambil sebelumnya untuk memulai sesi makan.</string>
+	<!--
 		Sesi berlangsung ~2 jam dan pengguna pasti meninggalkan aplikasi. iOS
 		tidak bisa menjaga proses tetap hidup selama itu; mode ini yang
 		memungkinkan jam tersambung kembali dan buffer-nya ditarik saat aplikasi

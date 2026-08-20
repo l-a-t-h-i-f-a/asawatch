@@ -1,10 +1,18 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 /// Foto makanan sebuah sesi, dengan sudut membulat dan penampung cadangan.
 ///
-/// Selama Fase UI `fotoPath` masih berupa URL contoh; jalur file kamera nyata
-/// baru masuk pada langkah 6 rancangan, jadi belum ada pembacaan `dart:io`
-/// di sini (agar build web tetap jalan).
+/// `fotoPath` punya tiga bentuk dan ketiganya hidup berdampingan: jalur file
+/// dari kamera sungguhan (bentuk normal sejak kamera dipasang), URL contoh
+/// (sesi lama dan data uji), dan jalur aset. Foto yang filenya sudah hilang —
+/// pengguna membersihkan penyimpanan, aplikasi dipasang ulang — jatuh ke
+/// penampung cadangan, tidak pernah ke layar galat: sesinya sendiri masih utuh.
+///
+/// `dart:io` di sini mengunci widget ini ke platform non-web, yang tidak
+/// menambah batasan baru: sejak sesi pindah ke SQLite, web memang sudah tidak
+/// bisa dijalankan.
 class FotoMakanan extends StatelessWidget {
   const FotoMakanan({
     super.key,
@@ -33,6 +41,14 @@ class FotoMakanan extends StatelessWidget {
     } else if (fotoPath.startsWith('assets/')) {
       gambar = Image.asset(
         fotoPath,
+        width: lebar,
+        height: tinggi,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => _penampungCadangan(),
+      );
+    } else if (File(fotoPath).existsSync()) {
+      gambar = Image.file(
+        File(fotoPath),
         width: lebar,
         height: tinggi,
         fit: BoxFit.cover,

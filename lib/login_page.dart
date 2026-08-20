@@ -1,11 +1,25 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import 'package:asawatch/controllers/sesi_makan_controller.dart';
 import 'package:asawatch/register_page.dart';
 import 'package:asawatch/konfigurasi.dart';
 import 'package:asawatch/services/auth_service.dart';
+import 'package:asawatch/repositories/profil_repository.dart';
+import 'package:asawatch/repositories/sesi_login_repository.dart';
+import 'package:asawatch/services/kamera_service.dart';
 import 'package:asawatch/main.dart'; // To navigate to MyHomePage
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key, this.auth});
+  const LoginPage({
+    super.key,
+    this.auth,
+    this.kamera,
+    this.sesiLogin,
+    this.profil,
+  });
 
   /// Auth yang dipakai halaman ini. null berarti rakit yang bawaan.
   ///
@@ -14,6 +28,16 @@ class LoginPage extends StatefulWidget {
   /// `flutter_test` tidak punya jaringan — sebuah permintaan HTTP di dalam test
   /// tidak gagal dengan jelas, ia hanya menggantung sampai batas waktu.
   final AuthService? auth;
+
+  /// Hanya diteruskan ke `MyHomePage` — lihat `MyApp.kamera`.
+  final KameraService? kamera;
+
+  /// Tempat bukti masuk disimpan setelah berhasil — lihat `MyApp.sesiLogin`.
+  final SesiLoginRepository? sesiLogin;
+
+  /// Profil ditarik sekali di sini, sebelum shell dibuka — lihat
+  /// `MyApp.profil`.
+  final ProfilRepository? profil;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -71,13 +95,41 @@ class _LoginPageState extends State<LoginPage> {
     if (!mounted) return;
 
     if (hasil is MasukBerhasil) {
-      // Token belum disimpan ke mana pun — penyimpanannya langkah berikutnya
-      // (lihat `SesiLogin`). Sampai saat itu, masuk hanya membuka shell.
-      Navigator.pushReplacement(
+      // Disimpan **sebelum** berpindah halaman: aplikasi yang ditutup tepat
+      // setelah masuk harus tetap ditemukan dalam keadaan masuk.
+      await widget.sesiLogin?.simpan(hasil.sesi);
+
+      // Ditarik **sebelum** shell dibuka, bukan sesudah. Beranda memuat namanya
+      // saat itu juga, dan pada pemasangan baru salinan lokalnya masih kosong —
+      // tanpa ini pengguna disambut "Halo" tanpa nama dan Profil tampak belum
+      // diisi, padahal akunnya punya semua data itu. Kegagalannya tidak
+      // menghalangi: `muatSegar` mengembalikan salinan lokal apa adanya saat
+      // tanpa jaringan.
+      await widget.profil?.sinkronSetelahMasuk(hasil.sesi.email);
+      if (!mounted) return;
+
+      // Riwayat yang terkumpul sebelum masuk ikut naik sekarang — sebelum ini
+      // tidak ada token, jadi tidak ada satu pun sesi yang bisa dikirim.
+      unawaited(context.read<SesiMakanController>().kirimRiwayatKeServer());
+
+      // `pushAndRemoveUntil`, bukan `pushReplacement`: yang diganti hanya
+      // halaman login, sedangkan halaman sambutan tetap tertinggal di bawahnya.
+      // Akibatnya tombol kembali di Beranda memunculkan lagi layar sambutan —
+      // yang dibaca pengguna sebagai keluar dari akun, padahal ia masih masuk.
+      // Dengan tumpukan dikosongkan, kembali di Beranda berarti keluar dari
+      // aplikasi, sama seperti aplikasi lain.
+      Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(
-          builder: (context) => const MyHomePage(title: 'AsaWatch'),
+          builder: (context) => MyHomePage(
+            title: 'AsaWatch',
+            kamera: widget.kamera,
+            auth: _auth,
+            sesiLogin: widget.sesiLogin,
+            profil: widget.profil,
+          ),
         ),
+        (rute) => false,
       );
       return;
     }
@@ -460,8 +512,12 @@ class _LoginPageState extends State<LoginPage> {
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
-                                        builder: (context) =>
-                                            const RegisterPage(),
+                                        builder: (context) => RegisterPage(
+                                          auth: widget.auth,
+                                          kamera: widget.kamera,
+                                          sesiLogin: widget.sesiLogin,
+                                          profil: widget.profil,
+                                        ),
                                       ),
                                     );
                                   },

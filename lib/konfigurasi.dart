@@ -17,6 +17,7 @@ import 'models/jadwal_sesi.dart';
 import 'services/auth_http_service.dart';
 import 'services/auth_service.dart';
 import 'services/izin_ble.dart';
+import 'services/kamera_service.dart';
 
 const bool pakaiJamPalsu = bool.fromEnvironment('PAKAI_JAM_PALSU');
 
@@ -101,6 +102,27 @@ AuthService buatAuthBawaan() => pakaiAuthPalsu
         jeda: const Duration(milliseconds: 900),
       )
     : AuthHttpService(basisUrl: basisUrlApi);
+
+/// Sakelar keempat: kamera palsu.
+///
+/// ```bash
+/// flutter run --dart-define=PAKAI_KAMERA_PALSU=true
+/// ```
+///
+/// Alasannya sama sekali berbeda dengan [pakaiJamPalsu], walau bentuknya sama.
+/// Bukan karena perangkat kerasnya tidak ada — hampir setiap ponsel punya
+/// kamera — melainkan karena ada keadaan di mana membuka kamera menghalangi hal
+/// yang sedang diuji: emulator tanpa kamera, perangkat yang izin kameranya
+/// sengaja ditolak, atau sekadar tidak ingin memotret piring berkali-kali
+/// hanya untuk sampai ke layar sesi.
+///
+/// Yang dimatikan **hanya kameranya**. Sesi tetap lahir, foto tetap punya
+/// jalur, kartu gizi tetap muncul, dan seluruh alur BLE berjalan apa adanya.
+const bool pakaiKameraPalsu = bool.fromEnvironment('PAKAI_KAMERA_PALSU');
+
+/// Kamera yang dipakai halaman deteksi makanan.
+KameraService buatKameraBawaan() =>
+    pakaiKameraPalsu ? KameraPalsuService() : KameraAsliService();
 
 /// Izin yang dipakai alur pemindaian.
 ///

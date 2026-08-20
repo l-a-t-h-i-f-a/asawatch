@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 
 import 'controllers/sesi_makan_controller.dart';
 import 'models/sesi_makan.dart';
-import 'models/target_harian.dart';
 import 'pindai_kesehatan_page.dart';
 import 'repositories/profil_repository.dart';
 import 'ringkasan_sesi_page.dart';
@@ -18,6 +17,56 @@ import 'widgets/ringkasan_nutrisi.dart';
 import 'widgets/sparkline.dart';
 import 'widgets/timeline_sampel.dart';
 import 'widgets/tombol_sinkron.dart';
+
+/// Dua tingkat kartu, dan perbedaannya yang memikul hierarki halaman ini.
+///
+/// Sebelumnya **setiap** kartu di Beranda memakai garis tepi 1,5 px yang sama:
+/// sesi yang sedang berjalan, ringkasan harian, sesi terakhir, dan pintu pindai
+/// tampil dengan bobot yang persis sama, sehingga tidak ada satu pun yang
+/// dilihat lebih dulu. Yang utama sekarang tidak lagi bergaris — ia diangkat
+/// dari latar dengan bayangan, yang di atas latar 0xFFF4FAF7 terbaca jauh lebih
+/// tegas daripada garis setipis itu — sedangkan yang sekunder tetap bergaris dan
+/// dengan begitu jelas berada satu tingkat di bawahnya.
+///
+/// Warna bayangannya diturunkan dari warna teks utama, bukan hitam netral dan
+/// bukan pula rona baru: bayangan kelabu di atas latar kehijauan terbaca kotor.
+final BoxDecoration _dekorasiUtama = BoxDecoration(
+  color: Colors.white,
+  borderRadius: BorderRadius.circular(24),
+  boxShadow: [
+    BoxShadow(
+      color: const Color(0xFF1E3A34).withValues(alpha: 0.07),
+      blurRadius: 18,
+      offset: const Offset(0, 6),
+    ),
+  ],
+);
+
+/// Kartu tingkat dua: tetap bergaris tipis seperti sebelumnya.
+final BoxDecoration _dekorasiSekunder = BoxDecoration(
+  color: Colors.white,
+  borderRadius: BorderRadius.circular(20),
+  border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
+);
+
+/// Label bagian di dalam kartu — kecil, huruf besar, berjarak.
+///
+/// Ada supaya angka besar di bawahnya tidak perlu menjelaskan dirinya sendiri
+/// dengan ikut membesar.
+const TextStyle _gayaLabelKecil = TextStyle(
+  fontSize: 10,
+  fontWeight: FontWeight.w700,
+  letterSpacing: 0.9,
+  color: Color(0xFF8FA7A1),
+);
+
+/// Angka yang dicari mata pertama kali di sebuah kartu.
+const TextStyle _gayaHero = TextStyle(
+  fontSize: 36,
+  fontWeight: FontWeight.w700,
+  color: Color(0xFF1E3A34),
+  height: 1.05,
+);
 
 /// Beranda menjawab "sesi kamu sampai mana", bukan lagi "bagaimana kondisimu
 /// sekarang" (§3). Kartu vital "sekarang" sudah dihapus: jam hanya mengukur
@@ -86,50 +135,48 @@ class _BerandaTabState extends State<BerandaTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Row
+            // Header. Tanggal dan sapaan bertukar tempat: tanggal naik menjadi
+            // baris atas yang kecil dan tenang, nama turun menjadi baris besar.
+            // Sebelumnya keduanya 16 dan 12 px — dua ukuran yang terlalu
+            // berdekatan untuk terbaca sebagai hierarki, sehingga mata harus
+            // membaca keduanya dulu untuk tahu mana yang penting.
+            //
+            // Emoji 👋 ikut hilang. Ia satu-satunya elemen dekoratif di halaman
+            // ini dan berdiri tepat di sebelah satu-satunya kata yang perlu
+            // dibaca di baris itu.
             Row(
               children: [
                 // Foto orang asing dari Unsplash dihapus bersama sisa identitas
                 // demo; ia juga tidak pernah termuat di rilis karena izin
                 // INTERNET tidak dideklarasikan.
                 const CircleAvatar(
-                  radius: 22,
-                  backgroundColor: Color(0xFFE0F2F1),
-                  child: Icon(Icons.person, color: Color(0xFF0EAD69)),
+                  radius: 24,
+                  backgroundColor: Color(0xFFE2F6F0),
+                  child: Icon(
+                    Icons.person_rounded,
+                    size: 26,
+                    color: Color(0xFF0EAD69),
+                  ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Text(
-                            // Tanpa nama tersimpan, sapaannya berhenti di
-                            // "Halo" — bukan menyapa dengan nama orang lain.
-                            _nama.isEmpty ? 'Halo' : 'Halo, $_nama',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF1E3A34),
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '👋',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.amber.shade600,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
                       Text(
-                        _formatCurrentDate(),
+                        _formatCurrentDate().toUpperCase(),
+                        style: _gayaLabelKecil,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        // Tanpa nama tersimpan, sapaannya berhenti di "Halo" —
+                        // bukan menyapa dengan nama orang lain.
+                        _nama.isEmpty ? 'Halo' : 'Halo, $_nama',
                         style: const TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFF7E9A94),
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF1E3A34),
+                          height: 1.1,
                         ),
                       ),
                     ],
@@ -148,7 +195,7 @@ class _BerandaTabState extends State<BerandaTab> {
                 // diberitahukan.
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
 
             // Status jam ringkas — pendengar sendiri, bukan seluruh tab.
             const _StatusJamHeader(),
@@ -408,31 +455,62 @@ class _KartuSesiBerjalan extends StatelessWidget {
           ),
         ),
 
-        // Timeline mendominasi layar saat sesi berjalan (§4.1 B).
+        // Timeline mendominasi layar saat sesi berjalan (§4.1 B) — dan sejak
+        // redesain ini, satu angka mendominasi timeline-nya. Hitung mundur ke
+        // titik berikutnya sebelumnya hanya angka 14 px di ujung salah satu dari
+        // empat baris yang seragam; ia harus dicari, padahal ia satu-satunya hal
+        // di kartu ini yang berubah tiap detik dan satu-satunya yang menentukan
+        // kapan pengguna harus bertindak.
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
-          ),
-          child: TimelineSampel(
-            sampel: sesi.sampel,
-            t0: sesi.t0,
-            indexBerikutnya: sesi.sampelBerikutnya?.index,
-            kemampuan: controller.statusPerangkat.metrikTampil,
+          padding: const EdgeInsets.all(18),
+          decoration: _dekorasiUtama,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Tindakan berdiri di atas timeline, bukan di bawah kartu foto.
+              //
+              // Sebelumnya keduanya terpisah satu kartu penuh: hitung mundur ke
+              // titik berikutnya di baris teratas, tombol yang mengukur titik itu
+              // di dasar halaman — di bawah timeline, di bawah foto makanan, dan
+              // sering di bawah lipatan layar. Yang membaca "6 menit lagi" harus
+              // menebak sendiri bahwa ada yang harus ditekan, lalu mencarinya.
+              //
+              // Sesi draft memakai slot yang sama dengan PetunjukTombolJam. Ia
+              // tidak punya hero — yang ditunggu di sana bukan waktu melainkan
+              // sebuah tekanan tombol — jadi petunjuk itulah yang berdiri
+              // sendirian di puncak kartu.
+              if (sesi.t0 == null)
+                PetunjukTombolJam(
+                  status: sesi.status,
+                  perangkat: controller.statusPerangkat,
+                )
+              else ...[
+                _HeroSesi(sesi: sesi),
+                const SizedBox(height: 16),
+                // Ringkas: hero di atasnya sudah menyebut titik, jadwal, dan
+                // sisa waktunya, jadi kotak penjelas versi penuh hanya akan
+                // mengulanginya sambil mendorong tombolnya turun lagi.
+                const PetunjukTombolUkur(ringkas: true),
+              ],
+              const SizedBox(height: 18),
+              const Divider(height: 1, thickness: 1, color: Color(0xFFE2EBE8)),
+              const SizedBox(height: 18),
+              TimelineSampel(
+                sampel: sesi.sampel,
+                t0: sesi.t0,
+                indexBerikutnya: sesi.sampelBerikutnya?.index,
+                kemampuan: controller.statusPerangkat.metrikTampil,
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 16),
 
-        // Di bawahnya: foto makanan dan ringkasan nutrisinya.
+        // Di bawahnya: foto makanan dan ringkasan nutrisinya. Kartu tingkat dua
+        // — apa yang dimakan sudah diputuskan dan tidak menuntut apa pun lagi.
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
-          ),
+          decoration: _dekorasiSekunder,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -441,13 +519,21 @@ class _KartuSesiBerjalan extends StatelessWidget {
                   FotoMakanan(fotoPath: sesi.fotoPath, lebar: 56, tinggi: 56),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Text(
-                      sesi.hasil?.ringkasanNama ?? 'Makanan',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF1E3A34),
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('YANG DIMAKAN', style: _gayaLabelKecil),
+                        const SizedBox(height: 3),
+                        Text(
+                          sesi.hasil?.ringkasanNama ?? 'Makanan',
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF1E3A34),
+                            height: 1.2,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -459,42 +545,98 @@ class _KartuSesiBerjalan extends StatelessWidget {
         ),
         const SizedBox(height: 16),
 
-        if (sesi.t0 == null)
-          PetunjukTombolJam(
-            status: sesi.status,
-            perangkat: controller.statusPerangkat,
-          )
-        else ...[
-          // Titik ukur tidak datang sendiri sejak protokol v1.3 (§9), dan
-          // notifikasinya mendarat di ponsel — jadi tombolnya harus ada di
-          // layar yang pertama dibuka, bukan hanya satu ketukan lebih dalam di
-          // SesiBerjalanPage. Widget ini menyembunyikan dirinya sendiri bila
-          // tidak ada titik yang menunggu, jadi kartu ini tidak berubah bentuk
-          // di sebagian besar waktu sesi.
-          const PetunjukTombolUkur(),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SesiBerjalanPage()),
-              ),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF0EAD69),
-                side: const BorderSide(color: Color(0xFFE2EBE8), width: 1.5),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-              child: const Text(
-                'Buka Sesi',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+        // Yang tersisa di dasar kartu hanyalah pintu ke halaman sesi — sebuah
+        // tindakan sekunder, dan satu-satunya yang pantas berada sejauh ini dari
+        // atas. Ia kini juga ditawarkan untuk sesi draft, karena
+        // SesiBerjalanPage melayani draft dengan sama baiknya.
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SesiBerjalanPage()),
+            ),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF0EAD69),
+              side: const BorderSide(color: Color(0xFFE2EBE8), width: 1.5),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
               ),
             ),
+            child: const Text(
+              'Buka Sesi',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            ),
           ),
-        ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Satu angka yang menjawab "kapan aku harus mengukur lagi".
+///
+/// Hanya dipasang setelah `t0` ada — sebelum itu tidak ada yang bisa dihitung
+/// mundur. Kedua keadaannya memakai slot yang sama persis — label kecil di atas,
+/// angka atau kata besar di tengah, satu kalimat di bawah — supaya pergantian
+/// keadaan tidak mengubah bentuk kartu. Kartu yang bergeser tiap kali keadaannya
+/// berubah memaksa mata mencari ulang tempat angka itu berada.
+class _HeroSesi extends StatelessWidget {
+  const _HeroSesi({required this.sesi});
+
+  final SesiMakan sesi;
+
+  @override
+  Widget build(BuildContext context) {
+    final jadwal = sesi.jadwalBerikutnya;
+    final berikutnya = sesi.sampelBerikutnya;
+
+    final String label;
+    final Widget utama;
+    final String bawah;
+
+    if (jadwal == null || berikutnya == null) {
+      // Semua titik sudah terisi atau terlewat; sesi tinggal ditutup.
+      label = 'SEMUA TITIK SELESAI';
+      utama = Text(
+        'Selesai',
+        style: _gayaHero.copyWith(color: const Color(0xFF0EAD69)),
+      );
+      bawah = 'Ringkasan sesinya akan muncul sebentar lagi.';
+    } else {
+      label = 'TITIK BERIKUTNYA';
+      utama = HitungMundur(
+        target: jadwal,
+        gaya: _gayaHero.copyWith(color: const Color(0xFF0EAD69)),
+        // Nol bukan lagi hitungan, jadi ia turun ukuran: yang berlaku saat itu
+        // adalah ajakan mengukur di PetunjukTombolUkur, bukan angka ini.
+        gayaSelesai: const TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF0EAD69),
+          height: 1.05,
+        ),
+      );
+      bawah = '${berikutnya.label} · dijadwalkan pukul ${formatJam(jadwal)}';
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: _gayaLabelKecil),
+        const SizedBox(height: 8),
+        utama,
+        const SizedBox(height: 6),
+        Text(
+          bawah,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: Color(0xFF6B807B),
+            height: 1.3,
+          ),
+        ),
       ],
     );
   }
@@ -522,7 +664,7 @@ class _KartuHasilBaru extends StatelessWidget {
         );
       },
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
           color: const Color(0xFFE2F6F0),
           borderRadius: BorderRadius.circular(24),
@@ -542,9 +684,10 @@ class _KartuHasilBaru extends StatelessWidget {
                   child: Text(
                     'Sesi baru selesai',
                     style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1E3A34),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.4,
+                      color: Color(0xFF0EAD69),
                     ),
                   ),
                 ),
@@ -553,12 +696,41 @@ class _KartuHasilBaru extends StatelessWidget {
                     formatWaktuRelatif(t0),
                     style: const TextStyle(
                       fontSize: 11,
+                      fontWeight: FontWeight.w500,
                       color: Color(0xFF6B807B),
                     ),
                   ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
+
+            // Kenaikan puncak naik menjadi angka utama kartu ini. Ia satu-satunya
+            // hasil sesi yang bisa dibaca dalam sekali lihat — verdict di
+            // bawahnya adalah kalimat, dan kalimat menuntut dibaca sampai habis
+            // sebelum memberi tahu apa pun.
+            if (delta != null) ...[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Text(
+                    delta > 0 ? '+$delta' : '$delta',
+                    style: _gayaHero.copyWith(fontSize: 34),
+                  ),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'mg/dL dari baseline',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF6B807B),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ],
+
             Row(
               children: [
                 FotoMakanan(fotoPath: sesi.fotoPath, lebar: 56, tinggi: 56),
@@ -571,20 +743,30 @@ class _KartuHasilBaru extends StatelessWidget {
                         sesi.verdict,
                         style: const TextStyle(
                           fontSize: 13,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w600,
                           color: Color(0xFF1E3A34),
                           height: 1.35,
                         ),
                       ),
                       const SizedBox(height: 6),
-                      Text(
-                        delta == null
-                            ? 'Ketuk untuk melihat rinciannya'
-                            : 'Ketuk untuk melihat kurva responsnya',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF6B807B),
-                        ),
+                      Row(
+                        children: [
+                          Text(
+                            delta == null
+                                ? 'Ketuk untuk melihat rinciannya'
+                                : 'Ketuk untuk melihat kurva responsnya',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF0EAD69),
+                            ),
+                          ),
+                          const Icon(
+                            Icons.chevron_right_rounded,
+                            size: 16,
+                            color: Color(0xFF0EAD69),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -607,7 +789,6 @@ class _RingkasanHariIni extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const target = TargetHarian.bawaan;
     final total = controller.totalNutrisiHariIni();
     final jumlahSesi = controller.sesiHariIni().length;
 
@@ -622,102 +803,169 @@ class _RingkasanHariIni extends StatelessWidget {
             style: const TextStyle(fontSize: 11, color: Color(0xFF7E9A94)),
           ),
         ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
+        if (jumlahSesi == 0)
+          const _AjakanFoto()
+        else
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: _dekorasiUtama,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Kalori keluar dari barisan dan menjadi angka kartu ini.
+                // Sebelumnya keempat makro adalah empat baris yang identik, jadi
+                // pertanyaan yang paling sering dibawa ke halaman ini — "hari ini
+                // sudah berapa?" — harus dijawab dengan membaca keempatnya lebih
+                // dulu untuk menemukan yang mana kalori.
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(formatAngka(total.kalori), style: _gayaHero),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'kcal hari ini',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF6B807B),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                const Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: Color(0xFFE2EBE8),
+                ),
+                const SizedBox(height: 16),
+                const Text('MAKRO', style: _gayaLabelKecil),
+                const SizedBox(height: 12),
+                _BarisMakro(label: 'Karbohidrat', nilai: total.karbohidrat),
+                const SizedBox(height: 12),
+                _BarisMakro(label: 'Protein', nilai: total.protein),
+                const SizedBox(height: 12),
+                _BarisMakro(label: 'Lemak', nilai: total.lemak),
+              ],
+            ),
           ),
-          child: Column(
-            children: [
-              _BarisTarget(
-                label: 'Kalori',
-                nilai: total.kalori,
-                target: target.kalori,
-                satuan: 'kcal',
-              ),
-              const SizedBox(height: 14),
-              _BarisTarget(
-                label: 'Karbohidrat',
-                nilai: total.karbohidrat,
-                target: target.karbohidrat,
-                satuan: 'g',
-              ),
-              const SizedBox(height: 14),
-              _BarisTarget(
-                label: 'Protein',
-                nilai: total.protein,
-                target: target.protein,
-                satuan: 'g',
-              ),
-              const SizedBox(height: 14),
-              _BarisTarget(
-                label: 'Lemak',
-                nilai: total.lemak,
-                target: target.lemak,
-                satuan: 'g',
-              ),
-            ],
-          ),
-        ),
       ],
     );
   }
 }
 
-class _BarisTarget extends StatelessWidget {
-  const _BarisTarget({
-    required this.label,
-    required this.nilai,
-    required this.target,
-    required this.satuan,
-  });
-
-  final String label;
-  final double nilai;
-  final double target;
-  final String satuan;
+/// Satu-satunya ajakan bertindak di wajah idle.
+///
+/// Tombol kamera di nav adalah satu-satunya jalan memulai sesi, dan sebelum ini
+/// tidak ada satu pun kalimat di Beranda yang menyebutnya — kecuali pada
+/// instalasi yang riwayatnya benar-benar kosong. Begitu ada satu sesi
+/// tersimpan, petunjuk itu hilang selamanya, padahal ia dibutuhkan tiap pagi.
+///
+/// Karena itu pemicunya **"belum ada sesi hari ini"**, bukan "belum pernah ada
+/// sesi": keduanya sama-sama keadaan di mana yang benar untuk dilakukan adalah
+/// memfoto makanan.
+class _AjakanFoto extends StatelessWidget {
+  const _AjakanFoto();
 
   @override
   Widget build(BuildContext context) {
-    final rasio = target <= 0 ? 0.0 : (nilai / target).clamp(0.0, 1.0);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(
-              ikonMakro[label] ?? Icons.circle,
-              size: 13,
-              color: const Color(0xFF8FA7A1),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF1E3A34),
-                ),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 26),
+      decoration: _dekorasiUtama,
+      child: Column(
+        children: const [
+          SizedBox(
+            width: 56,
+            height: 56,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Color(0xFFE2F6F0),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.photo_camera_rounded,
+                size: 28,
+                color: Color(0xFF0EAD69),
               ),
             ),
-            Text(
-              '${formatAngka(nilai)} / ${formatAngka(target)} $satuan',
-              style: const TextStyle(fontSize: 11, color: Color(0xFF6B807B)),
+          ),
+          SizedBox(height: 14),
+          Text(
+            'Belum ada sesi hari ini',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF1E3A34),
             ),
-          ],
+          ),
+          SizedBox(height: 6),
+          Text(
+            'Foto makananmu lewat tombol kamera di bawah untuk memulai sesi.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.35,
+              color: Color(0xFF7E9A94),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Satu makro, tanpa pembanding.
+///
+/// Bar kemajuan dan penyebutnya dihapus bersama `TargetHarian`: angka yang tidak
+/// pernah dipilih siapa pun bukan target, dan bar yang mengukur terhadapnya
+/// hanya menggambar pecahan yang tidak berarti apa-apa. Yang tersisa adalah
+/// jumlah yang benar-benar diketahui aplikasi.
+class _BarisMakro extends StatelessWidget {
+  const _BarisMakro({required this.label, required this.nilai});
+
+  final String label;
+  final double nilai;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(
+          ikonMakro[label] ?? Icons.circle,
+          size: 14,
+          color: const Color(0xFF8FA7A1),
         ),
-        const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: LinearProgressIndicator(
-            value: rasio,
-            minHeight: 6,
-            backgroundColor: const Color(0xFFE2EBE8),
-            valueColor: const AlwaysStoppedAnimation(Color(0xFF0EAD69)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF1E3A34),
+            ),
+          ),
+        ),
+        RichText(
+          text: TextSpan(
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF1E3A34),
+            ),
+            children: [
+              TextSpan(text: formatAngka(nilai)),
+              const TextSpan(
+                text: ' g',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF8FA7A1),
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -734,41 +982,11 @@ class _KartuSesiTerakhir extends StatelessWidget {
   Widget build(BuildContext context) {
     final sesi = controller.sesiTerakhir;
 
-    if (sesi == null) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
-        ),
-        child: Column(
-          children: const [
-            Icon(
-              Icons.photo_camera_rounded,
-              size: 32,
-              color: Color(0xFF8FA7A1),
-            ),
-            SizedBox(height: 10),
-            Text(
-              'Belum ada sesi',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF1E3A34),
-              ),
-            ),
-            SizedBox(height: 4),
-            Text(
-              'Foto makananmu lewat tombol kamera untuk memulai sesi.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 11, color: Color(0xFF7E9A94)),
-            ),
-          ],
-        ),
-      );
-    }
+    // Tidak ada kartu kosong di sini lagi. Ajakan memfoto sudah berdiri di
+    // ringkasan harian, dan dua kartu kosong berturut-turut pada instalasi baru
+    // mengatakan hal yang sama dua kali — sambil membuat halaman terlihat penuh
+    // oleh ketiadaan.
+    if (sesi == null) return const SizedBox.shrink();
 
     final t0 = sesi.t0;
     return Column(
@@ -782,11 +1000,7 @@ class _KartuSesiTerakhir extends StatelessWidget {
           ),
           child: Container(
             padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
-            ),
+            decoration: _dekorasiSekunder,
             child: Row(
               children: [
                 FotoMakanan(fotoPath: sesi.fotoPath, lebar: 52, tinggi: 52),
@@ -821,10 +1035,10 @@ class _KartuSesiTerakhir extends StatelessWidget {
                       Text(
                         sesi.verdict,
                         style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
                           color: Color(0xFF1E3A34),
-                          height: 1.35,
+                          height: 1.3,
                         ),
                       ),
                     ],
@@ -855,12 +1069,8 @@ class _KartuPuncakTerakhir extends StatelessWidget {
     if (puncak.length < 2) return const SizedBox.shrink();
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
-      ),
+      padding: const EdgeInsets.all(16),
+      decoration: _dekorasiSekunder,
       child: Row(
         children: [
           Column(
@@ -874,36 +1084,41 @@ class _KartuPuncakTerakhir extends StatelessWidget {
                     'Puncak Gula Darah',
                     style: TextStyle(
                       fontSize: 12,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w700,
                       color: Color(0xFF1E3A34),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 4),
-              Text(
-                '${puncak.length} sesi terakhir',
-                style: const TextStyle(fontSize: 10, color: Color(0xFF8FA7A1)),
-              ),
               const SizedBox(height: 8),
               RichText(
                 text: TextSpan(
                   style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w700,
                     color: Color(0xFF1E3A34),
+                    height: 1.05,
                   ),
                   children: [
                     TextSpan(text: formatAngka(puncak.last)),
                     const TextSpan(
                       text: ' mg/dL',
                       style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.normal,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
                         color: Color(0xFF6B807B),
                       ),
                     ),
                   ],
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${puncak.length} sesi terakhir',
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF8FA7A1),
                 ),
               ),
             ],
@@ -911,7 +1126,7 @@ class _KartuPuncakTerakhir extends StatelessWidget {
           const SizedBox(width: 16),
           Expanded(
             child: SizedBox(
-              height: 44,
+              height: 52,
               child: CustomPaint(
                 painter: MiniSparklinePainter(
                   colors: [

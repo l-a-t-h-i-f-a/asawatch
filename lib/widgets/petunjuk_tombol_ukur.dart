@@ -30,7 +30,20 @@ import '../controllers/sesi_makan_controller.dart';
 /// membuat pengguna mengira titik ukur hanya bisa diambil dari layar, padahal
 /// justru tombol jam yang bekerja saat ponselnya tertinggal di ruangan lain.
 class PetunjukTombolUkur extends StatefulWidget {
-  const PetunjukTombolUkur({super.key});
+  const PetunjukTombolUkur({super.key, this.ringkas = false});
+
+  /// Tanpa kotak penjelasnya, hanya tombol dan satu baris keterangan.
+  ///
+  /// Dipakai di kartu sesi Beranda, yang tepat di atas tombol ini sudah memasang
+  /// hero berisi hitung mundur, nama titiknya, dan jam jadwalnya. Kotak penjelas
+  /// versi penuh akan mengatakan ketiganya untuk kedua kalinya dalam jarak 12
+  /// piksel — dan yang lebih buruk, mendorong tombolnya turun sejauh kotak itu,
+  /// yang justru masalah yang sedang diperbaiki.
+  ///
+  /// Yang **tidak** boleh ikut hilang: alasan tombolnya mati. Di versi penuh
+  /// alasan itu ada di dalam kotak; di sini ia pindah ke baris keterangan di
+  /// bawah tombol, karena tombol mati tanpa sebab terbaca sebagai aplikasi rusak.
+  final bool ringkas;
 
   @override
   State<PetunjukTombolUkur> createState() => _PetunjukTombolUkurState();
@@ -67,7 +80,9 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
       _galat = null;
     });
     try {
-      final galat = await context.read<SesiMakanController>().ukurTitikSekarang();
+      final galat = await context
+          .read<SesiMakanController>()
+          .ukurTitikSekarang();
       if (!mounted) return;
       setState(() => _galat = galat);
       // Yang berhasil sengaja tidak mengubah apa pun di sini: titiknya baru
@@ -83,7 +98,9 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
     if (menit >= 60) {
       final jam = menit ~/ 60;
       final sisaMenit = menit % 60;
-      return sisaMenit == 0 ? '$jam jam lagi' : '$jam jam $sisaMenit menit lagi';
+      return sisaMenit == 0
+          ? '$jam jam lagi'
+          : '$jam jam $sisaMenit menit lagi';
     }
     if (menit > 1) return '$menit menit lagi';
     return '${sisa.inSeconds} detik lagi';
@@ -103,78 +120,80 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: siap ? const Color(0xFFE2F6F0) : const Color(0xFFE2EBE8),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(
-                siap
-                    ? Icons.monitor_heart_rounded
-                    : (belumWaktunya
-                          ? Icons.schedule_rounded
-                          : Icons.watch_off_rounded),
-                size: 18,
-                color: siap
-                    ? const Color(0xFF0EAD69)
-                    : const Color(0xFF6B807B),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      belumWaktunya
-                          ? 'Pengukuran ${titik.label} ${_hitungMundur(sisa)}'
-                          : (tersambung
-                                ? 'Saatnya pengukuran ${titik.label}'
-                                : 'Jam belum tersambung'),
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: siap
-                            ? const Color(0xFF0EAD69)
-                            : const Color(0xFF6B807B),
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      belumWaktunya
-                          // Diminta menyalakan jam **sebelum** waktunya, bukan
-                          // tepat pada waktunya: menyalakan jam dan
-                          // memasangnya butuh waktu, dan titik yang diukur
-                          // terlambat tidak punya pengganti.
-                          ? 'Jam boleh dimatikan dulu untuk menghemat baterai. '
-                                'Nyalakan dan pakai kembali beberapa menit '
-                                'sebelum waktunya.'
-                          : (tersambung
-                                ? 'Nyalakan jam, pakai rapat di pergelangan, '
-                                      'lalu tekan tombol di bawah. Bisa juga '
-                                      'langsung dari tombol ukur di jam kalau '
-                                      'ponsel sedang tidak dipegang.'
-                                : 'Nyalakan jam dan dekatkan ke ponsel. '
-                                      'Pengukuran ini masih bisa diambil '
-                                      'setelahnya.'),
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFF6B807B),
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
+        if (!widget.ringkas) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: siap ? const Color(0xFFE2F6F0) : const Color(0xFFE2EBE8),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  siap
+                      ? Icons.monitor_heart_rounded
+                      : (belumWaktunya
+                            ? Icons.schedule_rounded
+                            : Icons.watch_off_rounded),
+                  size: 18,
+                  color: siap
+                      ? const Color(0xFF0EAD69)
+                      : const Color(0xFF6B807B),
                 ),
-              ),
-            ],
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        belumWaktunya
+                            ? 'Pengukuran ${titik.label} ${_hitungMundur(sisa)}'
+                            : (tersambung
+                                  ? 'Saatnya pengukuran ${titik.label}'
+                                  : 'Jam belum tersambung'),
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: siap
+                              ? const Color(0xFF0EAD69)
+                              : const Color(0xFF6B807B),
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        belumWaktunya
+                            // Diminta menyalakan jam **sebelum** waktunya, bukan
+                            // tepat pada waktunya: menyalakan jam dan
+                            // memasangnya butuh waktu, dan titik yang diukur
+                            // terlambat tidak punya pengganti.
+                            ? 'Jam boleh dimatikan dulu untuk menghemat baterai. '
+                                  'Nyalakan dan pakai kembali beberapa menit '
+                                  'sebelum waktunya.'
+                            : (tersambung
+                                  ? 'Nyalakan jam, pakai rapat di pergelangan, '
+                                        'lalu tekan tombol di bawah. Bisa juga '
+                                        'langsung dari tombol ukur di jam kalau '
+                                        'ponsel sedang tidak dipegang.'
+                                  : 'Nyalakan jam dan dekatkan ke ponsel. '
+                                        'Pengukuran ini masih bisa diambil '
+                                        'setelahnya.'),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF6B807B),
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
 
-        const SizedBox(height: 12),
+          const SizedBox(height: 12),
+        ],
         SizedBox(
           height: 52,
           child: ElevatedButton(
@@ -221,6 +240,11 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
               (belumWaktunya
                   ? 'Mengukur terlalu awal akan mencatat angka dari titik yang '
                         'salah, jadi tombolnya menyala tepat waktu.'
+                  : !tersambung
+                  // Hanya terpakai di mode ringkas: versi penuh sudah
+                  // mengatakannya di dalam kotak di atas.
+                  ? 'Jam belum tersambung — nyalakan dan dekatkan ke ponsel. '
+                        'Pengukuran ini masih bisa diambil setelahnya.'
                   : 'Pengukuran memakan waktu beberapa detik.'),
           textAlign: TextAlign.center,
           style: TextStyle(

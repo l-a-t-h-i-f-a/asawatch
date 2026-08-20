@@ -48,7 +48,7 @@ void main() {
       await pumpHalaman(tester, const Scaffold(body: BerandaTab()));
       await tester.pump();
 
-      expect(find.text('Belum ada sesi'), findsOneWidget);
+      expect(find.text('Belum ada sesi hari ini'), findsOneWidget);
       expect(find.textContaining('tombol kamera'), findsOneWidget);
     });
 

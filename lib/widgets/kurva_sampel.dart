@@ -94,6 +94,31 @@ const SeriMetrik seriSpo2 = SeriMetrik(
   rentangMinimum: 8,
 );
 
+/// Rentang sumbu x sebuah kurva sesi, dalam detik relatif t0.
+///
+/// Dipisah dari painter-nya semata-mata supaya bisa diuji: inilah satu-satunya
+/// bagian dari penggambaran kurva yang pernah salah tanpa memberi gejala selain
+/// "grafiknya kok begitu".
+///
+/// Sampel yang masih `menunggu` **ikut dihitung**, dan itu disengaja:
+/// `detikRelatifT0` mereka adalah nilai nominal jadwalnya, jadi sesi yang baru
+/// punya dua titik tetap digambar pada sumbu selebar jadwal penuhnya alih-alih
+/// direntangkan memenuhi lebar kartu. Itu pula yang menggantikan lantai
+/// `0..7200` yang dulu ditulis sebagai literal — angka yang berhenti benar
+/// begitu jadwal menjadi data per sesi (docs/jadwal-titik-ukur.md §1).
+(int, int) rentangDetik(List<Sampel> sampel) {
+  if (sampel.isEmpty) return (0, 1);
+
+  var min = sampel.first.detikRelatifT0;
+  var max = min;
+  for (final s in sampel) {
+    if (s.detikRelatifT0 < min) min = s.detikRelatifT0;
+    if (s.detikRelatifT0 > max) max = s.detikRelatifT0;
+  }
+  // Seluruh titik pada detik yang sama akan membuat pembagi skalanya nol.
+  return (min, max <= min ? min + 1 : max);
+}
+
 /// Grafik satu sesi: 4 titik dalam ~2,5 jam, bukan kurva harian.
 ///
 /// Sumbu x memakai `detikRelatifT0` tiap sampel, jadi jarak antar titik
@@ -222,7 +247,10 @@ class KurvaTumpukPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     // Tiap sesi diringkas menjadi titik (detikRelatifT0, delta dari baseline).
     final garis = <List<({int index, int x, double y})>>[];
-    var xMin = 0, xMax = 7200;
+    // Sama seperti pada kurva satu sesi: rentangnya dari data, bukan dari
+    // jadwal produksi yang ditulis sebagai literal.
+    var xMin = 0, xMax = 0;
+    var adaX = false;
     var yMin = 0.0, yMax = 0.0;
 
     for (final s in sesi) {
@@ -234,6 +262,10 @@ class KurvaTumpukPainter extends CustomPainter {
         if (v == null) continue;
         final delta = (v - dasar).toDouble();
         titik.add((index: sampel.index, x: sampel.detikRelatifT0, y: delta));
+        if (!adaX) {
+          xMin = xMax = sampel.detikRelatifT0;
+          adaX = true;
+        }
         if (sampel.detikRelatifT0 < xMin) xMin = sampel.detikRelatifT0;
         if (sampel.detikRelatifT0 > xMax) xMax = sampel.detikRelatifT0;
         if (delta < yMin) yMin = delta;
@@ -242,6 +274,7 @@ class KurvaTumpukPainter extends CustomPainter {
       if (titik.length >= 2) garis.add(titik);
     }
     if (garis.isEmpty) return;
+    if (xMax <= xMin) xMax = xMin + 1;
 
     yMax = yMax + 12;
     yMin = yMin - 12;
@@ -430,11 +463,20 @@ class KurvaSampelPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     // Sumbu x mengikuti jadwal sebenarnya, termasuk baseline yang negatif.
-    var xMin = 0, xMax = 7200;
-    for (final s in sampel) {
-      if (s.detikRelatifT0 < xMin) xMin = s.detikRelatifT0;
-      if (s.detikRelatifT0 > xMax) xMax = s.detikRelatifT0;
-    }
+    //
+    // Rentangnya diturunkan **seluruhnya** dari sampel yang ada, tidak lagi
+    // dimulai dari 0..7200. Angka 7200 itu adalah `+2 jam` jadwal produksi yang
+    // ditulis sebagai literal, dan ia bertahan sebagai lantai: begitu jadwalnya
+    // menjadi data per sesi (docs/jadwal-titik-ukur.md §1), sesi yang titik
+    // terakhirnya jatuh pada detik ke-120 — jadwal uji `PAKAI_JADWAL_UJI` —
+    // digambar pada sumbu selebar dua jam, sehingga keempat titiknya menumpuk
+    // di 1,7% pertama lebar kurva dan seluruh label sumbunya saling menimpa.
+    //
+    // Sampel yang masih `menunggu` ikut dihitung, dan itu yang menggantikan
+    // fungsi lantai tadi: `detikRelatifT0` mereka adalah nilai nominal dari
+    // jadwal, jadi sesi yang baru punya dua titik tetap digambar pada sumbu
+    // selebar jadwal penuhnya, bukan direntangkan memenuhi lebar kartu.
+    final (xMin, xMax) = rentangDetik(sampel);
 
     var nilaiMin = garisAcuan ?? 1 << 30, nilaiMax = garisAcuan ?? -(1 << 30);
     for (final s in sampel) {
@@ -491,8 +533,12 @@ class KurvaSampelPainter extends CustomPainter {
       );
       // Ditempel di **kanan**, bukan kiri. Titik paling awal sebuah sesi selalu
       // baseline, jadi ia duduk di ujung kiri bersama label nilainya sendiri —
-      // dan "baseline 92" di sana menimpanya persis.
-      final teksAcuan = labelAcuan ?? 'baseline $acuan';
+      // dan "baseline" di sana menimpanya persis.
+      //
+      // Angkanya sengaja tidak ikut: garis putus-putus ini menunjukkan **di
+      // mana**, sementara berapanya sudah berdiri sebagai kotak nilai
+      // "Baseline" di atas kurva yang sama.
+      final teksAcuan = labelAcuan ?? 'baseline';
       _teks(
         canvas,
         teksAcuan,
@@ -545,7 +591,20 @@ class KurvaSampelPainter extends CustomPainter {
         0.0,
         (size.width - lebar).clamp(0.0, size.width),
       );
-      final baris = kiri >= kananBaris[0] + 6 ? 0 : 1;
+      // Kedua baris diperiksa, bukan hanya yang pertama. Versi lama menaruh
+      // apa pun yang tidak muat di baris 0 ke baris 1 tanpa menanyakan apakah
+      // baris 1 masih kosong, jadi tiga label yang berdesakan menghasilkan dua
+      // di antaranya saling menimpa — persis tumpukan yang sama, hanya turun
+      // satu baris. Bila keduanya penuh, dipilih yang ujung kanannya paling
+      // kiri: tumpang tindihnya tidak bisa dihindari, tapi bisa diperkecil.
+      final int baris;
+      if (kiri >= kananBaris[0] + 6) {
+        baris = 0;
+      } else if (kiri >= kananBaris[1] + 6) {
+        baris = 1;
+      } else {
+        baris = kananBaris[0] <= kananBaris[1] ? 0 : 1;
+      }
       kananBaris[baris] = kiri + lebar;
 
       _teks(

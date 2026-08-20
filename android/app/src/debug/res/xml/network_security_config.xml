@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Hanya untuk rakitan debug (lihat letaknya: src/debug/, bukan src/main/).
+
+    Android memblokir HTTP polos sejak versi 9, dan gejalanya menyesatkan:
+    permintaan ke server pengembangan di laptop gagal seperti tidak ada
+    jaringan sama sekali — aplikasi menampilkan "Tidak ada koneksi internet"
+    padahal servernya jelas hidup dan bisa dibuka dari browser laptop.
+
+    Yang diizinkan hanya alamat pengembangan, satu per satu, bukan
+    `cleartextTrafficPermitted` menyeluruh: sebuah izin global akan ikut
+    melonggarkan panggilan ke server produksi bila alamatnya suatu saat salah
+    ketik menjadi http://.
+
+    - 10.0.2.2       : alamat khusus emulator Android untuk "laptop yang
+                       menjalankan emulator ini". localhost di emulator berarti
+                       emulator itu sendiri, bukan laptop Anda.
+    - 192.168.100.x  : IP laptop ini — .13 di WiFi (wlp8s0), .7 di kabel
+                       (enp7s0). Keduanya didaftarkan karena laptop bisa
+                       tersambung lewat salah satunya. IP dari DHCP berubah
+                       setelah pindah jaringan atau router menyala ulang —
+                       kalau tiba-tiba "tidak ada koneksi", periksa dulu
+                       angkanya dengan `ip addr`.
+    - 127.0.0.1      : dipakai oleh `adb reverse tcp:8080 tcp:8080`, yang
+                       menembus WiFi lewat kabel USB. Ini jalan keluar saat
+                       WiFi-nya mengisolasi antar-klien (lazim di jaringan
+                       kampus dan kantor) sehingga HP tidak bisa melihat
+                       laptop sama sekali.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">192.168.100.13</domain>
+        <domain includeSubdomains="false">192.168.100.7</domain>
+    </domain-config>
+</network-security-config>

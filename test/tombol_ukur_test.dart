@@ -151,6 +151,16 @@ void main() {
       // Tetap berdampingan dengan pintu ke halaman sesi, bukan menggantikannya.
       expect(find.text('Buka Sesi'), findsOneWidget);
 
+      // Dan ia berdiri **di atas** timeline dan kartu foto, bukan di dasar
+      // kartu. Hitung mundur di baris teratas yang tombolnya ada di bawah
+      // lipatan layar memaksa pembacanya menebak bahwa ada yang harus ditekan,
+      // lalu mencarinya.
+      final tombol = tester.getTopLeft(find.text('Ukur +1 jam Sekarang')).dy;
+      expect(tombol, lessThan(tester.getTopLeft(find.text('Baseline')).dy));
+      expect(tombol, lessThan(tester.getTopLeft(find.text('Buka Sesi')).dy));
+      // Terlihat tanpa menggulir pada ponsel 412x915.
+      expect(tombol, lessThan(915));
+
       await hentikanSesi(tester, c);
     });
 

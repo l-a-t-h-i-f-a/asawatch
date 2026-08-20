@@ -24,26 +24,36 @@ library;
 class SesiLogin {
   const SesiLogin({
     required this.token,
-    required this.tokenSegar,
     required this.kedaluwarsa,
     this.nama = '',
     this.email = '',
   });
 
   final String token;
-  final String tokenSegar;
 
   /// Kapan [token] tidak berlaku lagi, menurut jam ponsel.
   ///
-  /// Server mengirim `expires_in` dalam detik, bukan tanggal — justru karena
-  /// jam ponsel dan jam server tidak pernah persis sama. Penjumlahannya
-  /// dilakukan sekali, di sini, agar sisa aplikasi cukup membandingkan tanggal.
+  /// **Tidak ada token penyegar.** docs/rancangan-api-laravel.md §4 sengaja
+  /// memilih satu token berumur panjang (30 hari, `config/sanctum.php`)
+  /// ditambah endpoint `keluar-semua`, ketimbang rotasi token: dengan satu
+  /// klien mobile, rotasi menambah keadaan yang harus benar tanpa menambah
+  /// keamanan yang berarti.
+  ///
+  /// Server tidak mengirim tanggal kedaluwarsa sama sekali, jadi angkanya
+  /// dihitung di sisi aplikasi dari [masaBerlakuToken] — dan karena itu ia
+  /// **harus sama dengan setelan Sanctum**. Kalau server dipersingkat tanpa
+  /// aplikasi ikut diubah, gejalanya adalah 401 yang datang lebih awal daripada
+  /// yang diduga aplikasi; itu tidak berbahaya (401 tetap ditangani), hanya
+  /// membingungkan saat dilacak.
   final DateTime kedaluwarsa;
 
   final String nama;
   final String email;
 
   bool get masihBerlaku => DateTime.now().isBefore(kedaluwarsa);
+
+  /// Umur token menurut `config/sanctum.php` di backend.
+  static const Duration masaBerlakuToken = Duration(days: 30);
 }
 
 /// Hasil satu percobaan masuk.
@@ -66,6 +76,17 @@ class MasukBerhasil extends HasilMasuk {
 /// Server menjawab, dan jawabannya "bukan akun ini" (401).
 class KredensialSalah extends HasilMasuk {
   const KredensialSalah();
+}
+
+/// Hanya bisa terjadi pada pendaftaran: emailnya sudah punya akun.
+///
+/// Berbagi [HasilMasuk] dengan alur masuk, bukan sealed class sendiri, karena
+/// keduanya berakhir pada hal yang sama — sebuah [SesiLogin] — dan seluruh
+/// kalimat kegagalannya (tanpa jaringan, server rusak, waktu habis) identik.
+/// Yang berbeda hanya dua ujung: [KredensialSalah] tidak pernah muncul saat
+/// mendaftar, dan ini tidak pernah muncul saat masuk.
+class EmailSudahDipakai extends HasilMasuk {
+  const EmailSudahDipakai();
 }
 
 /// Permintaan tidak pernah sampai: tidak ada sinyal, WiFi tanpa jalan keluar,
@@ -100,6 +121,9 @@ extension PesanHasilMasuk on HasilMasuk {
     MasukBerhasil() => '',
     KredensialSalah() =>
       'Email atau kata sandi tidak cocok. Periksa kembali, lalu coba lagi.',
+    EmailSudahDipakai() =>
+      'Email ini sudah terdaftar. Masuk dengan email tersebut, atau pakai '
+          'email lain.',
     TidakAdaJaringan() =>
       'Tidak ada koneksi internet. Nyalakan data atau WiFi, lalu coba lagi.',
     ServerBermasalah() =>
@@ -115,7 +139,10 @@ extension PesanHasilMasuk on HasilMasuk {
   /// menyiratkan bahwa yang diketik pengguna sudah benar dan cukup diulang.
   /// Yang harus berubah adalah isian formulirnya.
   bool get bisaDiulang => switch (this) {
-    MasukBerhasil() || KredensialSalah() => false,
+    // Ketiganya tidak akan berubah hasilnya tanpa isian yang berubah — dan
+    // tombol yang mengulang hal yang sama persis menyiratkan bahwa yang
+    // diketik pengguna sudah benar.
+    MasukBerhasil() || KredensialSalah() || EmailSudahDipakai() => false,
     _ => true,
   };
 }
@@ -134,6 +161,30 @@ abstract class AuthService {
     required String identifier,
     required String kataSandi,
   });
+
+  /// Membuat akun baru (§4 `daftar`).
+  ///
+  /// Mengembalikan [HasilMasuk] yang sama dengan [masuk], dan pada keberhasilan
+  /// membawa [SesiLogin] — server sudah memberi token pada balasan pendaftaran,
+  /// jadi pengguna baru tidak perlu mengetik ulang kredensialnya untuk masuk.
+  /// Menyuruhnya masuk sekali lagi tepat setelah mendaftar adalah langkah yang
+  /// tidak menambah keamanan apa pun.
+  Future<HasilMasuk> daftar({
+    required String nama,
+    required String email,
+    required String kataSandi,
+  });
+
+  /// Mencabut [token] di server (§4 `keluar`).
+  ///
+  /// **Tidak mengembalikan apa pun, dan tidak pernah melempar.** Token
+  /// Sanctum berumur 30 hari, jadi keluar yang hanya menghapus salinan di
+  /// ponsel meninggalkan kunci yang masih sah selama itu — karena itu server
+  /// tetap dikabari. Tetapi kegagalannya tidak boleh menghalangi: orang yang
+  /// menyerahkan ponselnya ke tukang servis harus tetap bisa keluar walau
+  /// sedang tanpa sinyal. Penghapusan lokal dilakukan pemanggil, apa pun
+  /// hasilnya di sini.
+  Future<void> keluar(String token);
 
   void dispose();
 }
@@ -174,6 +225,12 @@ class FakeAuthService implements AuthService {
   final Duration jeda;
   final List<AkunPalsu> akun;
 
+  /// Akun yang lahir dari [daftar] selama aplikasi berjalan. Terpisah dari
+  /// [akun] karena bawaannya `const` — dan karena mendaftar lalu masuk dengan
+  /// akun itu juga harus bekerja, kalau tidak, yang palsu ini memodelkan
+  /// sesuatu yang tidak pernah terjadi pada server sungguhan.
+  final List<AkunPalsu> akunBaru = [];
+
   /// Menerima kombinasi apa pun yang tidak kosong, alih-alih hanya yang ada di
   /// [akun].
   ///
@@ -211,7 +268,7 @@ class FakeAuthService implements AuthService {
 
     final cocok =
         terimaSemua ||
-        akun.any(
+        [...akun, ...akunBaru].any(
           (a) => a.identifier == identifier.trim() && a.kataSandi == kataSandi,
         );
     if (!cocok) return const KredensialSalah();
@@ -219,12 +276,50 @@ class FakeAuthService implements AuthService {
     return MasukBerhasil(
       SesiLogin(
         token: 'token-palsu',
-        tokenSegar: 'token-segar-palsu',
-        kedaluwarsa: DateTime.now().add(const Duration(hours: 1)),
+        kedaluwarsa: DateTime.now().add(SesiLogin.masaBerlakuToken),
         email: identifier.trim(),
       ),
     );
   }
+
+  @override
+  Future<HasilMasuk> daftar({
+    required String nama,
+    required String email,
+    required String kataSandi,
+  }) async {
+    jumlahPanggilan++;
+    if (jeda > Duration.zero) await Future<void>.delayed(jeda);
+    if (_dibuang) return const ServerBermasalah();
+
+    final dipesan = paksa;
+    if (dipesan != null) return dipesan;
+
+    final sudahAda = [
+      ...akun,
+      ...akunBaru,
+    ].any((a) => a.identifier == email.trim());
+    if (sudahAda) return const EmailSudahDipakai();
+    akunBaru.add((identifier: email.trim(), kataSandi: kataSandi));
+
+    return MasukBerhasil(
+      SesiLogin(
+        token: 'token-palsu-daftar',
+        kedaluwarsa: DateTime.now().add(SesiLogin.masaBerlakuToken),
+        nama: nama.trim(),
+        email: email.trim(),
+      ),
+    );
+  }
+
+  @override
+  Future<void> keluar(String token) async {
+    tokenDicabut.add(token);
+  }
+
+  /// Token yang sempat dicabut — dipakai test untuk membuktikan bahwa keluar
+  /// mengabari server, bukan sekadar menghapus salinan lokalnya.
+  final List<String> tokenDicabut = [];
 
   @override
   void dispose() => _dibuang = true;
