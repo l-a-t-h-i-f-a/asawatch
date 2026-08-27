@@ -539,7 +539,10 @@ class _KartuSesiBerjalan extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 16),
-              RingkasanNutrisi(hasil: sesi.hasil),
+              RingkasanNutrisi(
+                hasil: sesi.hasil,
+                sedangDianalisis: controller.sedangMenganalisis(sesi.id),
+              ),
             ],
           ),
         ),
@@ -790,6 +793,17 @@ class _RingkasanHariIni extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final total = controller.totalNutrisiHariIni();
+    final tidakLengkap = controller.zatTidakLengkapHariIni();
+
+    /// Angka harian dengan tiga tampilan yang sama seperti kartu gizi:
+    /// pasti, "≥" untuk jumlah parsial, dan "—" untuk yang tidak diketahui.
+    (String, bool) angka(ZatGizi zat) {
+      final nilai = total[zat];
+      final parsial = tidakLengkap.contains(zat);
+      if (nilai == null || (parsial && nilai == 0)) return ('—', false);
+      return ('${parsial ? '≥ ' : ''}${formatAngka(nilai)}', true);
+    }
+
     final jumlahSesi = controller.sesiHariIni().length;
 
     return Column(
@@ -821,7 +835,7 @@ class _RingkasanHariIni extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.baseline,
                   textBaseline: TextBaseline.alphabetic,
                   children: [
-                    Text(formatAngka(total.kalori), style: _gayaHero),
+                    Text(angka(ZatGizi.kalori).$1, style: _gayaHero),
                     const SizedBox(width: 6),
                     const Text(
                       'kcal hari ini',
@@ -842,11 +856,14 @@ class _RingkasanHariIni extends StatelessWidget {
                 const SizedBox(height: 16),
                 const Text('MAKRO', style: _gayaLabelKecil),
                 const SizedBox(height: 12),
-                _BarisMakro(label: 'Karbohidrat', nilai: total.karbohidrat),
+                _BarisMakro(
+                  label: 'Karbohidrat',
+                  teks: angka(ZatGizi.karbohidrat).$1,
+                ),
                 const SizedBox(height: 12),
-                _BarisMakro(label: 'Protein', nilai: total.protein),
+                _BarisMakro(label: 'Protein', teks: angka(ZatGizi.protein).$1),
                 const SizedBox(height: 12),
-                _BarisMakro(label: 'Lemak', nilai: total.lemak),
+                _BarisMakro(label: 'Lemak', teks: angka(ZatGizi.lemak).$1),
               ],
             ),
           ),
@@ -923,10 +940,13 @@ class _AjakanFoto extends StatelessWidget {
 /// hanya menggambar pecahan yang tidak berarti apa-apa. Yang tersisa adalah
 /// jumlah yang benar-benar diketahui aplikasi.
 class _BarisMakro extends StatelessWidget {
-  const _BarisMakro({required this.label, required this.nilai});
+  const _BarisMakro({required this.label, required this.teks});
 
   final String label;
-  final double nilai;
+
+  /// Sudah jadi teks, bukan angka: keputusan "pasti / ≥ / —" diambil satu kali
+  /// di pemanggilnya, supaya tidak ada dua tempat yang bisa berbeda pendapat.
+  final String teks;
 
   @override
   Widget build(BuildContext context) {
@@ -956,9 +976,9 @@ class _BarisMakro extends StatelessWidget {
               color: Color(0xFF1E3A34),
             ),
             children: [
-              TextSpan(text: formatAngka(nilai)),
-              const TextSpan(
-                text: ' g',
+              TextSpan(text: teks),
+              TextSpan(
+                text: teks == '—' ? '' : ' g',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w500,

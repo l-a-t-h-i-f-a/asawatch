@@ -122,9 +122,23 @@ class _RegisterPageState extends State<RegisterPage> {
       // seluruh tumpukan dibuang supaya tombol kembali di Beranda keluar dari
       // aplikasi, bukan memunculkan lagi formulir pendaftaran.
       await widget.sesiLogin?.simpan(hasil.sesi);
-      await widget.profil?.sinkronSetelahMasuk(hasil.sesi.email);
+      final sinkron = await widget.profil?.sinkronSetelahMasuk(
+        hasil.sesi.email,
+      );
       if (!mounted) return;
-      unawaited(context.read<SesiMakanController>().kirimRiwayatKeServer());
+      final controller = context.read<SesiMakanController>();
+      // Sama seperti alur masuk, dan justru lebih sering terjadi di sini: akun
+      // yang baru dibuat pasti berbeda dari pemilik data sebelumnya, jadi
+      // ponsel yang pernah dipakai orang lain akan mengunggah riwayat orang itu
+      // ke akun yang baru lahir.
+      final bersih = (sinkron?.gantiAkun ?? false)
+          ? controller.hapusDataLokal()
+          : Future<void>.value();
+      unawaited(
+        bersih
+            .then((_) => controller.kirimRiwayatKeServer())
+            .then((_) => controller.unduhRiwayatDariServer()),
+      );
 
       Navigator.pushAndRemoveUntil(
         context,

@@ -139,9 +139,13 @@ void main() {
       // Nomor HP dan email tidak ada di §5.1, jadi penyamaan dengan server
       // tidak akan pernah membersihkannya sendiri — kalau tidak dibuang di
       // sini, Budi melihat nomor HP Rara.
-      expect(sesudah.nama, 'Budi');
-      expect(sesudah.telepon, isEmpty);
-      expect(sesudah.email, 'budi@email.com');
+      expect(sesudah.profil.nama, 'Budi');
+      expect(sesudah.profil.telepon, isEmpty);
+      expect(sesudah.profil.email, 'budi@email.com');
+      // Dilaporkan ke pemanggil, bukan berhenti di sini: riwayat sesi dan
+      // kalibrasi juga milik satu orang, dan hanya alur masuk yang bisa
+      // membuangnya.
+      expect(sesudah.gantiAkun, isTrue);
     });
 
     test('akun yang sama mempertahankan isian lokalnya', () async {
@@ -157,8 +161,9 @@ void main() {
 
       final sesudah = await repo.sinkronSetelahMasuk('rara@email.com');
 
-      expect(sesudah.telepon, '08123');
-      expect(sesudah.tinggi, '162');
+      expect(sesudah.profil.telepon, '08123');
+      expect(sesudah.profil.tinggi, '162');
+      expect(sesudah.gantiAkun, isFalse);
     });
   });
 

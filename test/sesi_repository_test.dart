@@ -37,7 +37,10 @@ class _RepoGagal implements SesiRepository {
   Future<List<SesiMakan>> muatSemua() async => const [];
 
   @override
-  Future<void> simpan(SesiMakan sesi) async => throw StateError('disk penuh');
+  Future<DateTime> simpan(SesiMakan sesi) async => throw StateError('disk penuh');
+
+  @override
+  Future<void> hapusSemua() async {}
 
   @override
   Future<void> hapus(String sesiId) async {}

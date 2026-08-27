@@ -69,6 +69,9 @@ class SesiRepositoryDrift implements SesiRepository {
           status: s.status,
           waktuTidakPasti: s.waktuTidakPasti,
           sesiUji: s.sesiUji,
+          diperbaruiPada: s.diperbaruiPada == null
+              ? null
+              : _keWaktu(s.diperbaruiPada!),
           sampel: _rakitSampel(sampelPerSesi[s.id] ?? const []),
           hasil: _rakitHasil(hasilPerSesi[s.id], itemPerSesi[s.id] ?? const []),
         ),
@@ -76,7 +79,14 @@ class SesiRepositoryDrift implements SesiRepository {
   }
 
   @override
-  Future<void> simpan(SesiMakan sesi) async {
+  Future<DateTime> simpan(SesiMakan sesi) async {
+    // Diambil sekali, di luar transaksi, karena nilai yang **sama persis**
+    // harus masuk ke baris dan dikembalikan ke pemanggil. Dua kali
+    // `DateTime.now()` berarti salinan di memori mengaku lebih tua daripada
+    // barisnya sendiri — selisihnya mikrodetik, tetapi arahnya justru arah yang
+    // ditolak server.
+    final stempel = DateTime.now();
+
     // Satu transaksi: sesi tanpa sampelnya, atau hasil deteksi tanpa itemnya,
     // adalah keadaan yang tidak pernah sah untuk dibaca.
     await db.transaction(() async {
@@ -91,6 +101,11 @@ class SesiRepositoryDrift implements SesiRepository {
               status: sesi.status,
               waktuTidakPasti: Value(sesi.waktuTidakPasti),
               sesiUji: Value(sesi.sesiUji),
+              // Distempel di sini, bukan di pemanggil: setiap penulisan lokal
+              // **adalah** perubahan lokal, dan satu tempat yang menstempel
+              // tidak bisa lupa seperti selusin pemanggil. Yang dikembalikan
+              // ke pemanggil adalah nilai ini juga — lihat `SesiRepository`.
+              diperbaruiPada: Value(_keEpoch(stempel)),
             ),
           );
 
@@ -130,15 +145,18 @@ class SesiRepositoryDrift implements SesiRepository {
             db.tabelHasilDeteksi,
             TabelHasilDeteksiCompanion.insert(
               sesiId: sesi.id,
-              indeksGlikemikPerkiraan: hasil.indeksGlikemikPerkiraan,
-              keyakinan: hasil.keyakinan,
+              indeksGlikemikPerkiraan: Value(hasil.indeksGlikemikPerkiraan),
+              keyakinan: Value(hasil.keyakinan),
               dikoreksiUser: hasil.dikoreksiUser,
-              totalKalori: hasil.total.kalori,
-              totalKarbohidrat: hasil.total.karbohidrat,
-              totalProtein: hasil.total.protein,
-              totalLemak: hasil.total.lemak,
-              totalGulaTotal: hasil.total.gulaTotal,
-              totalSerat: hasil.total.serat,
+              totalKalori: Value(hasil.total.kalori),
+              totalKarbohidrat: Value(hasil.total.karbohidrat),
+              totalProtein: Value(hasil.total.protein),
+              totalLemak: Value(hasil.total.lemak),
+              totalGulaTotal: Value(hasil.total.gulaTotal),
+              totalSerat: Value(hasil.total.serat),
+              zatTidakLengkap: Value(
+                hasil.zatTidakLengkap.map((z) => z.kunci).join(','),
+              ),
             ),
           );
           b.insertAll(db.tabelItemMakanan, [
@@ -149,12 +167,12 @@ class SesiRepositoryDrift implements SesiRepository {
                 nama: hasil.makanan[i].nama,
                 porsi: hasil.makanan[i].porsi,
                 estimasiGram: hasil.makanan[i].estimasiGram,
-                kalori: hasil.makanan[i].nutrisi.kalori,
-                karbohidrat: hasil.makanan[i].nutrisi.karbohidrat,
-                protein: hasil.makanan[i].nutrisi.protein,
-                lemak: hasil.makanan[i].nutrisi.lemak,
-                gulaTotal: hasil.makanan[i].nutrisi.gulaTotal,
-                serat: hasil.makanan[i].nutrisi.serat,
+                kalori: Value(hasil.makanan[i].nutrisi.kalori),
+                karbohidrat: Value(hasil.makanan[i].nutrisi.karbohidrat),
+                protein: Value(hasil.makanan[i].nutrisi.protein),
+                lemak: Value(hasil.makanan[i].nutrisi.lemak),
+                gulaTotal: Value(hasil.makanan[i].nutrisi.gulaTotal),
+                serat: Value(hasil.makanan[i].nutrisi.serat),
               ),
           ]);
         }
@@ -170,6 +188,8 @@ class SesiRepositoryDrift implements SesiRepository {
             ..where((t) => t.sesiId.equals(sesi.id) & t.diproses.equals(false)))
           .write(const TabelEntriJamCompanion(diproses: Value(true)));
     });
+
+    return stempel;
   }
 
   @override
@@ -183,6 +203,16 @@ class SesiRepositoryDrift implements SesiRepository {
     // ulang selamanya setiap aplikasi start.
     await (db.update(db.tabelEntriJam)..where((t) => t.sesiId.equals(sesiId)))
         .write(const TabelEntriJamCompanion(diproses: Value(true)));
+  }
+
+  @override
+  Future<void> hapusSemua() async {
+    // Sampel, hasil deteksi, dan item makanan ikut lewat `onDelete: cascade`.
+    // Entri mentah jam **tidak** dihapus di sini melainkan di
+    // `EntriJamRepository.hapusSemua`: keduanya dipanggil bersama, dan
+    // menaruhnya di sini akan menyembunyikan satu tabel di balik nama tabel
+    // lain.
+    await db.delete(db.tabelSesi).go();
   }
 
   // --- Pemetaan ----------------------------------------------------------
@@ -256,6 +286,10 @@ class SesiRepositoryDrift implements SesiRepository {
         gulaTotal: hasil.totalGulaTotal,
         serat: hasil.totalSerat,
       ),
+      zatTidakLengkap: {
+        for (final kunci in hasil.zatTidakLengkap.split(','))
+          ?ZatGizi.dariKunci(kunci),
+      },
       indeksGlikemikPerkiraan: hasil.indeksGlikemikPerkiraan,
       keyakinan: hasil.keyakinan,
       dikoreksiUser: hasil.dikoreksiUser,

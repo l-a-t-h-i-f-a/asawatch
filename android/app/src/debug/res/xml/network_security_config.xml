@@ -15,12 +15,13 @@
     - 10.0.2.2       : alamat khusus emulator Android untuk "laptop yang
                        menjalankan emulator ini". localhost di emulator berarti
                        emulator itu sendiri, bukan laptop Anda.
-    - 192.168.100.x  : IP laptop ini — .13 di WiFi (wlp8s0), .7 di kabel
-                       (enp7s0). Keduanya didaftarkan karena laptop bisa
-                       tersambung lewat salah satunya. IP dari DHCP berubah
-                       setelah pindah jaringan atau router menyala ulang —
-                       kalau tiba-tiba "tidak ada koneksi", periksa dulu
-                       angkanya dengan `ip addr`.
+    - IP laptop      : berubah setiap kali berpindah jaringan (sudah tiga kali
+                       dalam satu hari pengerjaan), dan gejala IP yang basi
+                       adalah "Tidak ada koneksi internet" — kalimat yang
+                       menunjuk ke arah yang salah. Periksa dengan `ip addr`,
+                       lalu tambahkan di sini. Yang tidak pernah basi adalah
+                       jalur `adb reverse` di bawah; pakai itu kalau bosan
+                       mengejar angka.
     - 127.0.0.1      : dipakai oleh `adb reverse tcp:8080 tcp:8080`, yang
                        menembus WiFi lewat kabel USB. Ini jalan keluar saat
                        WiFi-nya mengisolasi antar-klien (lazim di jaringan
@@ -34,5 +35,6 @@
         <domain includeSubdomains="false">localhost</domain>
         <domain includeSubdomains="false">192.168.100.13</domain>
         <domain includeSubdomains="false">192.168.100.7</domain>
+        <domain includeSubdomains="false">10.207.186.75</domain>
     </domain-config>
 </network-security-config>

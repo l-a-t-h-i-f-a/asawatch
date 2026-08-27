@@ -102,12 +102,29 @@ class AnalisisSesi {
       final hasil = s.hasil;
       final delta = s.deltaPuncak;
       if (hasil == null || delta == null) continue;
+
+      // Karbohidrat yang tidak diketahui — atau yang hanya jumlah parsial
+      // karena ada makanan tanpa data — tidak boleh diplot. Titiknya akan
+      // jatuh di kiri posisi sebenarnya dan menarik garis tren ke bawah, dan
+      // tidak ada apa pun di grafik yang memberi tahu bahwa itu terjadi.
+      final karbohidrat = hasil.total.karbohidrat;
+      if (karbohidrat == null) continue;
+      if (hasil.zatTidakLengkap.contains(ZatGizi.karbohidrat)) continue;
+
       titik.add(
         TitikSebaran(
           sesi: s,
-          karbohidrat: hasil.total.karbohidrat,
+          karbohidrat: karbohidrat,
           delta: delta,
-          andal: hasil.dikoreksiUser || hasil.keyakinan >= ambangKeyakinan,
+          andal:
+              hasil.dikoreksiUser ||
+              // Keyakinan yang **tidak diketahui** (null) dihitung andal, bukan
+              // tidak andal. Layanan deteksi sekarang memang tidak menghasilkan
+              // keyakinan terkalibrasi sama sekali, jadi membacanya sebagai
+              // "keyakinan rendah" akan mengosongkan seluruh analisis diam-diam
+              // — kehilangan yang jauh lebih besar daripada risiko memasukkan
+              // satu deteksi meleset yang tidak bisa dinilai siapa pun.
+              (hasil.keyakinan ?? 1) >= ambangKeyakinan,
         ),
       );
     }

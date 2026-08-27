@@ -57,6 +57,15 @@ abstract class EntriJamRepository {
   /// tersimpan apa adanya di sini, lengkap dengan kedua angkanya.
   Future<Map<String, ({int bootId, int uptimeS})>> t0PerSesi();
 
+  /// Membuang **seluruh** kotak masuk, diproses maupun belum.
+  ///
+  /// Dipanggil bersama `SesiRepository.hapusSemua` saat akun berganti. Yang
+  /// belum diproses ikut dibuang dan itu memang maksudnya: entri yang tersisa
+  /// adalah sampel milik sesi pengguna sebelumnya, dan diputar ulang saat
+  /// aplikasi start ia akan membangun kembali sesi yang baru saja dihapus — di
+  /// akun orang lain.
+  Future<void> hapusSemua();
+
   /// Membuang riwayat entri yang sudah diproses, menyisakan [simpanTerakhir]
   /// baris terbaru sebagai jejak diagnostik (§9.2 rencana produksi).
   ///
@@ -69,6 +78,9 @@ class EntriJamRepositoryDrift implements EntriJamRepository {
   EntriJamRepositoryDrift(this.db);
 
   final BasisData db;
+
+  @override
+  Future<void> hapusSemua() async => db.delete(db.tabelEntriJam).go();
 
   @override
   Future<void> simpan(EntriJam entri) async {
@@ -254,6 +266,12 @@ class EntriJamRepositoryMemori implements EntriJamRepository {
     for (final e in _entri)
       if (!_diproses.contains(e)) e,
   ];
+
+  @override
+  Future<void> hapusSemua() async {
+    _entri.clear();
+    _diproses.clear();
+  }
 
   @override
   Future<Map<String, ({int bootId, int uptimeS})>> t0PerSesi() async => {

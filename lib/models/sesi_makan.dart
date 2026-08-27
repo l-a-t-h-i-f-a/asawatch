@@ -141,6 +141,7 @@ class SesiMakan {
     this.hasil,
     this.waktuTidakPasti = false,
     this.sesiUji = false,
+    this.diperbaruiPada,
   });
 
   final String id;
@@ -162,6 +163,18 @@ class SesiMakan {
   /// masuk `AnalisisSesi`.
   final bool waktuTidakPasti;
 
+  /// Kapan isi sesi ini terakhir berubah **di perangkat ini**, atau null bila
+  /// belum pernah ditulis sejak kolom ini ada (v6).
+  ///
+  /// Distempel oleh `SesiRepository` saat menyimpan, bukan oleh pemanggilnya:
+  /// setiap penulisan lokal adalah perubahan lokal, dan satu tempat yang
+  /// menstempel tidak bisa lupa seperti selusin pemanggil. Dikirim ke server
+  /// sebagai `diperbarui_pada` dan menjadi bahan aturan "yang terbaru menang"
+  /// (§7.1) — sebelum ada kolom ini, aplikasi mengirim waktu **pengiriman**,
+  /// sehingga kiriman ulang yang isinya sama pun mengaku lebih baru dan akan
+  /// menimpa suntingan dari perangkat lain.
+  final DateTime? diperbaruiPada;
+
   /// Sesi ini dibuat oleh rakitan mode jadwal uji — jadwal dua menit, bukan dua
   /// jam (docs/jadwal-titik-ukur.md §7).
   ///
@@ -174,16 +187,18 @@ class SesiMakan {
   final bool sesiUji;
 
   SesiMakan salin({
+    String? fotoPath,
     DateTime? t0,
     StatusSesi? status,
     HasilDeteksi? hasil,
     List<Sampel>? sampel,
     bool? waktuTidakPasti,
     bool? sesiUji,
+    DateTime? diperbaruiPada,
   }) {
     return SesiMakan(
       id: id,
-      fotoPath: fotoPath,
+      fotoPath: fotoPath ?? this.fotoPath,
       waktuFoto: waktuFoto,
       t0: t0 ?? this.t0,
       status: status ?? this.status,
@@ -191,6 +206,7 @@ class SesiMakan {
       sampel: sampel ?? this.sampel,
       waktuTidakPasti: waktuTidakPasti ?? this.waktuTidakPasti,
       sesiUji: sesiUji ?? this.sesiUji,
+      diperbaruiPada: diperbaruiPada ?? this.diperbaruiPada,
     );
   }
 
@@ -395,6 +411,40 @@ class SesiMakan {
   }
 }
 
+/// Satu dari enam zat gizi yang dilaporkan.
+///
+/// Ada sebagai enum, bukan sebagai string lepas, karena ia dipakai di tiga
+/// tempat sekaligus: nama field di kabel (§5.2), penanda `zatTidakLengkap`, dan
+/// label di layar. Tiga daftar yang harus sebanding adalah tiga daftar yang
+/// cepat atau lambat berselisih.
+enum ZatGizi {
+  kalori('kalori', 'Kalori', ' kcal'),
+  karbohidrat('karbohidrat', 'Karbohidrat', ' g'),
+  protein('protein', 'Protein', ' g'),
+  lemak('lemak', 'Lemak', ' g'),
+  gulaTotal('gula_total', 'Gula Total', ' g'),
+  serat('serat', 'Serat', ' g');
+
+  const ZatGizi(this.kunci, this.label, this.satuan);
+
+  /// Nama field di JSON §5.2 — bukan `name`, karena `gulaTotal` di Dart adalah
+  /// `gula_total` di kabel.
+  final String kunci;
+  final String label;
+  final String satuan;
+
+  static ZatGizi? dariKunci(String kunci) =>
+      values.where((z) => z.kunci == kunci).firstOrNull;
+}
+
+/// Enam angka makro satu makanan atau satu sesi.
+///
+/// **Setiap angka boleh null, dan null berarti "tidak diketahui" — bukan nol.**
+/// Perbedaan itu bukan kerapian: sumber angkanya adalah tabel TKPI, yang tidak
+/// memuat kolom gula sama sekali dan kosong pada serat untuk ratusan bahan,
+/// dan makanan yang belum punya padanan di sana tidak menghasilkan satu angka
+/// pun. Menampilkan ketidaktahuan itu sebagai "0 g" adalah klaim — dan pada
+/// aplikasi yang justru mengukur gula darah, klaim yang salah.
 class Nutrisi {
   const Nutrisi({
     required this.kalori,
@@ -405,6 +455,7 @@ class Nutrisi {
     required this.serat,
   });
 
+  /// Semuanya nol — makanan yang memang tidak menyumbang apa pun.
   static const Nutrisi kosong = Nutrisi(
     kalori: 0,
     karbohidrat: 0,
@@ -414,27 +465,65 @@ class Nutrisi {
     serat: 0,
   );
 
-  final double kalori, karbohidrat, protein, lemak, gulaTotal, serat;
+  /// Tidak satu pun diketahui — makanan yang tidak ada di tabel gizi.
+  static const Nutrisi tidakDiketahui = Nutrisi(
+    kalori: null,
+    karbohidrat: null,
+    protein: null,
+    lemak: null,
+    gulaTotal: null,
+    serat: null,
+  );
+
+  final double? kalori, karbohidrat, protein, lemak, gulaTotal, serat;
+
+  double? operator [](ZatGizi zat) => switch (zat) {
+    ZatGizi.kalori => kalori,
+    ZatGizi.karbohidrat => karbohidrat,
+    ZatGizi.protein => protein,
+    ZatGizi.lemak => lemak,
+    ZatGizi.gulaTotal => gulaTotal,
+    ZatGizi.serat => serat,
+  };
+
+  /// Zat yang angkanya tidak diketahui di sini.
+  Set<ZatGizi> get zatTidakDiketahui => {
+    for (final z in ZatGizi.values)
+      if (this[z] == null) z,
+  };
 
   /// Menskalakan seluruh makro sekaligus — dipakai saat user mengoreksi porsi
-  /// ("1 piring" → "setengah piring"), §4.5.
+  /// ("1 piring" → "setengah piring"), §4.5. Yang tidak diketahui tetap tidak
+  /// diketahui: setengah dari entah berapa tetap entah berapa.
   Nutrisi operator *(double faktor) => Nutrisi(
-    kalori: kalori * faktor,
-    karbohidrat: karbohidrat * faktor,
-    protein: protein * faktor,
-    lemak: lemak * faktor,
-    gulaTotal: gulaTotal * faktor,
-    serat: serat * faktor,
+    kalori: kalori == null ? null : kalori! * faktor,
+    karbohidrat: karbohidrat == null ? null : karbohidrat! * faktor,
+    protein: protein == null ? null : protein! * faktor,
+    lemak: lemak == null ? null : lemak! * faktor,
+    gulaTotal: gulaTotal == null ? null : gulaTotal! * faktor,
+    serat: serat == null ? null : serat! * faktor,
   );
 
+  /// Menjumlahkan, dan **yang tidak diketahui diperlakukan sebagai nol** —
+  /// tetapi penjumlahannya sendiri tidak menyimpan ingatan bahwa itu terjadi.
+  /// Yang menyimpannya adalah [HasilDeteksi.zatTidakLengkap], dan itulah yang
+  /// membuat totalnya dibaca sebagai "sekurang-kurangnya", bukan "tepat".
   Nutrisi operator +(Nutrisi lain) => Nutrisi(
-    kalori: kalori + lain.kalori,
-    karbohidrat: karbohidrat + lain.karbohidrat,
-    protein: protein + lain.protein,
-    lemak: lemak + lain.lemak,
-    gulaTotal: gulaTotal + lain.gulaTotal,
-    serat: serat + lain.serat,
+    kalori: _jumlah(kalori, lain.kalori),
+    karbohidrat: _jumlah(karbohidrat, lain.karbohidrat),
+    protein: _jumlah(protein, lain.protein),
+    lemak: _jumlah(lemak, lain.lemak),
+    gulaTotal: _jumlah(gulaTotal, lain.gulaTotal),
+    serat: _jumlah(serat, lain.serat),
   );
+
+  /// null + null tetap null: menjumlahkan dua ketidaktahuan tidak menghasilkan
+  /// nol. Yang satunya diketahui berarti totalnya parsial, dan itu ditandai di
+  /// tempat lain.
+  static double? _jumlah(double? a, double? b) {
+    if (a == null && b == null) return null;
+    return (a ?? 0) + (b ?? 0);
+  }
 }
 
 class ItemMakanan {
@@ -470,16 +559,43 @@ class HasilDeteksi {
   const HasilDeteksi({
     required this.makanan,
     required this.total,
-    required this.indeksGlikemikPerkiraan,
-    required this.keyakinan,
+    this.indeksGlikemikPerkiraan,
+    this.keyakinan,
+    this.zatTidakLengkap = const {},
     this.dikoreksiUser = false,
   });
 
   final List<ItemMakanan> makanan;
   final Nutrisi total;
-  final String indeksGlikemikPerkiraan; // "rendah" | "sedang" | "tinggi"
-  final double keyakinan; // 0..1
+
+  /// "rendah" | "sedang" | "tinggi", atau **null bila tidak diketahui**.
+  ///
+  /// Nullable sejak layanan deteksi sungguhan dipasang: tabel TKPI tidak punya
+  /// kolom indeks glikemik sama sekali. Sebelumnya nilai yang hilang diam-diam
+  /// menjadi "sedang" — sebuah taksiran yang tidak pernah dibuat siapa pun,
+  /// tampil sebagai fakta.
+  final String? indeksGlikemikPerkiraan;
+
+  /// 0..1, atau null bila layanan tidak menghasilkan keyakinan terkalibrasi.
+  /// null bukan 0: "tidak tahu seberapa yakin" bukan "yakin nol persen".
+  final double? keyakinan;
+
+  /// Zat yang angkanya di [total] hanya **jumlah parsial** (§5.2
+  /// `zat_tidak_lengkap`): ada makanan pada sesi ini yang tidak menyumbang
+  /// angka untuk zat itu, entah karena tidak ada di tabel gizi atau karena
+  /// selnya kosong di sana.
+  ///
+  /// Dibawa terpisah dari [total] karena angkanya sendiri tetap berguna — ia
+  /// hanya berarti "sekurang-kurangnya sekian", bukan "tepat sekian". Dan bila
+  /// angkanya nol sementara zatnya ada di sini, artinya bukan "tanpa kalori"
+  /// melainkan "belum ada satu pun angka".
+  final Set<ZatGizi> zatTidakLengkap;
+
   final bool dikoreksiUser;
+
+  /// Apakah [zat] pada [total] boleh dibaca sebagai angka yang pasti.
+  bool pasti(ZatGizi zat) =>
+      total[zat] != null && !zatTidakLengkap.contains(zat);
 
   /// Hasil dengan daftar makanan yang sudah dikoreksi user.
   ///
@@ -487,7 +603,7 @@ class HasilDeteksi {
   /// itulah yang membuat sesi ini tetap ikut diplot di Analisis meskipun
   /// keyakinan deteksi awalnya rendah (§4.3).
   HasilDeteksi dikoreksi(List<ItemMakanan> makananBaru) {
-    var total = Nutrisi.kosong;
+    var total = Nutrisi.tidakDiketahui;
     for (final m in makananBaru) {
       total = total + m.nutrisi;
     }
@@ -496,6 +612,13 @@ class HasilDeteksi {
       total: total,
       indeksGlikemikPerkiraan: indeksGlikemikPerkiraan,
       keyakinan: keyakinan,
+      // Dihitung ulang dari itemnya, bukan diwarisi: koreksi user bisa
+      // menghapus makanan yang tadinya membuat sebuah zat menjadi parsial, dan
+      // bisa pula menambah yang baru.
+      zatTidakLengkap: {
+        for (final z in ZatGizi.values)
+          if (makananBaru.any((m) => m.nutrisi[z] == null)) z,
+      },
       dikoreksiUser: true,
     );
   }

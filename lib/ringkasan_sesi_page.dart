@@ -1012,13 +1012,25 @@ class _CatatanMakanan extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Satu baris berisi hal-hal yang tidak dikatakan di tempat lain — dan
+    // sekarang setiap bagiannya boleh **tidak ada**. Yang tidak diketahui
+    // dihilangkan, bukan ditulis sebagai nol: baris ini pendek justru supaya
+    // setiap kata di dalamnya berarti.
+    final karbo = hasil.total.karbohidrat;
+    final karboParsial = hasil.zatTidakLengkap.contains(ZatGizi.karbohidrat);
+    final keyakinan = hasil.keyakinan;
     final bagian = [
-      '${formatAngka(hasil.total.karbohidrat)} g karbohidrat',
-      'indeks glikemik ${hasil.indeksGlikemikPerkiraan}',
-      hasil.dikoreksiUser
-          ? 'porsi dikoreksi'
-          : 'keyakinan ${(hasil.keyakinan * 100).round()}%',
+      if (karbo != null && !(karboParsial && karbo == 0))
+        '${karboParsial ? '≥ ' : ''}${formatAngka(karbo)} g karbohidrat',
+      if (hasil.indeksGlikemikPerkiraan case final ig?) 'indeks glikemik $ig',
+      if (hasil.dikoreksiUser)
+        'porsi dikoreksi'
+      else if (keyakinan != null)
+        'keyakinan ${(keyakinan * 100).round()}%',
+      if (hasil.zatTidakLengkap.isNotEmpty)
+        'sebagian makanan belum ada di tabel gizi',
     ];
+    if (bagian.isEmpty) return const SizedBox.shrink();
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

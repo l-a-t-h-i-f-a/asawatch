@@ -165,6 +165,55 @@ void main() {
       final db = BasisData(NativeDatabase(berkas));
       await SesiRepositoryDrift(db).simpan(sesi);
 
+      if (versi < 6) {
+        await db.customStatement(
+          'ALTER TABLE tabel_sesi DROP COLUMN diperbarui_pada',
+        );
+        await db.customStatement(
+          'ALTER TABLE tabel_hasil_deteksi DROP COLUMN zat_tidak_lengkap',
+        );
+        // Kolom gizi di v5 masih NOT NULL. SQLite tidak bisa memperketatnya
+        // lewat ALTER, jadi kedua tabel dibangun ulang dalam bentuk lamanya —
+        // itulah bentuk yang harus dihadapi migrasi v5 → v6.
+        await db.customStatement('DROP TABLE tabel_item_makanan');
+        await db.customStatement('DROP TABLE tabel_hasil_deteksi');
+        await db.customStatement('''
+          CREATE TABLE tabel_hasil_deteksi (
+            sesi_id TEXT NOT NULL PRIMARY KEY REFERENCES tabel_sesi (id) ON DELETE CASCADE,
+            indeks_glikemik_perkiraan TEXT NOT NULL,
+            keyakinan REAL NOT NULL,
+            dikoreksi_user INTEGER NOT NULL,
+            total_kalori REAL NOT NULL,
+            total_karbohidrat REAL NOT NULL,
+            total_protein REAL NOT NULL,
+            total_lemak REAL NOT NULL,
+            total_gula_total REAL NOT NULL,
+            total_serat REAL NOT NULL
+          )''');
+        await db.customStatement('''
+          CREATE TABLE tabel_item_makanan (
+            sesi_id TEXT NOT NULL REFERENCES tabel_sesi (id) ON DELETE CASCADE,
+            urutan INTEGER NOT NULL,
+            nama TEXT NOT NULL,
+            porsi TEXT NOT NULL,
+            estimasi_gram REAL NOT NULL,
+            kalori REAL NOT NULL,
+            karbohidrat REAL NOT NULL,
+            protein REAL NOT NULL,
+            lemak REAL NOT NULL,
+            gula_total REAL NOT NULL,
+            serat REAL NOT NULL,
+            PRIMARY KEY (sesi_id, urutan)
+          )''');
+        await db.customStatement(
+          "INSERT INTO tabel_hasil_deteksi VALUES "
+          "('${sesi.id}', 'sedang', 0.82, 0, 430, 45, 28, 15, 6, 4)",
+        );
+        await db.customStatement(
+          "INSERT INTO tabel_item_makanan VALUES "
+          "('${sesi.id}', 0, 'Nasi merah', '1 centong', 120, 150, 32, 3, 1, 0.5, 2.5)",
+        );
+      }
       if (versi < 5) {
         await db.customStatement('ALTER TABLE tabel_sesi DROP COLUMN sesi_uji');
       }
@@ -201,7 +250,34 @@ void main() {
       return berkas;
     }
 
-    test('basis data v1 naik ke v5 tanpa kehilangan sesi', () async {
+    test('basis data v5 naik ke v6 tanpa kehilangan angka gizi', () async {
+      final sesi = contohRiwayatSesi().first;
+      final berkas = await siapkanBerkasVersi(5, sesi);
+
+      final db = BasisData(NativeDatabase(berkas));
+      addTearDown(db.close);
+
+      final riwayat = await SesiRepositoryDrift(db).muatSemua();
+      final hasil = riwayat.single.hasil!;
+
+      // Angka lama memang benar-benar angka: yang berubah hanya kemampuan
+      // menyimpan ketiadaannya mulai sekarang. Kehilangan angka di sini berarti
+      // kehilangan riwayat gizi pengguna dalam satu pembaruan aplikasi.
+      expect(hasil.total.kalori, 430);
+      expect(hasil.total.gulaTotal, 6);
+      expect(hasil.makanan.single.nama, 'Nasi merah');
+      expect(hasil.makanan.single.nutrisi.karbohidrat, 32);
+      expect(hasil.indeksGlikemikPerkiraan, 'sedang');
+      expect(hasil.keyakinan, 0.82);
+
+      // Kolom yang lahir di v6 punya bawaan yang benar untuk baris lama: angka
+      // dari layanan lama memang lengkap, dan sesi lama belum pernah disunting
+      // sejak stempelnya ada.
+      expect(hasil.zatTidakLengkap, isEmpty);
+      expect(riwayat.single.diperbaruiPada, isNull);
+    });
+
+    test('basis data v1 naik ke v6 tanpa kehilangan sesi', () async {
       final sesi = contohRiwayatSesi().first;
       final berkas = await siapkanBerkasVersi(1, sesi);
 

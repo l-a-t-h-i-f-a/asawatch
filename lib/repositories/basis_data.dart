@@ -61,6 +61,15 @@ class TabelSesi extends Table {
   /// mengetahuinya.
   BoolColumn get sesiUji => boolean().withDefault(const Constant(false))();
 
+  /// Kapan isi sesi ini terakhir berubah **di perangkat ini**.
+  ///
+  /// Dikirim ke server sebagai `diperbarui_pada` dan dipakai aturan "yang
+  /// terbaru menang" (§7.1). Sebelum kolom ini ada, aplikasi mengirim
+  /// `DateTime.now()` saat pengiriman — sehingga setiap kiriman ulang mengaku
+  /// paling baru walau isinya tidak berubah, dan suntingan dari perangkat lain
+  /// akan tertimpa salinan lama tanpa ada yang menghalangi.
+  IntColumn get diperbaruiPada => integer().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -96,15 +105,27 @@ class TabelSampel extends Table {
 class TabelHasilDeteksi extends Table {
   TextColumn get sesiId =>
       text().references(TabelSesi, #id, onDelete: KeyAction.cascade)();
-  TextColumn get indeksGlikemikPerkiraan => text()();
-  RealColumn get keyakinan => real()();
+  // Nullable sejak v6, dan itu bukan kelonggaran melainkan inti persoalannya:
+  // sumber angkanya (tabel TKPI lewat layanan deteksi) tidak punya kolom indeks
+  // glikemik maupun gula sama sekali, dan makanan yang belum punya padanan di
+  // sana tidak menghasilkan satu angka pun. null berarti "tidak diketahui";
+  // menyimpannya sebagai 0 akan mengubah ketidaktahuan menjadi klaim.
+  TextColumn get indeksGlikemikPerkiraan => text().nullable()();
+  RealColumn get keyakinan => real().nullable()();
   BoolColumn get dikoreksiUser => boolean()();
-  RealColumn get totalKalori => real()();
-  RealColumn get totalKarbohidrat => real()();
-  RealColumn get totalProtein => real()();
-  RealColumn get totalLemak => real()();
-  RealColumn get totalGulaTotal => real()();
-  RealColumn get totalSerat => real()();
+  RealColumn get totalKalori => real().nullable()();
+  RealColumn get totalKarbohidrat => real().nullable()();
+  RealColumn get totalProtein => real().nullable()();
+  RealColumn get totalLemak => real().nullable()();
+  RealColumn get totalGulaTotal => real().nullable()();
+  RealColumn get totalSerat => real().nullable()();
+
+  /// Kunci §5.2 yang dipisah koma, mis. `gula_total,serat`.
+  ///
+  /// Disimpan sebagai teks, bukan tabel sendiri: isinya paling banyak enam
+  /// nilai tetap yang tidak pernah di-query satu per satu, dan sebuah tabel
+  /// untuk itu hanya menambah join tanpa menjawab pertanyaan apa pun.
+  TextColumn get zatTidakLengkap => text().withDefault(const Constant(''))();
 
   @override
   Set<Column> get primaryKey => {sesiId};
@@ -122,12 +143,14 @@ class TabelItemMakanan extends Table {
   TextColumn get nama => text()();
   TextColumn get porsi => text()();
   RealColumn get estimasiGram => real()();
-  RealColumn get kalori => real()();
-  RealColumn get karbohidrat => real()();
-  RealColumn get protein => real()();
-  RealColumn get lemak => real()();
-  RealColumn get gulaTotal => real()();
-  RealColumn get serat => real()();
+  // Nullable sejak v6 — lihat TabelHasilDeteksi. Makanan yang tidak ada di
+  // tabel gizi punya nama, porsi, dan berat, tetapi tidak satu pun angka.
+  RealColumn get kalori => real().nullable()();
+  RealColumn get karbohidrat => real().nullable()();
+  RealColumn get protein => real().nullable()();
+  RealColumn get lemak => real().nullable()();
+  RealColumn get gulaTotal => real().nullable()();
+  RealColumn get serat => real().nullable()();
 
   @override
   Set<Column> get primaryKey => {sesiId, urutan};
@@ -264,7 +287,7 @@ class BasisData extends _$BasisData {
   BasisData(super.e);
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -349,6 +372,36 @@ class BasisData extends _$BasisData {
             if (!sudahAda) {
               await m.addColumn(tabelSesi, tabelSesi.sesiUji);
             }
+          case 5: // v5 → v6: "tidak diketahui" dibedakan dari nol
+            // SQLite tidak bisa melonggarkan NOT NULL lewat ALTER TABLE, jadi
+            // kedua tabel gizi dibangun ulang oleh `alterTable` — ia yang
+            // mengurus tabel sementara, penyalinan isi, penghapusan yang lama,
+            // dan penggantian nama. Isinya pindah apa adanya: angka lama memang
+            // benar-benar angka, yang berubah hanya kemampuan menyimpan
+            // ketiadaannya mulai sekarang.
+            //
+            // `zat_tidak_lengkap` harus disebut sebagai kolom **baru**. Tanpa
+            // itu, penyalinannya ikut menyebut kolom yang belum pernah ada di
+            // tabel lama, dan seluruh pembukaan basis data gagal.
+            await m.alterTable(
+              TableMigration(
+                tabelHasilDeteksi,
+                newColumns: [tabelHasilDeteksi.zatTidakLengkap],
+              ),
+            );
+            await m.alterTable(TableMigration(tabelItemMakanan));
+
+            // Kolom stempel perubahan. Bawaannya null — sesi lama belum pernah
+            // disunting sejak kolom ini ada, dan itu memang yang benar.
+            final kolomSesiV6 = await m.database
+                .customSelect('PRAGMA table_info(tabel_sesi)')
+                .get();
+            if (!kolomSesiV6.any(
+              (b) => b.read<String>('name') == 'diperbarui_pada',
+            )) {
+              await m.addColumn(tabelSesi, tabelSesi.diperbaruiPada);
+            }
+
           default:
             throw UnsupportedError(
               'Belum ada migrasi dari skema v$v ke v${v + 1}. '

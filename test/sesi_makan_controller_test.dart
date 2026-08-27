@@ -434,8 +434,8 @@ void main() {
       final total = c.totalNutrisiHariIni();
 
       // Menu tiap sesi berbeda, jadi totalnya dijumlah dari sesinya sendiri.
-      double jumlah(double Function(Nutrisi n) ambil) => hariIni
-          .map((s) => ambil(s.hasil!.total))
+      double jumlah(double? Function(Nutrisi n) ambil) => hariIni
+          .map((s) => ambil(s.hasil!.total) ?? 0)
           .reduce((a, b) => a + b);
 
       expect(hariIni.length, lessThan(riwayat.length));
@@ -448,7 +448,12 @@ void main() {
       addTearDown(c.dispose);
 
       await c.mulaiDraft(contohFotoPath); // hasil masih null pada tick ini
-      expect(c.totalNutrisiHariIni().kalori, 0);
+
+      // **null, bukan 0.** Hari yang belum punya satu pun angka gizi berarti
+      // belum diketahui — dan Beranda menampilkannya sebagai "—". Sebelumnya
+      // nol, yang di layar terbaca sebagai "hari ini Anda belum makan apa pun":
+      // sebuah pernyataan tentang penggunanya, bukan tentang datanya.
+      expect(c.totalNutrisiHariIni().kalori, isNull);
     });
 
     test('puncak terakhir urut lama ke baru untuk sparkline', () {

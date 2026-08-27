@@ -201,11 +201,24 @@ class ProfilRepository {
   /// tidak, field yang tidak ada di server (email dan nomor HP, §5.1) akan
   /// tetap menampilkan milik pengguna sebelumnya, dan penyamaan dengan server
   /// tidak akan pernah membersihkannya.
-  Future<Profil> sinkronSetelahMasuk(String emailAkun) async {
+  ///
+  /// **`gantiAkun` dikembalikan, bukan disimpan sendiri**, karena profil bukan
+  /// satu-satunya yang melekat pada satu orang: riwayat sesi, kalibrasi tekanan
+  /// darah, dan kotak masuk jam juga. Dulu jawaban itu berhenti di sini, dan
+  /// akibatnya baru terlihat dari luar — pengguna baru membuka Riwayat dan
+  /// menemukan makanan orang lain, lalu `kirimRiwayatKeServer()` sesudah masuk
+  /// mengunggah sesi-sesi itu ke akunnya. Ini satu-satunya tempat yang tahu
+  /// jawabannya, karena ia pula yang menulis penandanya; menaruh pembacaan
+  /// kedua di tempat lain berarti siapa pun yang berjalan belakangan menjadi
+  /// buta.
+  Future<({Profil profil, bool gantiAkun})> sinkronSetelahMasuk(
+    String emailAkun,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     final pemilikLama = prefs.getString(_kEmailAkun) ?? '';
+    final gantiAkun = pemilikLama.isNotEmpty && pemilikLama != emailAkun;
 
-    if (pemilikLama.isNotEmpty && pemilikLama != emailAkun) {
+    if (gantiAkun) {
       await hapusLokal();
     }
     if (emailAkun.isNotEmpty) {
@@ -216,7 +229,7 @@ class ProfilRepository {
         await prefs.setString(_kEmail, emailAkun);
       }
     }
-    return muatSegar();
+    return (profil: await muatSegar(), gantiAkun: gantiAkun);
   }
 
   /// Mengosongkan salinan lokal. Tidak menyentuh server dan tidak menyentuh

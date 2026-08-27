@@ -188,7 +188,10 @@ class _IsiSesi extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 18),
-                RingkasanNutrisi(hasil: sesi.hasil),
+                RingkasanNutrisi(
+                  hasil: sesi.hasil,
+                  sedangDianalisis: controller.sedangMenganalisis(sesi.id),
+                ),
               ],
             ),
           ),

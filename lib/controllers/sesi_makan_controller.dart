@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show File;
 
 import 'package:flutter/foundation.dart';
 
@@ -7,10 +8,12 @@ import '../models/jadwal_sesi.dart';
 import '../models/sesi_makan.dart';
 import '../repositories/sesi_login_repository.dart';
 import '../services/sesi_server_service.dart';
+import '../repositories/entri_jam_repository.dart';
 import '../repositories/kalibrasi_repository.dart';
 import '../repositories/sesi_repository.dart';
 import '../services/ble_service.dart';
 import '../services/nutrisi_service.dart';
+import '../services/kamera_service.dart' show jalurFotoTetap;
 import '../services/pengingat_titik_ukur.dart';
 import '../services/protokol_jam.dart' show GalatJam, buatIdSesi;
 
@@ -40,13 +43,16 @@ class SesiMakanController extends ChangeNotifier {
     List<SesiMakan> riwayatAwal = const [],
     this.repo,
     this.repoKalibrasi,
+    this.repoEntri,
     this.serverSesi,
     this.sesiLogin,
     Kalibrasi? kalibrasiAwal,
     JadwalSesi? jadwal,
     DateTime Function()? jam,
     PengingatTitikUkur? pengingat,
-  }) : jam = jam ?? DateTime.now,
+    Future<String> Function(String nama)? jalurFoto,
+  }) : jalurFoto = jalurFoto ?? jalurFotoTetap,
+       jam = jam ?? DateTime.now,
        pengingat = pengingat ?? const PengingatDiam(),
        jadwal = jadwal ?? jadwalBawaan,
        _riwayat = [
@@ -163,6 +169,19 @@ class SesiMakanController extends ChangeNotifier {
   /// Sumber token untuk [serverSesi].
   final SesiLoginRepository? sesiLogin;
   final KalibrasiRepository? repoKalibrasi;
+
+  /// Kotak masuk mentah dari jam. Dipegang di sini **hanya** untuk
+  /// [hapusDataLokal] — jalur normalnya milik `BleAsliService`, yang menulis dan
+  /// membacanya sendiri. Tanpa rujukan ini, entri milik pengguna sebelumnya
+  /// selamat dari pergantian akun dan diputar ulang saat aplikasi start,
+  /// membangun kembali sesi yang baru saja dihapus.
+  final EntriJamRepository? repoEntri;
+
+  /// Di mana foto hasil unduhan disimpan. Bawaannya folder tetap aplikasi;
+  /// disuntikkan oleh test karena `path_provider` tidak punya platform channel
+  /// di bawah `flutter_test` — dan tanpa seam ini satu-satunya jalur yang bisa
+  /// diuji adalah jalur gagalnya.
+  final Future<String> Function(String nama) jalurFoto;
 
   /// Berapa lama setelah titik terakhir (`t0 + 2 jam`) sebuah sesi berhenti
   /// ditunggu dan ditutup sebagai `tidakLengkap`.
@@ -288,13 +307,26 @@ class SesiMakanController extends ChangeNotifier {
   /// Total nutrisi hari ini. Sesi yang analisisnya belum selesai dilewati,
   /// bukan ditaksir.
   Nutrisi totalNutrisiHariIni({DateTime? sekarang}) {
-    var total = Nutrisi.kosong;
+    // Bermula dari "tidak diketahui", bukan dari nol: hari yang belum punya
+    // satu pun angka gizi harus terbaca sebagai belum diketahui, bukan sebagai
+    // nol kalori — yang di Beranda akan tampil sebagai fakta tentang
+    // penggunanya.
+    var total = Nutrisi.tidakDiketahui;
     for (final s in sesiHariIni(sekarang: sekarang)) {
       final hasil = s.hasil;
       if (hasil != null) total = total + hasil.total;
     }
     return total;
   }
+
+  /// Zat yang total hariannya hanya jumlah parsial.
+  ///
+  /// Gabungan penanda dari setiap sesi hari ini: satu makanan yang tidak ada di
+  /// tabel gizi sudah cukup membuat total sehari menjadi "sekurang-kurangnya".
+  Set<ZatGizi> zatTidakLengkapHariIni({DateTime? sekarang}) => {
+    for (final s in sesiHariIni(sekarang: sekarang))
+      ...?s.hasil?.zatTidakLengkap,
+  };
 
   /// Puncak gula darah beberapa sesi terakhir, urut lama → baru, untuk
   /// sparkline di Beranda.
@@ -444,18 +476,90 @@ class SesiMakanController extends ChangeNotifier {
     notifyListeners();
   }
 
+  final Set<String> _sedangAnalisis = {};
+
+  /// Analisis berjalan di latar belakang dan bisa selesai **setelah** controller
+  /// dibuang — layar sesi ditutup, atau test berakhir. Memberi tahu pendengar
+  /// sesudah itu melempar, jadi keadaannya harus ditanyakan lebih dulu.
+  bool _dibuang = false;
+
+  /// Apakah analisis gizi untuk [sesiId] sedang berjalan **sekarang**.
+  ///
+  /// Ini yang memisahkan dua keadaan yang sama-sama terlihat sebagai
+  /// `hasil == null` tetapi berbeda artinya: "tunggu sebentar" dan "tidak akan
+  /// pernah ada". Yang kedua terjadi pada sesi yang analisisnya gagal, dan pada
+  /// sesi yang diunduh dari server — dan menggambar keduanya sebagai spinner
+  /// berarti menjanjikan sesuatu yang tidak datang, selamanya.
+  ///
+  /// Sengaja hanya di memori: sesudah aplikasi ditutup tidak ada permintaan yang
+  /// masih berjalan, jadi jawabannya memang false.
+  bool sedangMenganalisis(String sesiId) => _sedangAnalisis.contains(sesiId);
+
   Future<void> _analisisNutrisi(String sesiId, String fotoPath) async {
+    _sedangAnalisis.add(sesiId);
+    if (!_dibuang) notifyListeners();
     try {
-      final hasil = await nutrisi.analisis(fotoPath);
-      final sesi = _sesiAktif;
-      if (sesi == null || sesi.id != sesiId) return; // sesi sudah berganti
-      _sesiAktif = sesi.salin(hasil: hasil);
-      _simpanAktif();
-      notifyListeners();
+      final hasil = await _mintaHasil(sesiId, fotoPath);
+      if (hasil == null) return; // dibiarkan kosong, dan UI mengatakannya
+      _terapkanHasil(sesiId, hasil);
     } catch (_) {
-      // Analisis gagal bukan alasan sesi gagal: t0 tetap akurat dan UI tetap
-      // menampilkan slot nutrisi kosong.
+      // Analisis gagal bukan alasan sesi gagal: t0 tetap akurat, sampelnya
+      // tetap masuk, dan yang hilang hanya angka gizinya.
+    } finally {
+      _sedangAnalisis.remove(sesiId);
+      if (!_dibuang) notifyListeners();
     }
+  }
+
+  /// Menempelkan hasil analisis ke sesinya — **di mana pun sesi itu berada**.
+  ///
+  /// Analisis bisa selesai setelah sesinya berakhir: jadwal uji menutup sesi
+  /// dalam dua menit, dan analisis sungguhan bisa makan puluhan detik. Sebelum
+  /// ini hasilnya hanya diterapkan bila sesi masih aktif, sehingga angka gizi
+  /// yang sudah selesai dihitung dibuang begitu saja — dan gejalanya di layar
+  /// tidak bisa dibedakan dari analisis yang gagal.
+  ///
+  /// Sesi yang **dibatalkan** memang tidak ditemukan di mana pun, dan itu
+  /// benar: barisnya sudah dihapus.
+  void _terapkanHasil(String sesiId, HasilDeteksi hasil) {
+    final aktif = _sesiAktif;
+    if (aktif != null && aktif.id == sesiId) {
+      _sesiAktif = aktif.salin(hasil: hasil);
+      _simpanAktif();
+      return;
+    }
+
+    final i = _riwayat.indexWhere((s) => s.id == sesiId);
+    if (i < 0) return;
+    final diperbarui = _riwayat[i].salin(hasil: hasil);
+    _riwayat[i] = diperbarui;
+    if (_hasilBelumDibaca?.id == sesiId) _hasilBelumDibaca = diperbarui;
+    unawaited(_simpan(diperbarui));
+  }
+
+  /// Dari mana angka gizinya datang.
+  ///
+  /// **Server bila ada akun, [nutrisi] bila tidak.** Fotonya harus ada di
+  /// server sebelum bisa dianalisis di sana, dan itu menuntut sesinya lebih
+  /// dulu ada — jadi urutannya: sesi draft diunggah, fotonya menyusul, baru
+  /// analisis diminta. Ketiganya boleh gagal tanpa menjatuhkan apa pun: sesi
+  /// tetap berjalan di ponsel, dan yang hilang cuma angka gizinya.
+  ///
+  /// Tanpa token, jalur ini tidak bisa ditempuh sama sekali — dan aplikasi
+  /// harus tetap utuh tanpa akun (§2 aturan 3), jadi ia jatuh ke [nutrisi],
+  /// yang selama belum ada layanan deteksi sungguhan berarti angka contoh.
+  Future<HasilDeteksi?> _mintaHasil(String sesiId, String fotoPath) async {
+    final server = serverSesi;
+    final token = (await sesiLogin?.muat())?.token;
+    if (server == null || token == null) return nutrisi.analisis(fotoPath);
+
+    final sesi = _cariSesi(sesiId);
+    if (sesi == null) return null;
+
+    // Sesi draft-nya dulu: endpoint foto menolak sesi yang belum ada di server.
+    if (!await server.kirim(token, sesi)) return null;
+    if (!await server.kirimFoto(token, sesiId, fotoPath)) return null;
+    return server.mintaAnalisis(token, sesiId);
   }
 
   /// Menyalakan tombol "Selesai Makan" di jam untuk sesi draft yang sedang
@@ -487,8 +591,7 @@ class SesiMakanController extends ChangeNotifier {
     final titik = titikBerikutnya;
     final t0 = _sesiAktif?.t0;
     if (titik == null || t0 == null) return null;
-    return Duration(seconds: titik.jendelaAwal!) -
-        jam().difference(t0);
+    return Duration(seconds: titik.jendelaAwal!) - jam().difference(t0);
   }
 
   /// Mengukur titik sesi berikutnya dari aplikasi (`UKUR`, protokol §5.1).
@@ -569,7 +672,8 @@ class SesiMakanController extends ChangeNotifier {
           for (final t in sesi.jadwal.titik)
             if (t.berjendela &&
                 sesi.sampel.any(
-                  (s) => s.index == t.index && s.status == StatusSampel.menunggu,
+                  (s) =>
+                      s.index == t.index && s.status == StatusSampel.menunggu,
                 ))
               t,
         ],
@@ -897,8 +1001,7 @@ class SesiMakanController extends ChangeNotifier {
       _kalibrasiTerakhir?.kedaluwarsaPada(jam()) ?? false;
 
   /// Sisa hari masa berlaku kalibrasi, null bila belum pernah dikalibrasi.
-  int? get sisaHariKalibrasi =>
-      _kalibrasiTerakhir?.sisaHariPada(jam());
+  int? get sisaHariKalibrasi => _kalibrasiTerakhir?.sisaHariPada(jam());
 
   /// Meminta jam mengukur bersamaan dengan tensimeter.
   Future<Sampel> ukurUntukKalibrasi() => ble.ukurSekarang();
@@ -1068,9 +1171,21 @@ class SesiMakanController extends ChangeNotifier {
     // bertahan lima puluh menit.
     unawaited(ble.batalkanSesi(sesi.id));
     unawaited(pengingat.batalkanSemua());
-    unawaited(_simpan(sesi));
-    unawaited(_kirimKeServer(sesi));
+    // **Simpan dulu, baru kirim, dan berurutan.** Dua `unawaited` yang berlomba
+    // adalah bagaimana sesi ini dulu naik ke server dengan `diperbarui_pada`
+    // bawaan `waktuFoto`: unggahannya berangkat sebelum penulisan lokal sempat
+    // menstempelnya, dan server menolaknya 409 karena stempel itu lebih tua
+    // daripada `updated_at` yang ia tulis sendiri saat draft-nya diunggah.
+    unawaited(_simpanLaluKirim(sesi));
     notifyListeners();
+  }
+
+  /// Menulis sesi yang berakhir, lalu mengunggah **hasil tulisannya** — bukan
+  /// salinan yang dipegang pemanggil, yang stempelnya masih dari sebelum
+  /// penulisan ini.
+  Future<void> _simpanLaluKirim(SesiMakan sesi) async {
+    final tersimpan = await _simpan(sesi);
+    await _kirimKeServer(tersimpan ?? sesi);
   }
 
   /// Menulis sesi yang sudah berakhir ke penyimpanan.
@@ -1092,17 +1207,57 @@ class SesiMakanController extends ChangeNotifier {
     if (sesi != null) unawaited(_simpan(sesi));
   }
 
-  Future<void> _simpan(SesiMakan sesi) async {
+  /// Menulis satu sesi, lalu **menempelkan stempel hasil tulisan itu** ke
+  /// salinan yang hidup di memori. Mengembalikan sesi yang sudah berstempel,
+  /// atau null bila penulisannya gagal.
+  ///
+  /// Bagian kedua itu yang dulu tidak ada, dan akibatnya hanya terlihat di
+  /// server: repository menstempel barisnya, objek di memori tidak pernah
+  /// menerima stempelnya, dan `badanSesi` jatuh ke `waktuFoto` seumur hidup
+  /// sesi itu — lebih tua daripada `updated_at` yang server tulis saat draft
+  /// diunggah, jadi setiap kiriman berikutnya ditolak `409 konflik_versi`.
+  Future<SesiMakan?> _simpan(SesiMakan sesi) async {
     final tujuan = repo;
-    if (tujuan == null) return;
+    if (tujuan == null) return sesi;
     try {
-      await tujuan.simpan(sesi);
+      return _terapkanStempel(sesi, await tujuan.simpan(sesi));
     } catch (e) {
       debugPrint('Gagal menyimpan sesi ${sesi.id}: $e');
       _galatPenyimpanan =
           'Sesi terakhir gagal disimpan dan akan hilang saat aplikasi ditutup.';
       notifyListeners();
+      return null;
     }
+  }
+
+  /// Menempelkan [stempel] ke salinan sesi di memori, **di mana pun ia berada**
+  /// — alasannya sama dengan [_terapkanHasil]: penulisan berjalan asinkron dan
+  /// sesinya bisa sudah pindah dari `_sesiAktif` ke `_riwayat` sebelum
+  /// penulisan itu selesai.
+  ///
+  /// Yang ditempel hanya stempelnya, bukan seluruh objek [sesi] — objek itu
+  /// adalah keadaan pada saat penulisan dimulai, dan sampel yang masuk selagi
+  /// tulisan berjalan tidak boleh ikut terhapus. Tidak ada `notifyListeners()`:
+  /// stempel tidak tampil di layar mana pun.
+  SesiMakan _terapkanStempel(SesiMakan sesi, DateTime stempel) {
+    final aktif = _sesiAktif;
+    if (aktif != null && aktif.id == sesi.id) {
+      return _sesiAktif = aktif.salin(diperbaruiPada: stempel);
+    }
+
+    final i = _riwayat.indexWhere((s) => s.id == sesi.id);
+    if (i < 0) return sesi.salin(diperbaruiPada: stempel);
+
+    final diperbarui = _riwayat[i].salin(diperbaruiPada: stempel);
+    _riwayat[i] = diperbarui;
+    if (_hasilBelumDibaca?.id == sesi.id) _hasilBelumDibaca = diperbarui;
+    return diperbarui;
+  }
+
+  SesiMakan? _cariSesi(String sesiId) {
+    final aktif = _sesiAktif;
+    if (aktif != null && aktif.id == sesiId) return aktif;
+    return _riwayat.where((s) => s.id == sesiId).firstOrNull;
   }
 
   /// Mengunggah satu sesi yang sudah berakhir.
@@ -1120,6 +1275,83 @@ class SesiMakanController extends ChangeNotifier {
 
     final berhasil = await server.kirim(token, sesi);
     if (!berhasil) debugPrint('Sesi ${sesi.id} belum sampai ke server.');
+  }
+
+  /// Membuang seluruh data lokal yang melekat pada satu orang.
+  ///
+  /// Dipanggil dari alur masuk, dan **hanya** ketika akunnya berbeda dari
+  /// pemilik data yang tercatat di ponsel ini — pasangan
+  /// `ProfilRepository.sinkronSetelahMasuk`, yang melakukan hal yang sama untuk
+  /// profil. Satu ponsel dipakai dua orang bukan keadaan aneh: satu keluarga,
+  /// satu perangkat pinjaman, satu ponsel demo.
+  ///
+  /// Yang dibuang: riwayat sesi (beserta sampel, hasil gizi, dan itemnya),
+  /// kalibrasi tekanan darah, kotak masuk mentah jam, dan seluruh salinan yang
+  /// masih dipegang di memori. Yang **tidak**: penyandingan jam dan anchor
+  /// waktunya — itu milik perangkat kerasnya, bukan orangnya, dan menyuruh
+  /// pengguna lansia menyandingkan ulang setiap berganti akun adalah biaya yang
+  /// tidak dibayar oleh apa pun.
+  ///
+  /// **Harus selesai sebelum [kirimRiwayatKeServer]**, dan urutan itulah
+  /// alasannya ada: unggahan yang berangkat lebih dulu akan menaruh sesi milik
+  /// orang sebelumnya ke akun yang baru masuk, di mana ia tampak sah dan tidak
+  /// bisa dibedakan lagi dari sesi pemiliknya.
+  Future<void> hapusDataLokal() async {
+    // Sesi yang sedang berjalan ikut hilang, dan jam harus tahu — kalau tidak,
+    // tombol ukurnya tetap menyala untuk sesi yang sudah tidak ada dan
+    // sampelnya akan tiba tanpa induk.
+    final aktif = _sesiAktif;
+    if (aktif != null) unawaited(ble.batalkanSesi(aktif.id));
+    unawaited(pengingat.batalkanSemua());
+
+    // Berkas fotonya ikut, dan ini bukan kerapian melainkan bagian dari
+    // maksudnya. Menghapus barisnya saja meninggalkan foto makanan pemilik
+    // sebelumnya utuh di `<documents>/foto_makanan/` — tidak lagi terhubung ke
+    // sesi mana pun, tetapi tetap ada di penyimpanan ponsel yang sekarang
+    // dipakai orang lain. Dikumpulkan **sebelum** daftarnya dikosongkan, karena
+    // sesudah itu tidak ada lagi yang tahu jalur mana yang milik siapa.
+    await _hapusBerkasFoto([
+      for (final s in [..._riwayat, ?aktif]) s.fotoPath,
+    ]);
+
+    _tenggat?.cancel();
+    _tenggat = null;
+    _timerArm?.cancel();
+    _timerArm = null;
+    _sesiDiarm = null;
+    _titikDiarm = null;
+    _sesiAktif = null;
+    _riwayat.clear();
+    _hasilBelumDibaca = null;
+    _sampelDiterima.clear();
+    _sedangAnalisis.clear();
+    _pindaiTerakhir = null;
+    _kalibrasiTerakhir = null;
+    _galatPenyimpanan = null;
+
+    await repo?.hapusSemua();
+    await repoKalibrasi?.hapusSemua();
+    await repoEntri?.hapusSemua();
+
+    notifyListeners();
+  }
+
+  /// Membuang berkas foto milik sesi yang sedang dihapus.
+  ///
+  /// Kegagalan tiap berkas ditelan sendiri-sendiri: satu berkas yang tidak bisa
+  /// dihapus tidak boleh menghentikan pembersihan berkas berikutnya, dan tidak
+  /// boleh menggagalkan penghapusan basis datanya — data yang tertinggal di
+  /// SQLite jauh lebih terlihat daripada satu berkas yatim.
+  Future<void> _hapusBerkasFoto(List<String> jalur) async {
+    for (final j in jalur) {
+      if (j.isEmpty) continue;
+      try {
+        final berkas = File(j);
+        if (berkas.existsSync()) await berkas.delete();
+      } catch (e) {
+        debugPrint('Gagal menghapus foto $j: $e');
+      }
+    }
   }
 
   /// Mengunggah **seluruh** riwayat yang sudah berakhir.
@@ -1140,9 +1372,182 @@ class SesiMakanController extends ChangeNotifier {
     final token = (await sesiLogin?.muat())?.token;
     if (token == null) return;
 
+    // **Siapa yang fotonya belum sampai ditanyakan ke server, bukan ditebak.**
+    //
+    // Sebelum ini penandanya adalah "sesi ini sudah punya angka gizi", dengan
+    // alasan bahwa `_mintaHasil` mengirim foto lebih dulu baru meminta analisis.
+    // Itu benar hanya bila ada token saat rana ditekan. Tanpa token angka
+    // gizinya datang dari [nutrisi] lokal, `hasil` terisi, fotonya tidak pernah
+    // diunggah — dan percobaan ulang melewatinya selamanya. Setiap sesi yang
+    // difoto sebelum pengguna masuk kehilangan piringnya secara permanen.
+    //
+    // Jawabannya tidak disimpan sebagai kolom "sudah terkirim", dengan alasan
+    // yang sama seperti sesinya sendiri (§2 aturan 2): keadaan yang tidak
+    // disimpan tidak bisa salah, sedangkan tanda yang meleset sekali akan
+    // menyembunyikan foto itu selamanya. Harganya satu permintaan JSON per
+    // pembukaan aplikasi.
+    //
+    // Gagal bertanya jatuh ke perilaku lama, bukan ke salah satu ujung: mengirim
+    // ulang **semua** foto berarti puluhan megabyte di jaringan seluler, dan
+    // tidak mengirim satu pun berarti sesi yang memang tertinggal tidak pernah
+    // dicoba lagi.
+    final diServer = await server.ambilSemua(token);
+    final tanpaFotoDiServer = diServer == null
+        ? null
+        : {
+            for (final u in diServer)
+              if (u.urlFoto == null) u.sesi.id,
+          };
+    final urlFotoDiServer = {
+      for (final u in diServer ?? const <SesiUnduhan>[])
+        if (u.urlFoto != null) u.sesi.id: u.urlFoto!,
+    };
+
     for (final sesi in List<SesiMakan>.from(_riwayat)) {
       await server.kirim(token, sesi);
+
+      // Berkasnya harus masih ada di ponsel ini — sesi hasil unduhan yang
+      // gagal mengambil fotonya tidak punya apa pun untuk dikirim balik.
+      //
+      // Arah sebaliknya justru harus dicoba lagi di sini: sesi yang server
+      // punya fotonya tetapi ponsel ini tidak. [unduhRiwayatDariServer] hanya
+      // mengunduh foto sesi yang **baru**, dan aturan "sesi yang sudah ada
+      // tidak pernah ditimpa" berarti satu unduhan yang gagal — jaringan putus,
+      // atau 401 karena token belum ikut dikirim — membuat piring itu hilang
+      // selamanya, sampai pasang ulang berikutnya.
+      if (sesi.fotoPath.isEmpty) {
+        final url = urlFotoDiServer[sesi.id];
+        if (url != null) await _unduhFotoKeSesi(server, token, sesi, url);
+        continue;
+      }
+      final perlu = tanpaFotoDiServer?.contains(sesi.id) ?? sesi.hasil == null;
+      if (!perlu) continue;
+
+      if (!await server.kirimFoto(token, sesi.id, sesi.fotoPath)) continue;
+      // Angka gizinya hanya diminta bila memang belum ada: foto yang menyusul
+      // untuk sesi yang sudah punya hasil tidak perlu dianalisis ulang.
+      if (sesi.hasil != null) continue;
+      final hasil = await server.mintaAnalisis(token, sesi.id);
+      if (hasil != null) {
+        _terapkanHasil(sesi.id, hasil);
+        if (!_dibuang) notifyListeners();
+      }
     }
+  }
+
+  /// Menarik riwayat dari server dan menambahkan yang belum ada di sini.
+  ///
+  /// Inilah yang membuat pemasangan ulang, penggantian ponsel, dan ponsel kedua
+  /// tidak lagi berarti riwayat yang hilang — sampai sebelum ini sinkronisasinya
+  /// satu arah: aplikasi mengunggah, tidak pernah mengunduh.
+  ///
+  /// Tiga aturan, dan ketiganya menjaga hal yang sama — data di ponsel ini tidak
+  /// boleh rusak karena sesuatu yang datang dari jaringan:
+  ///
+  /// 1. **Sesi yang sudah ada di sini tidak pernah ditimpa.** Ponsel yang
+  ///    merekamnya tahu lebih banyak daripada server (fotonya saja hanya ada di
+  ///    sini), dan menimpanya berarti menukar yang lengkap dengan yang ringkas.
+  /// 2. **Sesi yang masih berjalan di server dilewati.** Satu sesi aktif pada
+  ///    satu waktu (§6) adalah aturan seluruh aplikasi; menarik sesi berjalan
+  ///    milik perangkat lain akan membuat dua-duanya aktif.
+  /// 3. **Gagal menarik bukan berarti kosong.** [SesiServerService.ambilSemua]
+  ///    mengembalikan null saat tidak tahu, dan null tidak pernah menghapus apa
+  ///    pun. Daftar kosong yang sungguhan pun hanya berarti "tidak ada yang
+  ///    ditambahkan".
+  Future<void> unduhRiwayatDariServer() async {
+    final server = serverSesi;
+    if (server == null) return;
+    final token = (await sesiLogin?.muat())?.token;
+    if (token == null) return;
+
+    final dariServer = await server.ambilSemua(token);
+    if (dariServer == null) return;
+
+    final idLokal = {
+      ..._riwayat.map((s) => s.id),
+      if (_sesiAktif != null) _sesiAktif!.id,
+    };
+    final baru = [
+      for (final unduhan in dariServer)
+        if (!idLokal.contains(unduhan.sesi.id) &&
+            !unduhan.sesi.status.sedangAktif)
+          unduhan,
+    ];
+    if (baru.isEmpty) return;
+
+    // Yang masuk riwayat adalah hasil tulisannya, bukan objek yang baru diunduh:
+    // menulisnya ke sini **adalah** perubahan lokal, dan tanpa stempelnya sesi
+    // hasil unduhan akan mengirim ulang dirinya dengan stempel bawaan
+    // `waktuFoto` selamanya — 409 di setiap pembukaan aplikasi.
+    for (final unduhan in baru) {
+      final sesi = await _denganFotoUnduhan(server, token, unduhan);
+      _riwayat.add(await _simpan(sesi) ?? sesi);
+    }
+    // Riwayat dipakai apa adanya oleh layar: yang terbaru di atas.
+    _riwayat.sort(
+      (a, b) => (b.t0 ?? b.waktuFoto).compareTo(a.t0 ?? a.waktuFoto),
+    );
+    notifyListeners();
+  }
+
+  /// Mengunduh foto sesi hasil unduhan ke penyimpanan tetap, lalu mengembalikan
+  /// sesi dengan `fotoPath` yang menunjuk ke sana.
+  ///
+  /// Sampai sekarang sesi hasil unduhan selalu punya `fotoPath` kosong, jadi
+  /// piringnya hilang di perangkat kedua, sesudah pasang ulang, dan sesudah
+  /// ganti akun — padahal server menyimpannya dan web menampilkannya. Yang
+  /// diunduh adalah **berkasnya**, bukan alamatnya: URL §5.2 bertanda tangan dan
+  /// kedaluwarsa satu jam, jadi menyimpan URL itu berarti jalur mati esok pagi.
+  ///
+  /// Gagal mengunduh tidak menjatuhkan sesinya: `fotoPath` tetap kosong dan
+  /// `FotoMakanan` menjatuhkannya ke penampung cadangan, persis seperti
+  /// sebelumnya. Sesi dengan angka dan kurva yang utuh jauh lebih berharga
+  /// daripada tidak ada sesi sama sekali.
+  Future<SesiMakan> _denganFotoUnduhan(
+    SesiServerService server,
+    String token,
+    SesiUnduhan unduhan,
+  ) async {
+    final url = unduhan.urlFoto;
+    if (url == null) return unduhan.sesi;
+
+    final tujuan = await _unduhFoto(server, token, unduhan.sesi.id, url);
+    return tujuan == null ? unduhan.sesi : unduhan.sesi.salin(fotoPath: tujuan);
+  }
+
+  /// Mengunduh foto satu sesi yang **sudah ada** di riwayat, lalu menyimpan
+  /// jalurnya. Diam saja bila gagal: sesi tanpa piring tetap sesi yang utuh.
+  Future<void> _unduhFotoKeSesi(
+    SesiServerService server,
+    String token,
+    SesiMakan sesi,
+    String url,
+  ) async {
+    final tujuan = await _unduhFoto(server, token, sesi.id, url);
+    if (tujuan == null) return;
+
+    final i = _riwayat.indexWhere((s) => s.id == sesi.id);
+    if (i < 0) return;
+    final diperbarui = _riwayat[i].salin(fotoPath: tujuan);
+    _riwayat[i] = diperbarui;
+    await _simpan(diperbarui);
+    if (!_dibuang) notifyListeners();
+  }
+
+  /// Jalur berkas hasil unduhan, atau null bila tidak sampai.
+  Future<String?> _unduhFoto(
+    SesiServerService server,
+    String token,
+    String sesiId,
+    String url,
+  ) async {
+    try {
+      final tujuan = await jalurFoto('unduh_$sesiId.jpg');
+      if (await server.unduhFoto(token, url, tujuan)) return tujuan;
+    } catch (e) {
+      debugPrint('Gagal mengunduh foto sesi $sesiId: $e');
+    }
+    return null;
   }
 
   void _lupakanKunci(String sesiId) {
@@ -1153,6 +1558,7 @@ class SesiMakanController extends ChangeNotifier {
   /// dan tidak menyisakan timer yang masih menunggu.
   @override
   void dispose() {
+    _dibuang = true;
     _tenggat?.cancel();
     _timerArm?.cancel();
     _langgananSampel?.cancel();

@@ -117,7 +117,11 @@ loads and then fails when the database opens.
    with `setState`**: it is first called from `initState`, which runs inside a build. The camera is
    **released on `AppLifecycleState.inactive/paused` and set up again on `resumed`**, because
    Android takes it away from an invisible app and an unreleased preview comes back as a black
-   screen with no error at all. And a camera that cannot open gets a full screen with a way out
+   screen with no error at all. The preview is drawn inside an `AspectRatio` fed by `rasioPratinjau()`, because
+   `previewSize` is **always reported landscape-first** whatever way the phone is held: stretched to
+   fill a 9:19.5 screen it comes out visibly squashed, and only while aiming — the captured file
+   comes from the sensor, so it looks fine afterwards and the defect is easy to dismiss as a fluke.
+   And a camera that cannot open gets a full screen with a way out
    (`_LayarGalatKamera`), where a denied permission offers *Buka Pengaturan* rather than "Coba
    Lagi" — the system does not ask twice — while the gallery route, which still works without a
    camera, is always offered. `FotoMakanan` gained an `Image.file` branch (a file that has since
@@ -252,8 +256,45 @@ loads and then fails when the database opens.
    flag is stored, returned, and exported, but **the server no longer branches on it** (that rule was
    dropped on 2026-08-20 so the dashboard would show test data during development), so filtering is
    the reader's job. If the exclusion ever comes back it belongs on the server: filtering in the app
-   would trade a small gain for an upload path nobody exercises. Downloading, deletion
-   propagation, and the §7 cursor sync are all still unwritten.
+   would trade a small gain for an upload path nobody exercises. **The photo goes up too, and the nutrition numbers come back down with it.** At
+   shutter time the draft session is uploaded first (`PUT /sesi/{id}` — the photo endpoint rejects a
+   session the server has never seen), then the file (`POST /sesi/{id}/foto`, multipart), then the
+   analysis is requested (§6). **`SesiHttpService.mintaAnalisis` hides the polling** — §6 answers
+   `202` with a job id, and the app backs off 2→4→8s for about a minute — so the controller still
+   sees one call that returns nutrition, exactly like `NutrisiService.analisis`; if §6 ever answers
+   directly, only that file changes. **Without a token the whole path is skipped and
+   `NutrisiService` answers instead**, because the app has to stay whole without an account (§2
+   rule 3). Every step may fail without taking the session down: a failure leaves `hasil` null,
+   which the UI now states plainly instead of spinning. **Both halves are retried** —
+   `kirimRiwayatKeServer()` re-uploads the photo and re-requests analysis for any finished session
+   that still has no `hasil` but still has its local file, because the photo used to be sent exactly
+   once, at shutter time, and a session photographed with no signal lost its plate and its numbers
+   from the account forever. And the result is **applied to the session wherever it is** — active or
+   already in `_riwayat` — since a two-minute test session can end long before a slow analysis
+   returns, and dropping the answer then is indistinguishable on screen from an analysis that
+   failed. **Downloading exists now too, and only downwards**:
+   `unduhRiwayatDariServer()` (`GET /sesi`) runs after every upload pass, so a reinstall, a new
+   phone, or a second device recovers its history. Three rules keep the network from damaging what
+   is already here: a session that exists locally is **never overwritten** (the phone that recorded
+   it knows more — the photo only exists there), a session the server reports as still running is
+   **skipped** (one active session at a time, §6, is an app-wide rule), and a failed fetch returns
+   **null rather than an empty list**, so "don't know" can never be mistaken for "nothing".
+   **The baseline's offset is derived on the way back, never trusted from the wire.**
+   `sesiDariJson` recomputes sample 0's `detikRelatifT0` as `waktuFoto - t0` — the same formula
+   `SesiMakanController._terimaT0` uses locally — falling back to the wire value only when `t0` is
+   null. What the server holds for that one sample is *provisional*: the draft is uploaded at
+   shutter time, before the watch button is pressed, so index 0 arrives there `terisi` carrying the
+   offset it had before t0 existed, and the backend then freezes it (§2 rule 4 — a filled sample is
+   never overwritten, and the correction that follows is refused with nothing but a `Log::info`).
+   The other three points are left alone; their offsets are measurements. The symptom is not a
+   slightly wrong number but a broken chart: `rentangDetik` spans the axis from the smallest
+   `detikRelatifT0`, so a baseline that is far off crushes the remaining points into the right edge
+   of the card — which is exactly what a `PAKAI_JAM_PALSU` session looked like after an account
+   switch, its baseline stuck at `FakeBleService`'s literal `-1500` against points at 0/10/20 s.
+   `hasil` is uploaded and parsed on the way back because it is the one part of a session that
+   cannot be recomputed from samples — though the backend does not persist it yet. Photos are not
+   uploaded at all, so a downloaded session has an empty `fotoPath` and falls back to
+   `FotoMakanan`'s placeholder. Deletion propagation and the §7 cursor sync are still unwritten.
 3. **Everything about a session is persisted, including while it is running.** History lives in SQLite via drift — `SesiRepository` ([lib/repositories/sesi_repository.dart](lib/repositories/sesi_repository.dart)) is the seam, `SesiRepositoryDrift` + the schema in [lib/repositories/basis_data.dart](lib/repositories/basis_data.dart) are the real implementation, and `SesiRepositoryMemori` remains as the in-memory one for tests (the same role `FakeBleService` plays). Editing the schema means re-running `build_runner`; `basis_data.g.dart` is generated and committed. Three things are load-bearing there: enums are stored via `textEnum` so **renaming a `StatusSesi`/`StatusSampel` member is a schema change**, derived values (verdict, kualitas respons) have no columns and are recomputed on load, and `onUpgrade` walks one version at a time with a `default` branch that throws, so a bumped `schemaVersion` cannot ship without a written migration (`test/anchor_repository_test.dart` actually drives v1→v4, v2→v4, and v3→v4). **The controller's constructor stays synchronous on purpose** — `main()` loads history and passes it as `riwayatAwal`, so no session surface needs a loading state. The constructor also **splits the active session out of `riwayatAwal`**: a session that was still running when the app closed comes back as `sesiAktif`, with its schedule recomputed from absolute `t0` (never from remaining time), and its `(sesiId, index)` dedup keys restored. Cancelling deletes the row (`SesiRepository.hapus`) — a draft that was abandoned must not come back as an active session. A fresh install starts genuinely empty — `contoh_sesi.dart` is test-only fixture data. Two failure paths are handled: the database failing to open shows `AplikasiGagalMulai` instead of a blank screen, and a session that fails to save sets `SesiMakanController.galatPenyimpanan`, which Beranda shows as a persistent warning card (not a SnackBar — the consequence outlives a toast). The schema is at **v4**: v2 added `tabel_anchor_waktu` ([lib/repositories/anchor_repository.dart](lib/repositories/anchor_repository.dart), [lib/models/anchor_waktu.dart](lib/models/anchor_waktu.dart)); v3 added `tabel_kalibrasi`, `tabel_entri_jam`, and `tabel_sesi.waktu_tidak_pasti` — all three explained in the BLE section below; v4 reshaped calibration into three rounds (`tabel_putaran_kalibrasi` + `tabel_kalibrasi.sisi`, see the calibration section). That v3→v4 step is the one to read before writing another migration: it has to ask SQLite (`PRAGMA table_info`) whether the old columns are actually there, because `m.createTable()` in an *earlier* step creates today's shape, not that version's — a device coming from v2 arrives at the v4 step with a table that is already v4-shaped and empty. **The profile is synced with the server, and `SharedPreferences` is its offline half.**
    `ProfilRepository` gained an optional `server:`
    ([lib/services/profil_server_service.dart](lib/services/profil_server_service.dart), §5.1
@@ -419,6 +460,108 @@ to Beranda first; leaving the app from inside Riwayat is a surprise, not the exi
 for. `test/sesi_login_test.dart` pins both halves (`navigator.canPop()` is false at Beranda).
 
 **Shell / tab bar.** `MyHomePage` in [main.dart](lib/main.dart) owns a hand-rolled bottom nav (a `Container` + `Row`, not `BottomNavigationBar`) over an `IndexedStack` of five tabs. Index 2 is special: it is a raised circular button whose meaning follows the session status — idle pushes `DeteksiMakananPage`, any active session (draft or running) pushes `SesiBerjalanPage` — and it always **pushes** instead of switching tabs, so `_tabs[2]` is a never-shown placeholder and the `IndexedStack` index is clamped (`_currentIndex == 2 ? 0 : _currentIndex`). Any change to tab count or ordering must keep that index-2 carve-out consistent.
+
+**A nutrition number can be unknown, and unknown is not zero.** `Nutrisi`'s six fields are
+`double?` and `HasilDeteksi.indeksGlikemikPerkiraan`/`keyakinan` are nullable, because the real
+detection service answers with nulls: the TKPI table it reads has no sugar column at all, no
+glycaemic index, and no row for a dish it has not been taught. Before this, every null silently
+became `0` — or `'sedang'` — and the card presented an estimate nobody had made as a fact, in an app
+whose whole subject is blood sugar. Four rules carry it. `Nutrisi + Nutrisi` treats unknown as zero
+**but null + null stays null**, so a day with no data reads as unknown rather than "you ate
+nothing"; `Nutrisi * faktor` keeps unknown unknown, so correcting a portion never turns a missing
+number into 0. **`HasilDeteksi.zatTidakLengkap`** (§5.2 `zat_tidak_lengkap`) marks which totals are
+*partial sums* — the UI writes `≥ 459` for those, and `—` when a partial total is 0, because zero
+there means "not one food was found in the table", not "no calories". `AnalisisSesi` **drops
+sessions whose carbohydrate total is unknown or partial** rather than plotting them low and dragging
+the trend line, while a null `keyakinan` counts as reliable (the service reports none at all, so
+reading it as "low confidence" would empty the analysis silently). Schema **v6** made the six columns
+nullable — via `alterTable`, since SQLite cannot relax NOT NULL, with `zat_tidak_lengkap` declared as
+a `newColumns` entry or the copy step names a column the old table never had.
+
+**Sessions carry `diperbaruiPada`, stamped by the repository, not the caller.** It is what
+`diperbarui_pada` sends (§7.1 last-write-wins). Sending `DateTime.now()` at upload time — which is
+what the app did before v6 — makes every re-send claim to be newer than the server even when nothing
+changed, so a re-send would overwrite an edit made elsewhere. Every local write is a local change,
+and one place that stamps cannot forget the way a dozen callers can. **`SesiRepository.simpan`
+returns the stamp it wrote, and the controller must put it back on the in-memory session**
+(`_terapkanStempel`). Stamping only the row is how the first version of this failed: a session born
+in the running process kept `diperbaruiPada == null` for its whole life, `badanSesi` fell back to
+`waktuFoto`, and the server — whose `updated_at` was set when the *draft* was uploaded at shutter
+time — rejected every later upload of that session with **409 `konflik_versi`**. Nothing showed on
+the phone; it took 43 conflicts in the backend's log to find. Two consequences ride along:
+`_selesaikan` saves *and then* sends, sequentially (two racing `unawaited`s were the same bug), and
+a downloaded session is added to `_riwayat` as the repository returned it, not as it arrived.
+
+**Photos are downloaded now, and the server's `foto` field is the authority on who still needs
+one.** `GET /sesi` returns `foto: {url, kadaluarsa_pada}` — a signed URL that expires in an hour —
+so `ambilSemua` returns `SesiUnduhan` (session + URL) rather than a bare `SesiMakan`: the URL is
+never stored, only the **file** it fetches. That guards against two things, not one — the signature
+is **bound to the host** it was issued for, and the server derives that host from the incoming
+request, so a URL signed while the app talked to `10.0.2.2` answers **403** (not 404) once the
+phone reaches the same server as `192.168.x.x`. Storing the URL would produce a dead link with a
+message that explains nothing, written into the same `foto_makanan/` folder the shutter
+uses (`jalurFotoTetap`). Before this, a downloaded session always had an empty `fotoPath`, so the
+plate vanished on a second device, after a reinstall, and after an account switch, while the web
+showed it. **The signed URL still needs the token**: `GET /api/v1/foto/{sesi}` carries
+`signed` *inside* the `auth:sanctum` group, so the signature only proves the address was not
+invented — a download with no `Authorization` header is a 401, which looked exactly like the bug it
+was meant to fix (full nutrition numbers, no plate, right after switching accounts). A failed
+download leaves `fotoPath` empty and the session otherwise intact — curves and
+numbers are worth far more than the picture — but it is **retried on the next upload pass**:
+`kirimRiwayatKeServer` downloads the photo for any local session whose `fotoPath` is empty and whose
+`foto` the server does have. Without that, rule 1 below (a local session is never overwritten) makes
+one failed download permanent. `SesiMakanController.jalurFoto` exists purely as a test
+seam: `path_provider` has no platform channel under `flutter_test`, so without it only the failure
+path would be reachable. The same field fixes the upload direction: `kirimRiwayatKeServer` used to
+treat "this session has nutrition numbers" as proof the photo arrived, which is true only when a
+token existed at shutter time — **a session photographed before logging in got its numbers from the
+local `NutrisiService`, and its photo was then skipped forever**. It now asks the server which
+sessions have no photo and retries exactly those; there is deliberately no "sent" column, for the
+same reason sessions have none (§2 rule 2). A failed query falls back to the old guard rather than
+to either extreme. `ambilSemua` also **follows `meta.next_cursor`** — §5.2 is cursor-paginated with
+`per_page` 50, so reading `data` once silently truncated any history past the first page.
+
+**Switching accounts on one phone wipes what belongs to a person, and it must happen before the
+first upload.** `ProfilRepository.sinkronSetelahMasuk` detects the change — it owns the
+`user_account_email` key, so a second reader elsewhere would be blind to whichever ran first — and
+now **returns `gantiAkun` instead of swallowing it**, because the profile was never the only thing
+tied to one person. `SesiMakanController.hapusDataLokal()` drops the rest: session history (with
+samples, nutrition, items), blood-pressure calibration, the watch's raw inbox, and every in-memory
+copy. The paired watch and its time anchors stay — they belong to the hardware, and making an
+elderly user re-pair on every account switch buys nothing. The photo **files** go too, not just
+their rows — deleting the rows alone leaves the previous person's meals sitting in
+`foto_makanan/`, unreferenced but readable. Three things are load-bearing. **The wipe
+must complete before `kirimRiwayatKeServer()`**, which both `LoginPage` and `RegisterPage` now chain
+rather than fire in parallel: an upload that starts first puts the previous person's meals into the
+account that just logged in, where they are indistinguishable from that account's own. **Calibration
+is per-person, not per-phone** — a cuff-derived offset is wrong for anyone but the person it came
+from, and keeping it silently corrects the new user's blood pressure with someone else's number for
+four weeks; note the offsets already written to the watch's flash (§5.1) are *not* cleared by this,
+so the new user must calibrate again before that correction is replaced. And **the raw inbox goes
+too**: entries left behind are replayed at startup and would rebuild the sessions just deleted, in
+someone else's account. Logging out does **not** wipe anything — logging back in as the same person
+must not destroy data, and an offline logout would take unsent sessions with it.
+
+**Status names on the wire are snake_case, and `StatusSesi.name` is not.** `statusKeKawat` /
+`statusDariKawat` in [lib/services/sesi_server_service.dart](lib/services/sesi_server_service.dart)
+are the only translation, pinned to §5.2 by a test over all six values. Sending the Dart names made
+every `tidakLengkap` session 422 on upload, and dropped every `tidak_lengkap` /
+`menunggu_perangkat` session silently on download — both invisible, because the app swallows every
+non-2xx. It no longer swallows them quietly: a rejected `PUT /sesi/{id}` is `debugPrint`ed with its
+status code and the head of the body. That is a log line, not a screen — the rule that a failure
+which repairs itself must not be shown to the user is unchanged.
+
+**An empty nutrition slot has two meanings and they must not look alike.**
+`RingkasanNutrisi` renders the spinner *only* while an analysis request is genuinely in flight
+(`SesiMakanController.sedangMenganalisis(id)`, an in-memory set — after a restart nothing is in
+flight, so the answer is honestly false). Otherwise `hasil == null` draws a quiet
+*"Rincian makanan tidak tersedia"* line. Before this, every empty slot spun forever, which is what
+a downloaded session looks like (its photo stayed on the phone that took it, so nothing will ever
+analyse it) and what a permanently failed analysis looks like. `_analisisNutrisi` now notifies in a
+`finally`, so a failure repaints instead of leaving the last frame up. Related: `sesiDariJson`
+**rejects a session with no samples** — `SesiMakan.baseline` reads `sampel[0]` unguarded, so a
+malformed row from the server would be a red screen on Ringkasan Sesi rather than a session that
+merely looks empty.
 
 **Charts are all `CustomPainter`** — no charting package — and every data chart is now drawn from data. One generic painter serves them all: `KurvaSampelPainter` in [lib/widgets/kurva_sampel.dart](lib/widgets/kurva_sampel.dart), configured by `SeriMetrik` values (`seriGulaDarah`, `seriDetakJantung`, `seriSistolik`, `seriDiastolik`, `seriSpo2`) that say which metric to pull off each `Sampel`; the y-axis is scaled from the data, so each series carries its own `rentangMinimum` floor — 20 for most, **8 for SpO₂**, because healthy SpO₂ moves between 95 and 100 and the wider floor flattens the only thing worth looking at; **every `TextStyle` inside a painter must set `fontFamily: fontPainter`** — `TextPainter` inherits nothing from the widget tree, so a style without it silently falls back to the platform font (Roboto) while the rest of the app is Montserrat, and neither code review nor a golden test shows it (both land on the same fallback); x-axis labels drop to a second row when they would collide, which they do on every session because baseline sits minutes before t0 while the other points are hours apart; `MiniSparklinePainter` in [lib/widgets/sparkline.dart](lib/widgets/sparkline.dart) takes a `List<double>`. The old per-page painters (`SplinePainter`, `BloodSugarSplinePainter`, `BloodPressureSplinePainter`, `DashboardSplinePainter`) are gone — do not reintroduce a hardcoded bezier for data. [lib/widgets/](lib/widgets/) holds the shared widgets; the welcome and login pages define further painters inline for background art. Note `PulseLinePainter` is defined twice, independently, in [welcome_page.dart](lib/welcome_page.dart) and [login_page.dart](lib/login_page.dart).
 

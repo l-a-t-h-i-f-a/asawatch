@@ -312,9 +312,9 @@ HasilDeteksi contohHasilMenu(
       ),
     ],
     total: m.nutrisi,
-    indeksGlikemikPerkiraan: m.nutrisi.karbohidrat >= 60
+    indeksGlikemikPerkiraan: (m.nutrisi.karbohidrat ?? 0) >= 60
         ? 'tinggi'
-        : m.nutrisi.karbohidrat >= 35
+        : (m.nutrisi.karbohidrat ?? 0) >= 35
         ? 'sedang'
         : 'rendah',
     keyakinan: keyakinan,

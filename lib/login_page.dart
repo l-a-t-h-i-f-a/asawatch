@@ -105,12 +105,28 @@ class _LoginPageState extends State<LoginPage> {
       // diisi, padahal akunnya punya semua data itu. Kegagalannya tidak
       // menghalangi: `muatSegar` mengembalikan salinan lokal apa adanya saat
       // tanpa jaringan.
-      await widget.profil?.sinkronSetelahMasuk(hasil.sesi.email);
+      final sinkron = await widget.profil?.sinkronSetelahMasuk(
+        hasil.sesi.email,
+      );
       if (!mounted) return;
 
       // Riwayat yang terkumpul sebelum masuk ikut naik sekarang — sebelum ini
       // tidak ada token, jadi tidak ada satu pun sesi yang bisa dikirim.
-      unawaited(context.read<SesiMakanController>().kirimRiwayatKeServer());
+      final controller = context.read<SesiMakanController>();
+
+      // **Ponsel ini milik orang lain sebelumnya: buang dulu, baru kirim.**
+      // Urutannya menentukan, dan membaliknya bukan sekadar tampilan yang
+      // janggal — riwayat sesi pemilik sebelumnya akan terunggah ke akun yang
+      // baru saja masuk, dan di server ia tidak bisa dibedakan lagi dari sesi
+      // milik pemiliknya sendiri.
+      final bersih = (sinkron?.gantiAkun ?? false)
+          ? controller.hapusDataLokal()
+          : Future<void>.value();
+      unawaited(
+        bersih
+            .then((_) => controller.kirimRiwayatKeServer())
+            .then((_) => controller.unduhRiwayatDariServer()),
+      );
 
       // `pushAndRemoveUntil`, bukan `pushReplacement`: yang diganti hanya
       // halaman login, sedangkan halaman sambutan tetap tertinggal di bawahnya.

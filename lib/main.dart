@@ -113,6 +113,12 @@ Future<SesiMakanController> buatControllerBawaan({
   final db = BasisData(driftDatabase(name: 'asawatch'));
   final repo = SesiRepositoryDrift(db);
   final repoKalibrasi = KalibrasiRepositoryDrift(db);
+  // Dirakit di sini, bukan di dalam cabang jam sungguhan, karena dua pihak
+  // memerlukannya: `BleAsliService` untuk jalur normalnya, dan controller untuk
+  // membuangnya saat akun berganti. Dengan jam palsu tidak ada yang menulis ke
+  // sana, tetapi barisnya bisa saja tertinggal dari pemakaian sebelumnya — dan
+  // justru itu yang harus ikut terbuang.
+  final repoEntri = EntriJamRepositoryDrift(db);
 
   final BleService ble;
   if (pakaiJamPalsu) {
@@ -120,7 +126,7 @@ Future<SesiMakanController> buatControllerBawaan({
   } else {
     final asli = BleAsliService(
       anchorRepo: AnchorRepositoryDrift(db),
-      entriRepo: EntriJamRepositoryDrift(db),
+      entriRepo: repoEntri,
       perangkatRepo: PerangkatRepositoryPrefs(),
     );
     unawaited(asli.mulai());
@@ -135,6 +141,7 @@ Future<SesiMakanController> buatControllerBawaan({
     riwayatAwal: await repo.muatSemua(),
     repo: repo,
     repoKalibrasi: repoKalibrasi,
+    repoEntri: repoEntri,
     kalibrasiAwal: await repoKalibrasi.terbaru(),
     // Dirakit di sini, bukan di dalam controller: sejak jam berhenti
     // menjadwalkan titik ukurnya sendiri (protokol §9 v1.3), tidak ada lagi
@@ -309,9 +316,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Sesi yang belum sampai ke server dikirim lagi di sini. Tidak ditunggu:
-    // tidak ada satu pun layar yang bergantung padanya.
-    unawaited(widget.controller.kirimRiwayatKeServer());
+    // Sesi yang belum sampai ke server dikirim lagi di sini, lalu yang belum
+    // ada di ponsel ini ditarik. Tidak ditunggu: tidak ada satu pun layar yang
+    // bergantung padanya, dan riwayat lokal sudah tampil sejak frame pertama.
+    unawaited(_sinkronRiwayat());
   }
 
   @override
@@ -321,6 +329,16 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     super.dispose();
   }
 
+  /// Unggah dulu, baru unduh.
+  ///
+  /// Urutannya bukan selera: sesi yang baru selesai di ponsel ini belum ada di
+  /// server, dan menariknya lebih dulu hanya menghasilkan satu putaran yang
+  /// tidak menemukan apa-apa.
+  Future<void> _sinkronRiwayat() async {
+    await widget.controller.kirimRiwayatKeServer();
+    await widget.controller.unduhRiwayatDariServer();
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState keadaan) {
     if (keadaan != AppLifecycleState.resumed) return;
@@ -328,7 +346,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     if (ble is BleAsliService) unawaited(ble.kembaliKeDepan());
     // Kembali ke depan biasanya berarti jaringannya juga kembali — titik coba
     // ulang yang paling murah yang ada.
-    unawaited(widget.controller.kirimRiwayatKeServer());
+    unawaited(_sinkronRiwayat());
   }
 
   @override

@@ -124,7 +124,20 @@ class KameraAsliService implements KameraService {
   }
 
   @override
-  Widget pratinjau() => CameraPreview(_kendali!);
+  Widget pratinjau() {
+    final kendali = _kendali!;
+    return Center(
+      child: Builder(
+        builder: (context) => AspectRatio(
+          aspectRatio: rasioPratinjau(
+            kendali.value.previewSize,
+            MediaQuery.orientationOf(context),
+          ),
+          child: CameraPreview(kendali),
+        ),
+      ),
+    );
+  }
 
   @override
   Future<void> gantiLampu() async {
@@ -185,13 +198,50 @@ class KameraAsliService implements KameraService {
   }
 }
 
-/// Menyalin [berkas] ke folder dokumen aplikasi dan mengembalikan jalurnya.
-Future<String> _simpanTetap(XFile berkas) async {
+/// Jalur tetap untuk sebuah berkas foto, foldernya dibuat bila belum ada.
+///
+/// Publik karena dua pihak menaruh foto di folder yang sama: rana kamera, dan
+/// unduhan riwayat dari server (`SesiMakanController.unduhRiwayatDariServer`).
+/// Dua folder yang harus dijaga sebanding pada akhirnya akan berselisih, dan
+/// `hapusDataLokal` hanya membersihkan satu di antaranya.
+Future<String> jalurFotoTetap(String nama) async {
   final dokumen = await getApplicationDocumentsDirectory();
   final folder = Directory('${dokumen.path}/foto_makanan');
   if (!folder.existsSync()) folder.createSync(recursive: true);
-  final nama = 'makan_${DateTime.now().millisecondsSinceEpoch}.jpg';
-  final tujuan = '${folder.path}/$nama';
+  return '${folder.path}/$nama';
+}
+
+/// Rasio lebar/tinggi yang benar untuk menggambar pratinjau.
+///
+/// **Tanpa ini pratinjaunya gepeng.** `CameraPreview` menggambar apa pun yang
+/// diberikan induknya; kalau induknya seluruh layar (rasio ~9:19,5) sementara
+/// sensornya 4:3 atau 16:9, gambarnya diregangkan — wajah memanjang, piring
+/// jadi lonjong. Yang direkam tidak ikut gepeng, karena itu berasal dari sensor
+/// dan bukan dari yang tampil, sehingga cacatnya hanya terlihat saat membidik.
+///
+/// [previewSize] selalu dilaporkan dalam orientasi **lanskap** oleh paket
+/// `camera`, apa pun posisi ponselnya — itulah sumber kekeliruan yang lazim.
+/// Jadi pada layar potret, kedua sisinya harus ditukar.
+///
+/// Ukuran yang belum diketahui (null, sebelum inisialisasi selesai) jatuh ke
+/// 3:4 potret — rasio kamera ponsel yang paling umum, dan hanya terpakai
+/// beberapa frame.
+double rasioPratinjau(Size? previewSize, Orientation orientasi) {
+  if (previewSize == null || previewSize.shortestSide <= 0) {
+    return orientasi == Orientation.portrait ? 3 / 4 : 4 / 3;
+  }
+  final panjang = previewSize.longestSide;
+  final pendek = previewSize.shortestSide;
+  return orientasi == Orientation.portrait
+      ? pendek / panjang
+      : panjang / pendek;
+}
+
+/// Menyalin [berkas] ke folder dokumen aplikasi dan mengembalikan jalurnya.
+Future<String> _simpanTetap(XFile berkas) async {
+  final tujuan = await jalurFotoTetap(
+    'makan_${DateTime.now().millisecondsSinceEpoch}.jpg',
+  );
   await berkas.saveTo(tujuan);
   return tujuan;
 }

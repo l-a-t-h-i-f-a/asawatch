@@ -535,6 +535,23 @@ class _BingkaiKamera extends StatelessWidget {
   }
 }
 
+/// Lencana kecil di pojok kartu hasil, atau null bila tidak ada yang bisa
+/// dikatakan.
+///
+/// Keyakinan yang **tidak diketahui** tidak ditampilkan sama sekali — bukan
+/// ditampilkan sebagai 0%. Layanan deteksi sekarang memang tidak menghasilkan
+/// keyakinan terkalibrasi, dan "Keyakinan 0%" akan terbaca sebagai deteksi yang
+/// buruk padahal tidak ada yang pernah menilainya.
+String? _lencana(HasilDeteksi hasil) {
+  if (hasil.dikoreksiUser) return 'Sudah dikoreksi';
+  final k = hasil.keyakinan;
+  return k == null ? null : 'Keyakinan ${(k * 100).round()}%';
+}
+
+/// Angka yang boleh tidak ada.
+String _teksNutrisi(double? nilai, String satuan) =>
+    nilai == null ? '— $satuan' : '${formatAngka(nilai)} $satuan';
+
 /// Kartu hasil yang bisa dikoreksi sebelum sesi dimulai.
 class _KartuHasil extends StatelessWidget {
   const _KartuHasil({required this.sesi, required this.controller});
@@ -590,7 +607,7 @@ class _KartuHasil extends StatelessWidget {
                     ),
                   ],
                 ),
-                if (hasil != null)
+                if (hasil != null && _lencana(hasil) != null)
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 10,
@@ -601,9 +618,7 @@ class _KartuHasil extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      hasil.dikoreksiUser
-                          ? 'Sudah dikoreksi'
-                          : 'Keyakinan ${(hasil.keyakinan * 100).round()}%',
+                      _lencana(hasil)!,
                       style: const TextStyle(
                         color: Color(0xFF0EAD69),
                         fontWeight: FontWeight.bold,
@@ -616,7 +631,10 @@ class _KartuHasil extends StatelessWidget {
             const SizedBox(height: 16),
 
             if (hasil == null)
-              const RingkasanNutrisi(hasil: null)
+              RingkasanNutrisi(
+                hasil: null,
+                sedangDianalisis: controller.sedangMenganalisis(sesi.id),
+              )
             else ...[
               // Estimasi porsi dari satu foto sering meleset; koreksinya paling
               // akurat sekarang, saat piringnya masih di depan mata (§4.5).
@@ -727,7 +745,11 @@ class _BarisItem extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   '${item.porsi} · ${formatAngka(item.estimasiGram)} g · '
-                  '${formatAngka(item.nutrisi.karbohidrat)} g karbo',
+                  // Makanan yang belum ada di tabel gizi tetap tampil dengan
+                  // nama, porsi, dan beratnya — pengguna memang memakannya, dan
+                  // menyembunyikannya membuat kartu tidak cocok dengan piring
+                  // yang dilihatnya. Yang hilang cuma angkanya.
+                  '${item.nutrisi.karbohidrat == null ? 'karbo belum ada di tabel gizi' : '${formatAngka(item.nutrisi.karbohidrat!)} g karbo'}',
                   style: const TextStyle(
                     fontSize: 11,
                     color: Color(0xFF8FA7A1),
@@ -903,8 +925,14 @@ class _SheetKoreksiState extends State<_SheetKoreksi> {
               borderRadius: BorderRadius.circular(14),
             ),
             child: Text(
-              'Menjadi ${formatAngka(_hasil.nutrisi.kalori)} kcal · '
-              '${formatAngka(_hasil.nutrisi.karbohidrat)} g karbohidrat',
+              _hasil.nutrisi.kalori == null &&
+                      _hasil.nutrisi.karbohidrat == null
+                  // Menskalakan yang tidak diketahui tetap menghasilkan yang
+                  // tidak diketahui; menampilkan "Menjadi 0 kcal" di sini akan
+                  // membuat koreksi porsi terasa seperti menghapus makanannya.
+                  ? 'Beratnya berubah; angka gizinya belum ada di tabel gizi.'
+                  : 'Menjadi ${_teksNutrisi(_hasil.nutrisi.kalori, 'kcal')} · '
+                        '${_teksNutrisi(_hasil.nutrisi.karbohidrat, 'g karbohidrat')}',
               style: const TextStyle(fontSize: 12, color: Color(0xFF1E3A34)),
             ),
           ),

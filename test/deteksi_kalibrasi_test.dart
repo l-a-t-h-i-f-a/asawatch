@@ -70,6 +70,36 @@ void main() {
     );
   });
 
+  group('Rasio pratinjau kamera', () {
+    // Paket `camera` selalu melaporkan previewSize dalam orientasi lanskap,
+    // apa pun posisi ponselnya. Memakainya apa adanya di layar potret adalah
+    // sumber pratinjau gepeng yang klasik — dan cacatnya hanya terlihat saat
+    // membidik, karena jepretannya berasal dari sensor, bukan dari yang tampil.
+    test('sisi ditukar pada layar potret', () {
+      expect(
+        rasioPratinjau(const Size(1280, 720), Orientation.portrait),
+        closeTo(720 / 1280, 0.0001),
+      );
+    });
+
+    test('dipakai apa adanya pada layar lanskap', () {
+      expect(
+        rasioPratinjau(const Size(1280, 720), Orientation.landscape),
+        closeTo(1280 / 720, 0.0001),
+      );
+    });
+
+    test('ukuran yang belum diketahui jatuh ke 3:4, bukan ke nol', () {
+      // Nol akan membuat AspectRatio melempar, dan itu terjadi tepat pada
+      // beberapa frame pertama sebelum kamera selesai disiapkan.
+      expect(rasioPratinjau(null, Orientation.portrait), closeTo(3 / 4, 0.0001));
+      expect(
+        rasioPratinjau(Size.zero, Orientation.portrait),
+        closeTo(3 / 4, 0.0001),
+      );
+    });
+  });
+
   group('DeteksiMakananPage', () {
     testWidgets('shutter memunculkan kartu hasil yang bisa dikoreksi', (
       tester,
@@ -124,7 +154,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final hasil = c.sesiAktif!.hasil!;
-      expect(hasil.total.karbohidrat, lessThan(sebelum));
+      expect(hasil.total.karbohidrat!, lessThan(sebelum!));
       expect(hasil.makanan.first.porsi, 'setengah centong');
       // Koreksi user membuat sesi ini tetap layak diplot di Analisis.
       expect(hasil.dikoreksiUser, isTrue);

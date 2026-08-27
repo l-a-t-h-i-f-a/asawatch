@@ -17,12 +17,33 @@ abstract class KalibrasiRepository {
 
   /// Kalibrasi terbaru, null bila jam belum pernah dikalibrasi dari HP ini.
   Future<Kalibrasi?> terbaru();
+
+  /// Membuang seluruh kalibrasi — dipanggil saat akun berganti di ponsel yang
+  /// sama.
+  ///
+  /// Kalibrasi tekanan darah adalah angka **satu orang, satu lengan**: koreksi
+  /// yang diturunkan dari manset seseorang salah untuk siapa pun selain dia.
+  /// Membiarkannya berarti bacaan pengguna baru dikoreksi dengan offset
+  /// pengguna lama sampai [Kalibrasi.masaBerlaku] habis — empat minggu, tanpa
+  /// satu pun tanda di layar bahwa angkanya bukan miliknya.
+  ///
+  /// Yang **tidak** ikut terhapus adalah offset yang sudah ada di flash jam
+  /// (§5.1 `SET_KALIBRASI`): jam tidak punya konsep akun, dan menghapus baris
+  /// di sini tidak mengirim apa pun ke sana. Pengguna baru harus mengalibrasi
+  /// ulang, dan sesudah itu offsetnya tertimpa.
+  Future<void> hapusSemua();
 }
 
 class KalibrasiRepositoryDrift implements KalibrasiRepository {
   KalibrasiRepositoryDrift(this.db);
 
   final BasisData db;
+
+  @override
+  Future<void> hapusSemua() async {
+    // Putarannya ikut lewat `onDelete: cascade`.
+    await db.delete(db.tabelKalibrasi).go();
+  }
 
   @override
   Future<void> simpan(Kalibrasi kalibrasi) async {
@@ -115,4 +136,7 @@ class KalibrasiRepositoryMemori implements KalibrasiRepository {
 
   @override
   Future<Kalibrasi?> terbaru() async => _terakhir;
+
+  @override
+  Future<void> hapusSemua() async => _terakhir = null;
 }

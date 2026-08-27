@@ -88,6 +88,17 @@ class $TabelSesiTable extends TabelSesi
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _diperbaruiPadaMeta = const VerificationMeta(
+    'diperbaruiPada',
+  );
+  @override
+  late final GeneratedColumn<int> diperbaruiPada = GeneratedColumn<int>(
+    'diperbarui_pada',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -97,6 +108,7 @@ class $TabelSesiTable extends TabelSesi
     status,
     waktuTidakPasti,
     sesiUji,
+    diperbaruiPada,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -149,6 +161,15 @@ class $TabelSesiTable extends TabelSesi
         sesiUji.isAcceptableOrUnknown(data['sesi_uji']!, _sesiUjiMeta),
       );
     }
+    if (data.containsKey('diperbarui_pada')) {
+      context.handle(
+        _diperbaruiPadaMeta,
+        diperbaruiPada.isAcceptableOrUnknown(
+          data['diperbarui_pada']!,
+          _diperbaruiPadaMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -188,6 +209,10 @@ class $TabelSesiTable extends TabelSesi
         DriftSqlType.bool,
         data['${effectivePrefix}sesi_uji'],
       )!,
+      diperbaruiPada: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}diperbarui_pada'],
+      ),
     );
   }
 
@@ -229,6 +254,15 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
   /// tester lama setelah build ujinya diganti, dan hanya kolom ini yang masih
   /// mengetahuinya.
   final bool sesiUji;
+
+  /// Kapan isi sesi ini terakhir berubah **di perangkat ini**.
+  ///
+  /// Dikirim ke server sebagai `diperbarui_pada` dan dipakai aturan "yang
+  /// terbaru menang" (§7.1). Sebelum kolom ini ada, aplikasi mengirim
+  /// `DateTime.now()` saat pengiriman — sehingga setiap kiriman ulang mengaku
+  /// paling baru walau isinya tidak berubah, dan suntingan dari perangkat lain
+  /// akan tertimpa salinan lama tanpa ada yang menghalangi.
+  final int? diperbaruiPada;
   const TabelSesiData({
     required this.id,
     required this.fotoPath,
@@ -237,6 +271,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
     required this.status,
     required this.waktuTidakPasti,
     required this.sesiUji,
+    this.diperbaruiPada,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -254,6 +289,9 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
     }
     map['waktu_tidak_pasti'] = Variable<bool>(waktuTidakPasti);
     map['sesi_uji'] = Variable<bool>(sesiUji);
+    if (!nullToAbsent || diperbaruiPada != null) {
+      map['diperbarui_pada'] = Variable<int>(diperbaruiPada);
+    }
     return map;
   }
 
@@ -266,6 +304,9 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
       status: Value(status),
       waktuTidakPasti: Value(waktuTidakPasti),
       sesiUji: Value(sesiUji),
+      diperbaruiPada: diperbaruiPada == null && nullToAbsent
+          ? const Value.absent()
+          : Value(diperbaruiPada),
     );
   }
 
@@ -284,6 +325,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
       ),
       waktuTidakPasti: serializer.fromJson<bool>(json['waktuTidakPasti']),
       sesiUji: serializer.fromJson<bool>(json['sesiUji']),
+      diperbaruiPada: serializer.fromJson<int?>(json['diperbaruiPada']),
     );
   }
   @override
@@ -299,6 +341,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
       ),
       'waktuTidakPasti': serializer.toJson<bool>(waktuTidakPasti),
       'sesiUji': serializer.toJson<bool>(sesiUji),
+      'diperbaruiPada': serializer.toJson<int?>(diperbaruiPada),
     };
   }
 
@@ -310,6 +353,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
     StatusSesi? status,
     bool? waktuTidakPasti,
     bool? sesiUji,
+    Value<int?> diperbaruiPada = const Value.absent(),
   }) => TabelSesiData(
     id: id ?? this.id,
     fotoPath: fotoPath ?? this.fotoPath,
@@ -318,6 +362,9 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
     status: status ?? this.status,
     waktuTidakPasti: waktuTidakPasti ?? this.waktuTidakPasti,
     sesiUji: sesiUji ?? this.sesiUji,
+    diperbaruiPada: diperbaruiPada.present
+        ? diperbaruiPada.value
+        : this.diperbaruiPada,
   );
   TabelSesiData copyWithCompanion(TabelSesiCompanion data) {
     return TabelSesiData(
@@ -330,6 +377,9 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
           ? data.waktuTidakPasti.value
           : this.waktuTidakPasti,
       sesiUji: data.sesiUji.present ? data.sesiUji.value : this.sesiUji,
+      diperbaruiPada: data.diperbaruiPada.present
+          ? data.diperbaruiPada.value
+          : this.diperbaruiPada,
     );
   }
 
@@ -342,7 +392,8 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
           ..write('t0: $t0, ')
           ..write('status: $status, ')
           ..write('waktuTidakPasti: $waktuTidakPasti, ')
-          ..write('sesiUji: $sesiUji')
+          ..write('sesiUji: $sesiUji, ')
+          ..write('diperbaruiPada: $diperbaruiPada')
           ..write(')'))
         .toString();
   }
@@ -356,6 +407,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
     status,
     waktuTidakPasti,
     sesiUji,
+    diperbaruiPada,
   );
   @override
   bool operator ==(Object other) =>
@@ -367,7 +419,8 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
           other.t0 == this.t0 &&
           other.status == this.status &&
           other.waktuTidakPasti == this.waktuTidakPasti &&
-          other.sesiUji == this.sesiUji);
+          other.sesiUji == this.sesiUji &&
+          other.diperbaruiPada == this.diperbaruiPada);
 }
 
 class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
@@ -378,6 +431,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
   final Value<StatusSesi> status;
   final Value<bool> waktuTidakPasti;
   final Value<bool> sesiUji;
+  final Value<int?> diperbaruiPada;
   final Value<int> rowid;
   const TabelSesiCompanion({
     this.id = const Value.absent(),
@@ -387,6 +441,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
     this.status = const Value.absent(),
     this.waktuTidakPasti = const Value.absent(),
     this.sesiUji = const Value.absent(),
+    this.diperbaruiPada = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   TabelSesiCompanion.insert({
@@ -397,6 +452,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
     required StatusSesi status,
     this.waktuTidakPasti = const Value.absent(),
     this.sesiUji = const Value.absent(),
+    this.diperbaruiPada = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        fotoPath = Value(fotoPath),
@@ -410,6 +466,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
     Expression<String>? status,
     Expression<bool>? waktuTidakPasti,
     Expression<bool>? sesiUji,
+    Expression<int>? diperbaruiPada,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -420,6 +477,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
       if (status != null) 'status': status,
       if (waktuTidakPasti != null) 'waktu_tidak_pasti': waktuTidakPasti,
       if (sesiUji != null) 'sesi_uji': sesiUji,
+      if (diperbaruiPada != null) 'diperbarui_pada': diperbaruiPada,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -432,6 +490,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
     Value<StatusSesi>? status,
     Value<bool>? waktuTidakPasti,
     Value<bool>? sesiUji,
+    Value<int?>? diperbaruiPada,
     Value<int>? rowid,
   }) {
     return TabelSesiCompanion(
@@ -442,6 +501,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
       status: status ?? this.status,
       waktuTidakPasti: waktuTidakPasti ?? this.waktuTidakPasti,
       sesiUji: sesiUji ?? this.sesiUji,
+      diperbaruiPada: diperbaruiPada ?? this.diperbaruiPada,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -472,6 +532,9 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
     if (sesiUji.present) {
       map['sesi_uji'] = Variable<bool>(sesiUji.value);
     }
+    if (diperbaruiPada.present) {
+      map['diperbarui_pada'] = Variable<int>(diperbaruiPada.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -488,6 +551,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
           ..write('status: $status, ')
           ..write('waktuTidakPasti: $waktuTidakPasti, ')
           ..write('sesiUji: $sesiUji, ')
+          ..write('diperbaruiPada: $diperbaruiPada, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1150,9 +1214,9 @@ class $TabelHasilDeteksiTable extends TabelHasilDeteksi
       GeneratedColumn<String>(
         'indeks_glikemik_perkiraan',
         aliasedName,
-        false,
+        true,
         type: DriftSqlType.string,
-        requiredDuringInsert: true,
+        requiredDuringInsert: false,
       );
   static const VerificationMeta _keyakinanMeta = const VerificationMeta(
     'keyakinan',
@@ -1161,9 +1225,9 @@ class $TabelHasilDeteksiTable extends TabelHasilDeteksi
   late final GeneratedColumn<double> keyakinan = GeneratedColumn<double>(
     'keyakinan',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.double,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _dikoreksiUserMeta = const VerificationMeta(
     'dikoreksiUser',
@@ -1186,9 +1250,9 @@ class $TabelHasilDeteksiTable extends TabelHasilDeteksi
   late final GeneratedColumn<double> totalKalori = GeneratedColumn<double>(
     'total_kalori',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.double,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _totalKarbohidratMeta = const VerificationMeta(
     'totalKarbohidrat',
@@ -1197,9 +1261,9 @@ class $TabelHasilDeteksiTable extends TabelHasilDeteksi
   late final GeneratedColumn<double> totalKarbohidrat = GeneratedColumn<double>(
     'total_karbohidrat',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.double,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _totalProteinMeta = const VerificationMeta(
     'totalProtein',
@@ -1208,9 +1272,9 @@ class $TabelHasilDeteksiTable extends TabelHasilDeteksi
   late final GeneratedColumn<double> totalProtein = GeneratedColumn<double>(
     'total_protein',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.double,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _totalLemakMeta = const VerificationMeta(
     'totalLemak',
@@ -1219,9 +1283,9 @@ class $TabelHasilDeteksiTable extends TabelHasilDeteksi
   late final GeneratedColumn<double> totalLemak = GeneratedColumn<double>(
     'total_lemak',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.double,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _totalGulaTotalMeta = const VerificationMeta(
     'totalGulaTotal',
@@ -1230,9 +1294,9 @@ class $TabelHasilDeteksiTable extends TabelHasilDeteksi
   late final GeneratedColumn<double> totalGulaTotal = GeneratedColumn<double>(
     'total_gula_total',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.double,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _totalSeratMeta = const VerificationMeta(
     'totalSerat',
@@ -1241,9 +1305,21 @@ class $TabelHasilDeteksiTable extends TabelHasilDeteksi
   late final GeneratedColumn<double> totalSerat = GeneratedColumn<double>(
     'total_serat',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.double,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _zatTidakLengkapMeta = const VerificationMeta(
+    'zatTidakLengkap',
+  );
+  @override
+  late final GeneratedColumn<String> zatTidakLengkap = GeneratedColumn<String>(
+    'zat_tidak_lengkap',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
   );
   @override
   List<GeneratedColumn> get $columns => [
@@ -1257,6 +1333,7 @@ class $TabelHasilDeteksiTable extends TabelHasilDeteksi
     totalLemak,
     totalGulaTotal,
     totalSerat,
+    zatTidakLengkap,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1286,16 +1363,12 @@ class $TabelHasilDeteksiTable extends TabelHasilDeteksi
           _indeksGlikemikPerkiraanMeta,
         ),
       );
-    } else if (isInserting) {
-      context.missing(_indeksGlikemikPerkiraanMeta);
     }
     if (data.containsKey('keyakinan')) {
       context.handle(
         _keyakinanMeta,
         keyakinan.isAcceptableOrUnknown(data['keyakinan']!, _keyakinanMeta),
       );
-    } else if (isInserting) {
-      context.missing(_keyakinanMeta);
     }
     if (data.containsKey('dikoreksi_user')) {
       context.handle(
@@ -1316,8 +1389,6 @@ class $TabelHasilDeteksiTable extends TabelHasilDeteksi
           _totalKaloriMeta,
         ),
       );
-    } else if (isInserting) {
-      context.missing(_totalKaloriMeta);
     }
     if (data.containsKey('total_karbohidrat')) {
       context.handle(
@@ -1327,8 +1398,6 @@ class $TabelHasilDeteksiTable extends TabelHasilDeteksi
           _totalKarbohidratMeta,
         ),
       );
-    } else if (isInserting) {
-      context.missing(_totalKarbohidratMeta);
     }
     if (data.containsKey('total_protein')) {
       context.handle(
@@ -1338,16 +1407,12 @@ class $TabelHasilDeteksiTable extends TabelHasilDeteksi
           _totalProteinMeta,
         ),
       );
-    } else if (isInserting) {
-      context.missing(_totalProteinMeta);
     }
     if (data.containsKey('total_lemak')) {
       context.handle(
         _totalLemakMeta,
         totalLemak.isAcceptableOrUnknown(data['total_lemak']!, _totalLemakMeta),
       );
-    } else if (isInserting) {
-      context.missing(_totalLemakMeta);
     }
     if (data.containsKey('total_gula_total')) {
       context.handle(
@@ -1357,16 +1422,21 @@ class $TabelHasilDeteksiTable extends TabelHasilDeteksi
           _totalGulaTotalMeta,
         ),
       );
-    } else if (isInserting) {
-      context.missing(_totalGulaTotalMeta);
     }
     if (data.containsKey('total_serat')) {
       context.handle(
         _totalSeratMeta,
         totalSerat.isAcceptableOrUnknown(data['total_serat']!, _totalSeratMeta),
       );
-    } else if (isInserting) {
-      context.missing(_totalSeratMeta);
+    }
+    if (data.containsKey('zat_tidak_lengkap')) {
+      context.handle(
+        _zatTidakLengkapMeta,
+        zatTidakLengkap.isAcceptableOrUnknown(
+          data['zat_tidak_lengkap']!,
+          _zatTidakLengkapMeta,
+        ),
+      );
     }
     return context;
   }
@@ -1384,11 +1454,11 @@ class $TabelHasilDeteksiTable extends TabelHasilDeteksi
       indeksGlikemikPerkiraan: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}indeks_glikemik_perkiraan'],
-      )!,
+      ),
       keyakinan: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}keyakinan'],
-      )!,
+      ),
       dikoreksiUser: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}dikoreksi_user'],
@@ -1396,26 +1466,30 @@ class $TabelHasilDeteksiTable extends TabelHasilDeteksi
       totalKalori: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}total_kalori'],
-      )!,
+      ),
       totalKarbohidrat: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}total_karbohidrat'],
-      )!,
+      ),
       totalProtein: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}total_protein'],
-      )!,
+      ),
       totalLemak: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}total_lemak'],
-      )!,
+      ),
       totalGulaTotal: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}total_gula_total'],
-      )!,
+      ),
       totalSerat: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}total_serat'],
+      ),
+      zatTidakLengkap: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}zat_tidak_lengkap'],
       )!,
     );
   }
@@ -1429,57 +1503,99 @@ class $TabelHasilDeteksiTable extends TabelHasilDeteksi
 class TabelHasilDeteksiData extends DataClass
     implements Insertable<TabelHasilDeteksiData> {
   final String sesiId;
-  final String indeksGlikemikPerkiraan;
-  final double keyakinan;
+  final String? indeksGlikemikPerkiraan;
+  final double? keyakinan;
   final bool dikoreksiUser;
-  final double totalKalori;
-  final double totalKarbohidrat;
-  final double totalProtein;
-  final double totalLemak;
-  final double totalGulaTotal;
-  final double totalSerat;
+  final double? totalKalori;
+  final double? totalKarbohidrat;
+  final double? totalProtein;
+  final double? totalLemak;
+  final double? totalGulaTotal;
+  final double? totalSerat;
+
+  /// Kunci §5.2 yang dipisah koma, mis. `gula_total,serat`.
+  ///
+  /// Disimpan sebagai teks, bukan tabel sendiri: isinya paling banyak enam
+  /// nilai tetap yang tidak pernah di-query satu per satu, dan sebuah tabel
+  /// untuk itu hanya menambah join tanpa menjawab pertanyaan apa pun.
+  final String zatTidakLengkap;
   const TabelHasilDeteksiData({
     required this.sesiId,
-    required this.indeksGlikemikPerkiraan,
-    required this.keyakinan,
+    this.indeksGlikemikPerkiraan,
+    this.keyakinan,
     required this.dikoreksiUser,
-    required this.totalKalori,
-    required this.totalKarbohidrat,
-    required this.totalProtein,
-    required this.totalLemak,
-    required this.totalGulaTotal,
-    required this.totalSerat,
+    this.totalKalori,
+    this.totalKarbohidrat,
+    this.totalProtein,
+    this.totalLemak,
+    this.totalGulaTotal,
+    this.totalSerat,
+    required this.zatTidakLengkap,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['sesi_id'] = Variable<String>(sesiId);
-    map['indeks_glikemik_perkiraan'] = Variable<String>(
-      indeksGlikemikPerkiraan,
-    );
-    map['keyakinan'] = Variable<double>(keyakinan);
+    if (!nullToAbsent || indeksGlikemikPerkiraan != null) {
+      map['indeks_glikemik_perkiraan'] = Variable<String>(
+        indeksGlikemikPerkiraan,
+      );
+    }
+    if (!nullToAbsent || keyakinan != null) {
+      map['keyakinan'] = Variable<double>(keyakinan);
+    }
     map['dikoreksi_user'] = Variable<bool>(dikoreksiUser);
-    map['total_kalori'] = Variable<double>(totalKalori);
-    map['total_karbohidrat'] = Variable<double>(totalKarbohidrat);
-    map['total_protein'] = Variable<double>(totalProtein);
-    map['total_lemak'] = Variable<double>(totalLemak);
-    map['total_gula_total'] = Variable<double>(totalGulaTotal);
-    map['total_serat'] = Variable<double>(totalSerat);
+    if (!nullToAbsent || totalKalori != null) {
+      map['total_kalori'] = Variable<double>(totalKalori);
+    }
+    if (!nullToAbsent || totalKarbohidrat != null) {
+      map['total_karbohidrat'] = Variable<double>(totalKarbohidrat);
+    }
+    if (!nullToAbsent || totalProtein != null) {
+      map['total_protein'] = Variable<double>(totalProtein);
+    }
+    if (!nullToAbsent || totalLemak != null) {
+      map['total_lemak'] = Variable<double>(totalLemak);
+    }
+    if (!nullToAbsent || totalGulaTotal != null) {
+      map['total_gula_total'] = Variable<double>(totalGulaTotal);
+    }
+    if (!nullToAbsent || totalSerat != null) {
+      map['total_serat'] = Variable<double>(totalSerat);
+    }
+    map['zat_tidak_lengkap'] = Variable<String>(zatTidakLengkap);
     return map;
   }
 
   TabelHasilDeteksiCompanion toCompanion(bool nullToAbsent) {
     return TabelHasilDeteksiCompanion(
       sesiId: Value(sesiId),
-      indeksGlikemikPerkiraan: Value(indeksGlikemikPerkiraan),
-      keyakinan: Value(keyakinan),
+      indeksGlikemikPerkiraan: indeksGlikemikPerkiraan == null && nullToAbsent
+          ? const Value.absent()
+          : Value(indeksGlikemikPerkiraan),
+      keyakinan: keyakinan == null && nullToAbsent
+          ? const Value.absent()
+          : Value(keyakinan),
       dikoreksiUser: Value(dikoreksiUser),
-      totalKalori: Value(totalKalori),
-      totalKarbohidrat: Value(totalKarbohidrat),
-      totalProtein: Value(totalProtein),
-      totalLemak: Value(totalLemak),
-      totalGulaTotal: Value(totalGulaTotal),
-      totalSerat: Value(totalSerat),
+      totalKalori: totalKalori == null && nullToAbsent
+          ? const Value.absent()
+          : Value(totalKalori),
+      totalKarbohidrat: totalKarbohidrat == null && nullToAbsent
+          ? const Value.absent()
+          : Value(totalKarbohidrat),
+      totalProtein: totalProtein == null && nullToAbsent
+          ? const Value.absent()
+          : Value(totalProtein),
+      totalLemak: totalLemak == null && nullToAbsent
+          ? const Value.absent()
+          : Value(totalLemak),
+      totalGulaTotal: totalGulaTotal == null && nullToAbsent
+          ? const Value.absent()
+          : Value(totalGulaTotal),
+      totalSerat: totalSerat == null && nullToAbsent
+          ? const Value.absent()
+          : Value(totalSerat),
+      zatTidakLengkap: Value(zatTidakLengkap),
     );
   }
 
@@ -1490,17 +1606,18 @@ class TabelHasilDeteksiData extends DataClass
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return TabelHasilDeteksiData(
       sesiId: serializer.fromJson<String>(json['sesiId']),
-      indeksGlikemikPerkiraan: serializer.fromJson<String>(
+      indeksGlikemikPerkiraan: serializer.fromJson<String?>(
         json['indeksGlikemikPerkiraan'],
       ),
-      keyakinan: serializer.fromJson<double>(json['keyakinan']),
+      keyakinan: serializer.fromJson<double?>(json['keyakinan']),
       dikoreksiUser: serializer.fromJson<bool>(json['dikoreksiUser']),
-      totalKalori: serializer.fromJson<double>(json['totalKalori']),
-      totalKarbohidrat: serializer.fromJson<double>(json['totalKarbohidrat']),
-      totalProtein: serializer.fromJson<double>(json['totalProtein']),
-      totalLemak: serializer.fromJson<double>(json['totalLemak']),
-      totalGulaTotal: serializer.fromJson<double>(json['totalGulaTotal']),
-      totalSerat: serializer.fromJson<double>(json['totalSerat']),
+      totalKalori: serializer.fromJson<double?>(json['totalKalori']),
+      totalKarbohidrat: serializer.fromJson<double?>(json['totalKarbohidrat']),
+      totalProtein: serializer.fromJson<double?>(json['totalProtein']),
+      totalLemak: serializer.fromJson<double?>(json['totalLemak']),
+      totalGulaTotal: serializer.fromJson<double?>(json['totalGulaTotal']),
+      totalSerat: serializer.fromJson<double?>(json['totalSerat']),
+      zatTidakLengkap: serializer.fromJson<String>(json['zatTidakLengkap']),
     );
   }
   @override
@@ -1508,43 +1625,51 @@ class TabelHasilDeteksiData extends DataClass
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'sesiId': serializer.toJson<String>(sesiId),
-      'indeksGlikemikPerkiraan': serializer.toJson<String>(
+      'indeksGlikemikPerkiraan': serializer.toJson<String?>(
         indeksGlikemikPerkiraan,
       ),
-      'keyakinan': serializer.toJson<double>(keyakinan),
+      'keyakinan': serializer.toJson<double?>(keyakinan),
       'dikoreksiUser': serializer.toJson<bool>(dikoreksiUser),
-      'totalKalori': serializer.toJson<double>(totalKalori),
-      'totalKarbohidrat': serializer.toJson<double>(totalKarbohidrat),
-      'totalProtein': serializer.toJson<double>(totalProtein),
-      'totalLemak': serializer.toJson<double>(totalLemak),
-      'totalGulaTotal': serializer.toJson<double>(totalGulaTotal),
-      'totalSerat': serializer.toJson<double>(totalSerat),
+      'totalKalori': serializer.toJson<double?>(totalKalori),
+      'totalKarbohidrat': serializer.toJson<double?>(totalKarbohidrat),
+      'totalProtein': serializer.toJson<double?>(totalProtein),
+      'totalLemak': serializer.toJson<double?>(totalLemak),
+      'totalGulaTotal': serializer.toJson<double?>(totalGulaTotal),
+      'totalSerat': serializer.toJson<double?>(totalSerat),
+      'zatTidakLengkap': serializer.toJson<String>(zatTidakLengkap),
     };
   }
 
   TabelHasilDeteksiData copyWith({
     String? sesiId,
-    String? indeksGlikemikPerkiraan,
-    double? keyakinan,
+    Value<String?> indeksGlikemikPerkiraan = const Value.absent(),
+    Value<double?> keyakinan = const Value.absent(),
     bool? dikoreksiUser,
-    double? totalKalori,
-    double? totalKarbohidrat,
-    double? totalProtein,
-    double? totalLemak,
-    double? totalGulaTotal,
-    double? totalSerat,
+    Value<double?> totalKalori = const Value.absent(),
+    Value<double?> totalKarbohidrat = const Value.absent(),
+    Value<double?> totalProtein = const Value.absent(),
+    Value<double?> totalLemak = const Value.absent(),
+    Value<double?> totalGulaTotal = const Value.absent(),
+    Value<double?> totalSerat = const Value.absent(),
+    String? zatTidakLengkap,
   }) => TabelHasilDeteksiData(
     sesiId: sesiId ?? this.sesiId,
-    indeksGlikemikPerkiraan:
-        indeksGlikemikPerkiraan ?? this.indeksGlikemikPerkiraan,
-    keyakinan: keyakinan ?? this.keyakinan,
+    indeksGlikemikPerkiraan: indeksGlikemikPerkiraan.present
+        ? indeksGlikemikPerkiraan.value
+        : this.indeksGlikemikPerkiraan,
+    keyakinan: keyakinan.present ? keyakinan.value : this.keyakinan,
     dikoreksiUser: dikoreksiUser ?? this.dikoreksiUser,
-    totalKalori: totalKalori ?? this.totalKalori,
-    totalKarbohidrat: totalKarbohidrat ?? this.totalKarbohidrat,
-    totalProtein: totalProtein ?? this.totalProtein,
-    totalLemak: totalLemak ?? this.totalLemak,
-    totalGulaTotal: totalGulaTotal ?? this.totalGulaTotal,
-    totalSerat: totalSerat ?? this.totalSerat,
+    totalKalori: totalKalori.present ? totalKalori.value : this.totalKalori,
+    totalKarbohidrat: totalKarbohidrat.present
+        ? totalKarbohidrat.value
+        : this.totalKarbohidrat,
+    totalProtein: totalProtein.present ? totalProtein.value : this.totalProtein,
+    totalLemak: totalLemak.present ? totalLemak.value : this.totalLemak,
+    totalGulaTotal: totalGulaTotal.present
+        ? totalGulaTotal.value
+        : this.totalGulaTotal,
+    totalSerat: totalSerat.present ? totalSerat.value : this.totalSerat,
+    zatTidakLengkap: zatTidakLengkap ?? this.zatTidakLengkap,
   );
   TabelHasilDeteksiData copyWithCompanion(TabelHasilDeteksiCompanion data) {
     return TabelHasilDeteksiData(
@@ -1574,6 +1699,9 @@ class TabelHasilDeteksiData extends DataClass
       totalSerat: data.totalSerat.present
           ? data.totalSerat.value
           : this.totalSerat,
+      zatTidakLengkap: data.zatTidakLengkap.present
+          ? data.zatTidakLengkap.value
+          : this.zatTidakLengkap,
     );
   }
 
@@ -1589,7 +1717,8 @@ class TabelHasilDeteksiData extends DataClass
           ..write('totalProtein: $totalProtein, ')
           ..write('totalLemak: $totalLemak, ')
           ..write('totalGulaTotal: $totalGulaTotal, ')
-          ..write('totalSerat: $totalSerat')
+          ..write('totalSerat: $totalSerat, ')
+          ..write('zatTidakLengkap: $zatTidakLengkap')
           ..write(')'))
         .toString();
   }
@@ -1606,6 +1735,7 @@ class TabelHasilDeteksiData extends DataClass
     totalLemak,
     totalGulaTotal,
     totalSerat,
+    zatTidakLengkap,
   );
   @override
   bool operator ==(Object other) =>
@@ -1620,21 +1750,23 @@ class TabelHasilDeteksiData extends DataClass
           other.totalProtein == this.totalProtein &&
           other.totalLemak == this.totalLemak &&
           other.totalGulaTotal == this.totalGulaTotal &&
-          other.totalSerat == this.totalSerat);
+          other.totalSerat == this.totalSerat &&
+          other.zatTidakLengkap == this.zatTidakLengkap);
 }
 
 class TabelHasilDeteksiCompanion
     extends UpdateCompanion<TabelHasilDeteksiData> {
   final Value<String> sesiId;
-  final Value<String> indeksGlikemikPerkiraan;
-  final Value<double> keyakinan;
+  final Value<String?> indeksGlikemikPerkiraan;
+  final Value<double?> keyakinan;
   final Value<bool> dikoreksiUser;
-  final Value<double> totalKalori;
-  final Value<double> totalKarbohidrat;
-  final Value<double> totalProtein;
-  final Value<double> totalLemak;
-  final Value<double> totalGulaTotal;
-  final Value<double> totalSerat;
+  final Value<double?> totalKalori;
+  final Value<double?> totalKarbohidrat;
+  final Value<double?> totalProtein;
+  final Value<double?> totalLemak;
+  final Value<double?> totalGulaTotal;
+  final Value<double?> totalSerat;
+  final Value<String> zatTidakLengkap;
   final Value<int> rowid;
   const TabelHasilDeteksiCompanion({
     this.sesiId = const Value.absent(),
@@ -1647,30 +1779,24 @@ class TabelHasilDeteksiCompanion
     this.totalLemak = const Value.absent(),
     this.totalGulaTotal = const Value.absent(),
     this.totalSerat = const Value.absent(),
+    this.zatTidakLengkap = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   TabelHasilDeteksiCompanion.insert({
     required String sesiId,
-    required String indeksGlikemikPerkiraan,
-    required double keyakinan,
+    this.indeksGlikemikPerkiraan = const Value.absent(),
+    this.keyakinan = const Value.absent(),
     required bool dikoreksiUser,
-    required double totalKalori,
-    required double totalKarbohidrat,
-    required double totalProtein,
-    required double totalLemak,
-    required double totalGulaTotal,
-    required double totalSerat,
+    this.totalKalori = const Value.absent(),
+    this.totalKarbohidrat = const Value.absent(),
+    this.totalProtein = const Value.absent(),
+    this.totalLemak = const Value.absent(),
+    this.totalGulaTotal = const Value.absent(),
+    this.totalSerat = const Value.absent(),
+    this.zatTidakLengkap = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : sesiId = Value(sesiId),
-       indeksGlikemikPerkiraan = Value(indeksGlikemikPerkiraan),
-       keyakinan = Value(keyakinan),
-       dikoreksiUser = Value(dikoreksiUser),
-       totalKalori = Value(totalKalori),
-       totalKarbohidrat = Value(totalKarbohidrat),
-       totalProtein = Value(totalProtein),
-       totalLemak = Value(totalLemak),
-       totalGulaTotal = Value(totalGulaTotal),
-       totalSerat = Value(totalSerat);
+       dikoreksiUser = Value(dikoreksiUser);
   static Insertable<TabelHasilDeteksiData> custom({
     Expression<String>? sesiId,
     Expression<String>? indeksGlikemikPerkiraan,
@@ -1682,6 +1808,7 @@ class TabelHasilDeteksiCompanion
     Expression<double>? totalLemak,
     Expression<double>? totalGulaTotal,
     Expression<double>? totalSerat,
+    Expression<String>? zatTidakLengkap,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1696,21 +1823,23 @@ class TabelHasilDeteksiCompanion
       if (totalLemak != null) 'total_lemak': totalLemak,
       if (totalGulaTotal != null) 'total_gula_total': totalGulaTotal,
       if (totalSerat != null) 'total_serat': totalSerat,
+      if (zatTidakLengkap != null) 'zat_tidak_lengkap': zatTidakLengkap,
       if (rowid != null) 'rowid': rowid,
     });
   }
 
   TabelHasilDeteksiCompanion copyWith({
     Value<String>? sesiId,
-    Value<String>? indeksGlikemikPerkiraan,
-    Value<double>? keyakinan,
+    Value<String?>? indeksGlikemikPerkiraan,
+    Value<double?>? keyakinan,
     Value<bool>? dikoreksiUser,
-    Value<double>? totalKalori,
-    Value<double>? totalKarbohidrat,
-    Value<double>? totalProtein,
-    Value<double>? totalLemak,
-    Value<double>? totalGulaTotal,
-    Value<double>? totalSerat,
+    Value<double?>? totalKalori,
+    Value<double?>? totalKarbohidrat,
+    Value<double?>? totalProtein,
+    Value<double?>? totalLemak,
+    Value<double?>? totalGulaTotal,
+    Value<double?>? totalSerat,
+    Value<String>? zatTidakLengkap,
     Value<int>? rowid,
   }) {
     return TabelHasilDeteksiCompanion(
@@ -1725,6 +1854,7 @@ class TabelHasilDeteksiCompanion
       totalLemak: totalLemak ?? this.totalLemak,
       totalGulaTotal: totalGulaTotal ?? this.totalGulaTotal,
       totalSerat: totalSerat ?? this.totalSerat,
+      zatTidakLengkap: zatTidakLengkap ?? this.zatTidakLengkap,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1764,6 +1894,9 @@ class TabelHasilDeteksiCompanion
     if (totalSerat.present) {
       map['total_serat'] = Variable<double>(totalSerat.value);
     }
+    if (zatTidakLengkap.present) {
+      map['zat_tidak_lengkap'] = Variable<String>(zatTidakLengkap.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1783,6 +1916,7 @@ class TabelHasilDeteksiCompanion
           ..write('totalLemak: $totalLemak, ')
           ..write('totalGulaTotal: $totalGulaTotal, ')
           ..write('totalSerat: $totalSerat, ')
+          ..write('zatTidakLengkap: $zatTidakLengkap, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1850,9 +1984,9 @@ class $TabelItemMakananTable extends TabelItemMakanan
   late final GeneratedColumn<double> kalori = GeneratedColumn<double>(
     'kalori',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.double,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _karbohidratMeta = const VerificationMeta(
     'karbohidrat',
@@ -1861,9 +1995,9 @@ class $TabelItemMakananTable extends TabelItemMakanan
   late final GeneratedColumn<double> karbohidrat = GeneratedColumn<double>(
     'karbohidrat',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.double,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _proteinMeta = const VerificationMeta(
     'protein',
@@ -1872,18 +2006,18 @@ class $TabelItemMakananTable extends TabelItemMakanan
   late final GeneratedColumn<double> protein = GeneratedColumn<double>(
     'protein',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.double,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _lemakMeta = const VerificationMeta('lemak');
   @override
   late final GeneratedColumn<double> lemak = GeneratedColumn<double>(
     'lemak',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.double,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _gulaTotalMeta = const VerificationMeta(
     'gulaTotal',
@@ -1892,18 +2026,18 @@ class $TabelItemMakananTable extends TabelItemMakanan
   late final GeneratedColumn<double> gulaTotal = GeneratedColumn<double>(
     'gula_total',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.double,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _seratMeta = const VerificationMeta('serat');
   @override
   late final GeneratedColumn<double> serat = GeneratedColumn<double>(
     'serat',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.double,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   @override
   List<GeneratedColumn> get $columns => [
@@ -1979,8 +2113,6 @@ class $TabelItemMakananTable extends TabelItemMakanan
         _kaloriMeta,
         kalori.isAcceptableOrUnknown(data['kalori']!, _kaloriMeta),
       );
-    } else if (isInserting) {
-      context.missing(_kaloriMeta);
     }
     if (data.containsKey('karbohidrat')) {
       context.handle(
@@ -1990,40 +2122,30 @@ class $TabelItemMakananTable extends TabelItemMakanan
           _karbohidratMeta,
         ),
       );
-    } else if (isInserting) {
-      context.missing(_karbohidratMeta);
     }
     if (data.containsKey('protein')) {
       context.handle(
         _proteinMeta,
         protein.isAcceptableOrUnknown(data['protein']!, _proteinMeta),
       );
-    } else if (isInserting) {
-      context.missing(_proteinMeta);
     }
     if (data.containsKey('lemak')) {
       context.handle(
         _lemakMeta,
         lemak.isAcceptableOrUnknown(data['lemak']!, _lemakMeta),
       );
-    } else if (isInserting) {
-      context.missing(_lemakMeta);
     }
     if (data.containsKey('gula_total')) {
       context.handle(
         _gulaTotalMeta,
         gulaTotal.isAcceptableOrUnknown(data['gula_total']!, _gulaTotalMeta),
       );
-    } else if (isInserting) {
-      context.missing(_gulaTotalMeta);
     }
     if (data.containsKey('serat')) {
       context.handle(
         _seratMeta,
         serat.isAcceptableOrUnknown(data['serat']!, _seratMeta),
       );
-    } else if (isInserting) {
-      context.missing(_seratMeta);
     }
     return context;
   }
@@ -2057,27 +2179,27 @@ class $TabelItemMakananTable extends TabelItemMakanan
       kalori: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}kalori'],
-      )!,
+      ),
       karbohidrat: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}karbohidrat'],
-      )!,
+      ),
       protein: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}protein'],
-      )!,
+      ),
       lemak: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}lemak'],
-      )!,
+      ),
       gulaTotal: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}gula_total'],
-      )!,
+      ),
       serat: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}serat'],
-      )!,
+      ),
     );
   }
 
@@ -2094,24 +2216,24 @@ class TabelItemMakananData extends DataClass
   final String nama;
   final String porsi;
   final double estimasiGram;
-  final double kalori;
-  final double karbohidrat;
-  final double protein;
-  final double lemak;
-  final double gulaTotal;
-  final double serat;
+  final double? kalori;
+  final double? karbohidrat;
+  final double? protein;
+  final double? lemak;
+  final double? gulaTotal;
+  final double? serat;
   const TabelItemMakananData({
     required this.sesiId,
     required this.urutan,
     required this.nama,
     required this.porsi,
     required this.estimasiGram,
-    required this.kalori,
-    required this.karbohidrat,
-    required this.protein,
-    required this.lemak,
-    required this.gulaTotal,
-    required this.serat,
+    this.kalori,
+    this.karbohidrat,
+    this.protein,
+    this.lemak,
+    this.gulaTotal,
+    this.serat,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -2121,12 +2243,24 @@ class TabelItemMakananData extends DataClass
     map['nama'] = Variable<String>(nama);
     map['porsi'] = Variable<String>(porsi);
     map['estimasi_gram'] = Variable<double>(estimasiGram);
-    map['kalori'] = Variable<double>(kalori);
-    map['karbohidrat'] = Variable<double>(karbohidrat);
-    map['protein'] = Variable<double>(protein);
-    map['lemak'] = Variable<double>(lemak);
-    map['gula_total'] = Variable<double>(gulaTotal);
-    map['serat'] = Variable<double>(serat);
+    if (!nullToAbsent || kalori != null) {
+      map['kalori'] = Variable<double>(kalori);
+    }
+    if (!nullToAbsent || karbohidrat != null) {
+      map['karbohidrat'] = Variable<double>(karbohidrat);
+    }
+    if (!nullToAbsent || protein != null) {
+      map['protein'] = Variable<double>(protein);
+    }
+    if (!nullToAbsent || lemak != null) {
+      map['lemak'] = Variable<double>(lemak);
+    }
+    if (!nullToAbsent || gulaTotal != null) {
+      map['gula_total'] = Variable<double>(gulaTotal);
+    }
+    if (!nullToAbsent || serat != null) {
+      map['serat'] = Variable<double>(serat);
+    }
     return map;
   }
 
@@ -2137,12 +2271,24 @@ class TabelItemMakananData extends DataClass
       nama: Value(nama),
       porsi: Value(porsi),
       estimasiGram: Value(estimasiGram),
-      kalori: Value(kalori),
-      karbohidrat: Value(karbohidrat),
-      protein: Value(protein),
-      lemak: Value(lemak),
-      gulaTotal: Value(gulaTotal),
-      serat: Value(serat),
+      kalori: kalori == null && nullToAbsent
+          ? const Value.absent()
+          : Value(kalori),
+      karbohidrat: karbohidrat == null && nullToAbsent
+          ? const Value.absent()
+          : Value(karbohidrat),
+      protein: protein == null && nullToAbsent
+          ? const Value.absent()
+          : Value(protein),
+      lemak: lemak == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lemak),
+      gulaTotal: gulaTotal == null && nullToAbsent
+          ? const Value.absent()
+          : Value(gulaTotal),
+      serat: serat == null && nullToAbsent
+          ? const Value.absent()
+          : Value(serat),
     );
   }
 
@@ -2157,12 +2303,12 @@ class TabelItemMakananData extends DataClass
       nama: serializer.fromJson<String>(json['nama']),
       porsi: serializer.fromJson<String>(json['porsi']),
       estimasiGram: serializer.fromJson<double>(json['estimasiGram']),
-      kalori: serializer.fromJson<double>(json['kalori']),
-      karbohidrat: serializer.fromJson<double>(json['karbohidrat']),
-      protein: serializer.fromJson<double>(json['protein']),
-      lemak: serializer.fromJson<double>(json['lemak']),
-      gulaTotal: serializer.fromJson<double>(json['gulaTotal']),
-      serat: serializer.fromJson<double>(json['serat']),
+      kalori: serializer.fromJson<double?>(json['kalori']),
+      karbohidrat: serializer.fromJson<double?>(json['karbohidrat']),
+      protein: serializer.fromJson<double?>(json['protein']),
+      lemak: serializer.fromJson<double?>(json['lemak']),
+      gulaTotal: serializer.fromJson<double?>(json['gulaTotal']),
+      serat: serializer.fromJson<double?>(json['serat']),
     );
   }
   @override
@@ -2174,12 +2320,12 @@ class TabelItemMakananData extends DataClass
       'nama': serializer.toJson<String>(nama),
       'porsi': serializer.toJson<String>(porsi),
       'estimasiGram': serializer.toJson<double>(estimasiGram),
-      'kalori': serializer.toJson<double>(kalori),
-      'karbohidrat': serializer.toJson<double>(karbohidrat),
-      'protein': serializer.toJson<double>(protein),
-      'lemak': serializer.toJson<double>(lemak),
-      'gulaTotal': serializer.toJson<double>(gulaTotal),
-      'serat': serializer.toJson<double>(serat),
+      'kalori': serializer.toJson<double?>(kalori),
+      'karbohidrat': serializer.toJson<double?>(karbohidrat),
+      'protein': serializer.toJson<double?>(protein),
+      'lemak': serializer.toJson<double?>(lemak),
+      'gulaTotal': serializer.toJson<double?>(gulaTotal),
+      'serat': serializer.toJson<double?>(serat),
     };
   }
 
@@ -2189,24 +2335,24 @@ class TabelItemMakananData extends DataClass
     String? nama,
     String? porsi,
     double? estimasiGram,
-    double? kalori,
-    double? karbohidrat,
-    double? protein,
-    double? lemak,
-    double? gulaTotal,
-    double? serat,
+    Value<double?> kalori = const Value.absent(),
+    Value<double?> karbohidrat = const Value.absent(),
+    Value<double?> protein = const Value.absent(),
+    Value<double?> lemak = const Value.absent(),
+    Value<double?> gulaTotal = const Value.absent(),
+    Value<double?> serat = const Value.absent(),
   }) => TabelItemMakananData(
     sesiId: sesiId ?? this.sesiId,
     urutan: urutan ?? this.urutan,
     nama: nama ?? this.nama,
     porsi: porsi ?? this.porsi,
     estimasiGram: estimasiGram ?? this.estimasiGram,
-    kalori: kalori ?? this.kalori,
-    karbohidrat: karbohidrat ?? this.karbohidrat,
-    protein: protein ?? this.protein,
-    lemak: lemak ?? this.lemak,
-    gulaTotal: gulaTotal ?? this.gulaTotal,
-    serat: serat ?? this.serat,
+    kalori: kalori.present ? kalori.value : this.kalori,
+    karbohidrat: karbohidrat.present ? karbohidrat.value : this.karbohidrat,
+    protein: protein.present ? protein.value : this.protein,
+    lemak: lemak.present ? lemak.value : this.lemak,
+    gulaTotal: gulaTotal.present ? gulaTotal.value : this.gulaTotal,
+    serat: serat.present ? serat.value : this.serat,
   );
   TabelItemMakananData copyWithCompanion(TabelItemMakananCompanion data) {
     return TabelItemMakananData(
@@ -2283,12 +2429,12 @@ class TabelItemMakananCompanion extends UpdateCompanion<TabelItemMakananData> {
   final Value<String> nama;
   final Value<String> porsi;
   final Value<double> estimasiGram;
-  final Value<double> kalori;
-  final Value<double> karbohidrat;
-  final Value<double> protein;
-  final Value<double> lemak;
-  final Value<double> gulaTotal;
-  final Value<double> serat;
+  final Value<double?> kalori;
+  final Value<double?> karbohidrat;
+  final Value<double?> protein;
+  final Value<double?> lemak;
+  final Value<double?> gulaTotal;
+  final Value<double?> serat;
   final Value<int> rowid;
   const TabelItemMakananCompanion({
     this.sesiId = const Value.absent(),
@@ -2310,24 +2456,18 @@ class TabelItemMakananCompanion extends UpdateCompanion<TabelItemMakananData> {
     required String nama,
     required String porsi,
     required double estimasiGram,
-    required double kalori,
-    required double karbohidrat,
-    required double protein,
-    required double lemak,
-    required double gulaTotal,
-    required double serat,
+    this.kalori = const Value.absent(),
+    this.karbohidrat = const Value.absent(),
+    this.protein = const Value.absent(),
+    this.lemak = const Value.absent(),
+    this.gulaTotal = const Value.absent(),
+    this.serat = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : sesiId = Value(sesiId),
        urutan = Value(urutan),
        nama = Value(nama),
        porsi = Value(porsi),
-       estimasiGram = Value(estimasiGram),
-       kalori = Value(kalori),
-       karbohidrat = Value(karbohidrat),
-       protein = Value(protein),
-       lemak = Value(lemak),
-       gulaTotal = Value(gulaTotal),
-       serat = Value(serat);
+       estimasiGram = Value(estimasiGram);
   static Insertable<TabelItemMakananData> custom({
     Expression<String>? sesiId,
     Expression<int>? urutan,
@@ -2364,12 +2504,12 @@ class TabelItemMakananCompanion extends UpdateCompanion<TabelItemMakananData> {
     Value<String>? nama,
     Value<String>? porsi,
     Value<double>? estimasiGram,
-    Value<double>? kalori,
-    Value<double>? karbohidrat,
-    Value<double>? protein,
-    Value<double>? lemak,
-    Value<double>? gulaTotal,
-    Value<double>? serat,
+    Value<double?>? kalori,
+    Value<double?>? karbohidrat,
+    Value<double?>? protein,
+    Value<double?>? lemak,
+    Value<double?>? gulaTotal,
+    Value<double?>? serat,
     Value<int>? rowid,
   }) {
     return TabelItemMakananCompanion(
@@ -4406,6 +4546,7 @@ typedef $$TabelSesiTableCreateCompanionBuilder =
       required StatusSesi status,
       Value<bool> waktuTidakPasti,
       Value<bool> sesiUji,
+      Value<int?> diperbaruiPada,
       Value<int> rowid,
     });
 typedef $$TabelSesiTableUpdateCompanionBuilder =
@@ -4417,6 +4558,7 @@ typedef $$TabelSesiTableUpdateCompanionBuilder =
       Value<StatusSesi> status,
       Value<bool> waktuTidakPasti,
       Value<bool> sesiUji,
+      Value<int?> diperbaruiPada,
       Value<int> rowid,
     });
 
@@ -4528,6 +4670,11 @@ class $$TabelSesiTableFilterComposer
 
   ColumnFilters<bool> get sesiUji => $composableBuilder(
     column: $table.sesiUji,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get diperbaruiPada => $composableBuilder(
+    column: $table.diperbaruiPada,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -4650,6 +4797,11 @@ class $$TabelSesiTableOrderingComposer
     column: $table.sesiUji,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get diperbaruiPada => $composableBuilder(
+    column: $table.diperbaruiPada,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$TabelSesiTableAnnotationComposer
@@ -4683,6 +4835,11 @@ class $$TabelSesiTableAnnotationComposer
 
   GeneratedColumn<bool> get sesiUji =>
       $composableBuilder(column: $table.sesiUji, builder: (column) => column);
+
+  GeneratedColumn<int> get diperbaruiPada => $composableBuilder(
+    column: $table.diperbaruiPada,
+    builder: (column) => column,
+  );
 
   Expression<T> tabelSampelRefs<T extends Object>(
     Expression<T> Function($$TabelSampelTableAnnotationComposer a) f,
@@ -4800,6 +4957,7 @@ class $$TabelSesiTableTableManager
                 Value<StatusSesi> status = const Value.absent(),
                 Value<bool> waktuTidakPasti = const Value.absent(),
                 Value<bool> sesiUji = const Value.absent(),
+                Value<int?> diperbaruiPada = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TabelSesiCompanion(
                 id: id,
@@ -4809,6 +4967,7 @@ class $$TabelSesiTableTableManager
                 status: status,
                 waktuTidakPasti: waktuTidakPasti,
                 sesiUji: sesiUji,
+                diperbaruiPada: diperbaruiPada,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -4820,6 +4979,7 @@ class $$TabelSesiTableTableManager
                 required StatusSesi status,
                 Value<bool> waktuTidakPasti = const Value.absent(),
                 Value<bool> sesiUji = const Value.absent(),
+                Value<int?> diperbaruiPada = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TabelSesiCompanion.insert(
                 id: id,
@@ -4829,6 +4989,7 @@ class $$TabelSesiTableTableManager
                 status: status,
                 waktuTidakPasti: waktuTidakPasti,
                 sesiUji: sesiUji,
+                diperbaruiPada: diperbaruiPada,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -5366,29 +5527,31 @@ typedef $$TabelSampelTableProcessedTableManager =
 typedef $$TabelHasilDeteksiTableCreateCompanionBuilder =
     TabelHasilDeteksiCompanion Function({
       required String sesiId,
-      required String indeksGlikemikPerkiraan,
-      required double keyakinan,
+      Value<String?> indeksGlikemikPerkiraan,
+      Value<double?> keyakinan,
       required bool dikoreksiUser,
-      required double totalKalori,
-      required double totalKarbohidrat,
-      required double totalProtein,
-      required double totalLemak,
-      required double totalGulaTotal,
-      required double totalSerat,
+      Value<double?> totalKalori,
+      Value<double?> totalKarbohidrat,
+      Value<double?> totalProtein,
+      Value<double?> totalLemak,
+      Value<double?> totalGulaTotal,
+      Value<double?> totalSerat,
+      Value<String> zatTidakLengkap,
       Value<int> rowid,
     });
 typedef $$TabelHasilDeteksiTableUpdateCompanionBuilder =
     TabelHasilDeteksiCompanion Function({
       Value<String> sesiId,
-      Value<String> indeksGlikemikPerkiraan,
-      Value<double> keyakinan,
+      Value<String?> indeksGlikemikPerkiraan,
+      Value<double?> keyakinan,
       Value<bool> dikoreksiUser,
-      Value<double> totalKalori,
-      Value<double> totalKarbohidrat,
-      Value<double> totalProtein,
-      Value<double> totalLemak,
-      Value<double> totalGulaTotal,
-      Value<double> totalSerat,
+      Value<double?> totalKalori,
+      Value<double?> totalKarbohidrat,
+      Value<double?> totalProtein,
+      Value<double?> totalLemak,
+      Value<double?> totalGulaTotal,
+      Value<double?> totalSerat,
+      Value<String> zatTidakLengkap,
       Value<int> rowid,
     });
 
@@ -5477,6 +5640,11 @@ class $$TabelHasilDeteksiTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<String> get zatTidakLengkap => $composableBuilder(
+    column: $table.zatTidakLengkap,
+    builder: (column) => ColumnFilters(column),
+  );
+
   $$TabelSesiTableFilterComposer get sesiId {
     final $$TabelSesiTableFilterComposer composer = $composerBuilder(
       composer: this,
@@ -5552,6 +5720,11 @@ class $$TabelHasilDeteksiTableOrderingComposer
 
   ColumnOrderings<double> get totalSerat => $composableBuilder(
     column: $table.totalSerat,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get zatTidakLengkap => $composableBuilder(
+    column: $table.zatTidakLengkap,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -5631,6 +5804,11 @@ class $$TabelHasilDeteksiTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get zatTidakLengkap => $composableBuilder(
+    column: $table.zatTidakLengkap,
+    builder: (column) => column,
+  );
+
   $$TabelSesiTableAnnotationComposer get sesiId {
     final $$TabelSesiTableAnnotationComposer composer = $composerBuilder(
       composer: this,
@@ -5689,15 +5867,16 @@ class $$TabelHasilDeteksiTableTableManager
           updateCompanionCallback:
               ({
                 Value<String> sesiId = const Value.absent(),
-                Value<String> indeksGlikemikPerkiraan = const Value.absent(),
-                Value<double> keyakinan = const Value.absent(),
+                Value<String?> indeksGlikemikPerkiraan = const Value.absent(),
+                Value<double?> keyakinan = const Value.absent(),
                 Value<bool> dikoreksiUser = const Value.absent(),
-                Value<double> totalKalori = const Value.absent(),
-                Value<double> totalKarbohidrat = const Value.absent(),
-                Value<double> totalProtein = const Value.absent(),
-                Value<double> totalLemak = const Value.absent(),
-                Value<double> totalGulaTotal = const Value.absent(),
-                Value<double> totalSerat = const Value.absent(),
+                Value<double?> totalKalori = const Value.absent(),
+                Value<double?> totalKarbohidrat = const Value.absent(),
+                Value<double?> totalProtein = const Value.absent(),
+                Value<double?> totalLemak = const Value.absent(),
+                Value<double?> totalGulaTotal = const Value.absent(),
+                Value<double?> totalSerat = const Value.absent(),
+                Value<String> zatTidakLengkap = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TabelHasilDeteksiCompanion(
                 sesiId: sesiId,
@@ -5710,20 +5889,22 @@ class $$TabelHasilDeteksiTableTableManager
                 totalLemak: totalLemak,
                 totalGulaTotal: totalGulaTotal,
                 totalSerat: totalSerat,
+                zatTidakLengkap: zatTidakLengkap,
                 rowid: rowid,
               ),
           createCompanionCallback:
               ({
                 required String sesiId,
-                required String indeksGlikemikPerkiraan,
-                required double keyakinan,
+                Value<String?> indeksGlikemikPerkiraan = const Value.absent(),
+                Value<double?> keyakinan = const Value.absent(),
                 required bool dikoreksiUser,
-                required double totalKalori,
-                required double totalKarbohidrat,
-                required double totalProtein,
-                required double totalLemak,
-                required double totalGulaTotal,
-                required double totalSerat,
+                Value<double?> totalKalori = const Value.absent(),
+                Value<double?> totalKarbohidrat = const Value.absent(),
+                Value<double?> totalProtein = const Value.absent(),
+                Value<double?> totalLemak = const Value.absent(),
+                Value<double?> totalGulaTotal = const Value.absent(),
+                Value<double?> totalSerat = const Value.absent(),
+                Value<String> zatTidakLengkap = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TabelHasilDeteksiCompanion.insert(
                 sesiId: sesiId,
@@ -5736,6 +5917,7 @@ class $$TabelHasilDeteksiTableTableManager
                 totalLemak: totalLemak,
                 totalGulaTotal: totalGulaTotal,
                 totalSerat: totalSerat,
+                zatTidakLengkap: zatTidakLengkap,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -5814,12 +5996,12 @@ typedef $$TabelItemMakananTableCreateCompanionBuilder =
       required String nama,
       required String porsi,
       required double estimasiGram,
-      required double kalori,
-      required double karbohidrat,
-      required double protein,
-      required double lemak,
-      required double gulaTotal,
-      required double serat,
+      Value<double?> kalori,
+      Value<double?> karbohidrat,
+      Value<double?> protein,
+      Value<double?> lemak,
+      Value<double?> gulaTotal,
+      Value<double?> serat,
       Value<int> rowid,
     });
 typedef $$TabelItemMakananTableUpdateCompanionBuilder =
@@ -5829,12 +6011,12 @@ typedef $$TabelItemMakananTableUpdateCompanionBuilder =
       Value<String> nama,
       Value<String> porsi,
       Value<double> estimasiGram,
-      Value<double> kalori,
-      Value<double> karbohidrat,
-      Value<double> protein,
-      Value<double> lemak,
-      Value<double> gulaTotal,
-      Value<double> serat,
+      Value<double?> kalori,
+      Value<double?> karbohidrat,
+      Value<double?> protein,
+      Value<double?> lemak,
+      Value<double?> gulaTotal,
+      Value<double?> serat,
       Value<int> rowid,
     });
 
@@ -6137,12 +6319,12 @@ class $$TabelItemMakananTableTableManager
                 Value<String> nama = const Value.absent(),
                 Value<String> porsi = const Value.absent(),
                 Value<double> estimasiGram = const Value.absent(),
-                Value<double> kalori = const Value.absent(),
-                Value<double> karbohidrat = const Value.absent(),
-                Value<double> protein = const Value.absent(),
-                Value<double> lemak = const Value.absent(),
-                Value<double> gulaTotal = const Value.absent(),
-                Value<double> serat = const Value.absent(),
+                Value<double?> kalori = const Value.absent(),
+                Value<double?> karbohidrat = const Value.absent(),
+                Value<double?> protein = const Value.absent(),
+                Value<double?> lemak = const Value.absent(),
+                Value<double?> gulaTotal = const Value.absent(),
+                Value<double?> serat = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TabelItemMakananCompanion(
                 sesiId: sesiId,
@@ -6165,12 +6347,12 @@ class $$TabelItemMakananTableTableManager
                 required String nama,
                 required String porsi,
                 required double estimasiGram,
-                required double kalori,
-                required double karbohidrat,
-                required double protein,
-                required double lemak,
-                required double gulaTotal,
-                required double serat,
+                Value<double?> kalori = const Value.absent(),
+                Value<double?> karbohidrat = const Value.absent(),
+                Value<double?> protein = const Value.absent(),
+                Value<double?> lemak = const Value.absent(),
+                Value<double?> gulaTotal = const Value.absent(),
+                Value<double?> serat = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TabelItemMakananCompanion.insert(
                 sesiId: sesiId,
