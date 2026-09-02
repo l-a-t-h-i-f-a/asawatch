@@ -42,6 +42,7 @@ flutter pub get                      # install deps
 flutter run                          # run on the connected device/emulator (real watch over BLE)
 flutter run --dart-define=PAKAI_JAM_PALSU=true   # …with FakeBleService instead, no hardware needed
 flutter run --dart-define=PAKAI_JADWAL_UJI=true   # …with the two-minute session schedule (real watch works too)
+flutter run --dart-define=PAKAI_JADWAL_UJI=true --dart-define=FAKTOR_JADWAL_UJI=12  # …compressed 12x, not 60x — use this one with real hardware
 flutter run --dart-define=PAKAI_KAMERA_PALSU=true # …with KameraPalsuService — no camera is opened at all
 flutter run --dart-define=PAKAI_AUTH_PALSU=true  # …with FakeAuthService — the only way in until a backend exists
                                                  # demo account: test@email.com / rahasia123
@@ -294,8 +295,26 @@ loads and then fails when the database opens.
    `hasil` is uploaded and parsed on the way back because it is the one part of a session that
    cannot be recomputed from samples — though the backend does not persist it yet. Photos are not
    uploaded at all, so a downloaded session has an empty `fotoPath` and falls back to
-   `FotoMakanan`'s placeholder. Deletion propagation and the §7 cursor sync are still unwritten.
-3. **Everything about a session is persisted, including while it is running.** History lives in SQLite via drift — `SesiRepository` ([lib/repositories/sesi_repository.dart](lib/repositories/sesi_repository.dart)) is the seam, `SesiRepositoryDrift` + the schema in [lib/repositories/basis_data.dart](lib/repositories/basis_data.dart) are the real implementation, and `SesiRepositoryMemori` remains as the in-memory one for tests (the same role `FakeBleService` plays). Editing the schema means re-running `build_runner`; `basis_data.g.dart` is generated and committed. Three things are load-bearing there: enums are stored via `textEnum` so **renaming a `StatusSesi`/`StatusSampel` member is a schema change**, derived values (verdict, kualitas respons) have no columns and are recomputed on load, and `onUpgrade` walks one version at a time with a `default` branch that throws, so a bumped `schemaVersion` cannot ship without a written migration (`test/anchor_repository_test.dart` actually drives v1→v4, v2→v4, and v3→v4). **The controller's constructor stays synchronous on purpose** — `main()` loads history and passes it as `riwayatAwal`, so no session surface needs a loading state. The constructor also **splits the active session out of `riwayatAwal`**: a session that was still running when the app closed comes back as `sesiAktif`, with its schedule recomputed from absolute `t0` (never from remaining time), and its `(sesiId, index)` dedup keys restored. Cancelling deletes the row (`SesiRepository.hapus`) — a draft that was abandoned must not come back as an active session. A fresh install starts genuinely empty — `contoh_sesi.dart` is test-only fixture data. Two failure paths are handled: the database failing to open shows `AplikasiGagalMulai` instead of a blank screen, and a session that fails to save sets `SesiMakanController.galatPenyimpanan`, which Beranda shows as a persistent warning card (not a SnackBar — the consequence outlives a toast). The schema is at **v4**: v2 added `tabel_anchor_waktu` ([lib/repositories/anchor_repository.dart](lib/repositories/anchor_repository.dart), [lib/models/anchor_waktu.dart](lib/models/anchor_waktu.dart)); v3 added `tabel_kalibrasi`, `tabel_entri_jam`, and `tabel_sesi.waktu_tidak_pasti` — all three explained in the BLE section below; v4 reshaped calibration into three rounds (`tabel_putaran_kalibrasi` + `tabel_kalibrasi.sisi`, see the calibration section). That v3→v4 step is the one to read before writing another migration: it has to ask SQLite (`PRAGMA table_info`) whether the old columns are actually there, because `m.createTable()` in an *earlier* step creates today's shape, not that version's — a device coming from v2 arrives at the v4 step with a table that is already v4-shaped and empty. **The profile is synced with the server, and `SharedPreferences` is its offline half.**
+   `FotoMakanan`'s placeholder. **Cancelling a session propagates upwards, through a
+   tombstone.** The draft is already on the server by the time anyone can cancel — it is uploaded at
+   shutter time — so deleting the local row alone leaves a session that never finishes sitting in the
+   account, visible on the dashboard and pulled down by the next device. `batalkan()` therefore
+   *nisankan*s the row instead: children, nutrition, and the **photo file** are destroyed, and what
+   survives is one row carrying an id and `dihapus_pada`. Four rules. The tombstone is **never
+   visible** — `SesiRepositoryDrift.muatSemua` filters it in SQL, not in Dart, so no caller can
+   forget and resurrect a cancelled session. The **local half is awaited, the network half is
+   not**: after `batalkan()` returns there must be no window in which the row still exists, or an app
+   launch landing inside it brings the session back as active. `SesiServerService.hapus`
+   (`DELETE /sesi/{id}`, soft delete) counts **404 as success**, because the question is "is it still
+   there", not "did I delete something" — anything else breeds a tombstone that cannot die. And the
+   sweep runs **first** in `kirimRiwayatKeServer()`, ahead of the upload and therefore ahead of the
+   download that follows it, or a session cancelled a moment ago is pulled straight back. A phone
+   with no account skips all of it and hard-deletes: there is nobody to tell, and a tombstone that
+   can never be sent only accumulates. Two holes remain and both are accepted: `hapusDataLokal()`
+   wipes pending tombstones on an account switch (they could only be sent with the previous account's
+   token, which is gone), and a reinstall before the sweep loses them the same way. The §7 cursor
+   sync is still unwritten.
+3. **Everything about a session is persisted, including while it is running.** History lives in SQLite via drift — `SesiRepository` ([lib/repositories/sesi_repository.dart](lib/repositories/sesi_repository.dart)) is the seam, `SesiRepositoryDrift` + the schema in [lib/repositories/basis_data.dart](lib/repositories/basis_data.dart) are the real implementation, and `SesiRepositoryMemori` remains as the in-memory one for tests (the same role `FakeBleService` plays). Editing the schema means re-running `build_runner`; `basis_data.g.dart` is generated and committed. Three things are load-bearing there: enums are stored via `textEnum` so **renaming a `StatusSesi`/`StatusSampel` member is a schema change**, derived values (verdict, kualitas respons) have no columns and are recomputed on load, and `onUpgrade` walks one version at a time with a `default` branch that throws, so a bumped `schemaVersion` cannot ship without a written migration (`test/anchor_repository_test.dart` actually drives v1→v4, v2→v4, and v3→v4). **The controller's constructor stays synchronous on purpose** — `main()` loads history and passes it as `riwayatAwal`, so no session surface needs a loading state. The constructor also **splits the active session out of `riwayatAwal`**: a session that was still running when the app closed comes back as `sesiAktif`, with its schedule recomputed from absolute `t0` (never from remaining time), and its `(sesiId, index)` dedup keys restored. Cancelling turns the row into a tombstone (`SesiRepository.nisankan`, or `hapus` outright when there is no account) — a draft that was abandoned must not come back as an active session. A fresh install starts genuinely empty — `contoh_sesi.dart` is test-only fixture data. Two failure paths are handled: the database failing to open shows `AplikasiGagalMulai` instead of a blank screen, and a session that fails to save sets `SesiMakanController.galatPenyimpanan`, which Beranda shows as a persistent warning card (not a SnackBar — the consequence outlives a toast). The schema is at **v7**: v2 added `tabel_anchor_waktu` ([lib/repositories/anchor_repository.dart](lib/repositories/anchor_repository.dart), [lib/models/anchor_waktu.dart](lib/models/anchor_waktu.dart)); v3 added `tabel_kalibrasi`, `tabel_entri_jam`, and `tabel_sesi.waktu_tidak_pasti` — all three explained in the BLE section below; v4 reshaped calibration into three rounds (`tabel_putaran_kalibrasi` + `tabel_kalibrasi.sisi`, see the calibration section); v5 added `tabel_sesi.sesi_uji`; v6 made the nutrition columns nullable and added `tabel_sesi.diperbarui_pada`; **v7 added `tabel_sesi.dihapus_pada`**, the cancellation tombstone described above. That v3→v4 step is the one to read before writing another migration: it has to ask SQLite (`PRAGMA table_info`) whether the old columns are actually there, because `m.createTable()` in an *earlier* step creates today's shape, not that version's — a device coming from v2 arrives at the v4 step with a table that is already v4-shaped and empty. **The profile is synced with the server, and `SharedPreferences` is its offline half.**
    `ProfilRepository` gained an optional `server:`
    ([lib/services/profil_server_service.dart](lib/services/profil_server_service.dart), §5.1
    `GET`/`PUT /api/v1/profil`) and `sesiLogin:` for the token; with neither it behaves exactly as
@@ -360,8 +379,18 @@ Five things carry most of the weight:
   its `waktuMakan` is **null** (use `labelWaktuMakan` in UI), and `AnalisisSesi` drops it. It is
   still shown, with an explanation — the measurements are real, only the clock is not. The flag is a
   stored column because once the session ends there is nothing left to derive it from.
-- **Sessions now have a deadline.** `SesiMakanController.tenggatSampelTerakhir` (30 min past the
-  +2 h point) closes a session as `tidakLengkap`. Before Tahap B the only route there was the user
+- **Sessions now have a deadline, and it yields to a measurement in progress.**
+  `SesiMakanController.tenggatSampelTerakhir` (30 min past the +2 h point) closes a session as
+  `tidakLengkap` — **unless the watch is measuring at that very second**, in which case the check is
+  postponed 30 s and repeated. Closing then would discard a measurement seconds from finishing, and
+  its sample would arrive into a session that is no longer active: lost with no symptom at all. What
+  holds the deadline off is **proof, not assumption** — `BleService.jamSedangMengukur()` *reads* the
+  Status characteristic (bit0), so a watch that is dead or out of range answers false and the
+  deadline runs as before, which is the case the deadline exists for. The postponement is capped at
+  12 × 30 s = 6 min, deliberately just past the firmware's own 5-minute hard limit: a real
+  measurement never reaches the cap, a stuck bit0 always does. This is not a rare edge: under
+  `PAKAI_JADWAL_UJI` the whole session lasts two minutes while one real measurement takes tens of
+  seconds, which is exactly how it was found. Before Tahap B the only route there was the user
   pressing "akhiri lebih awal"; with a real watch, a dead battery or a failed sensor would otherwise
   leave a session waiting forever. Disconnecting does **not** end a session — samples wait in the
   watch's buffer, and [sesi_berjalan_page.dart](lib/sesi_berjalan_page.dart) says so in words.
@@ -395,6 +424,60 @@ figure — the page says so on screen rather than letting the user hunt for it i
 `FakeBleService` models the failure paths (`galatUkurSekarang`, `metrikGagal`) because a real watch
 cannot be ordered to fail, and `permintaanUkur` records every `UKUR` because an arriving sample looks
 identical whether the app asked for it or the watch scheduled it.
+
+**A measurement in progress is proved by a heartbeat, never by the command having been sent
+(protocol v1.4, §5.5/§5.6).** The watch now grows its Status packet to 10 bytes (`ukur_persen`,
+`ukur_sisa_detik`) and re-sends it **every 2 seconds while measuring even though nothing in it
+changed** — the one deliberate exception to "notify only on change". Without it the `sedang
+mengukur` bit is a *level*, not a pulse: firmware suppresses unchanged Status packets, so the bit is
+sent exactly twice per measurement (start, end), and a watch that dies mid-measurement leaves it lit
+forever, indistinguishable from one still working. That is why `ukurSekarang()` no longer has a
+single `timeout(60s)`: 60 s never matched anything (firmware waits 90 s with no skin contact and 5
+minutes as its hard limit), so a slow pulse — cold wrist, loose strap, ordinary for an elderly user
+— was reported as a watch that did not answer, at the exact moment it was working, and its sample
+arrived seconds later and was discarded. Now `_PenantiUkur` is reset by each beat and eight distinct
+events each get their own sentence (`PesanUkur`): never started, beats stopped, progress frozen
+(**not a failure** — the watch is alive and hunting for a pulse, so it keeps waiting and says
+"rapatkan jam"), link dropped, `UKUR_GAGAL` with a zero `sesiId`, watch finished but the sample did
+not arrive, and the 5-minute ceiling. Three rules ride along. **Silence is never read as death: when the beat
+watchdog fires the app reads the Status characteristic before giving up** (it is Read + Notify, and
+firmware refreshes it in `onRead`), so a lost notification, a slow connection interval, or a
+firmware that never beats at all costs nothing — only a read that *fails* ends the wait. That is
+also what covers firmware ≤ v1.3, whose Status packet is 8 bytes and whose progress fields are
+therefore **null, not zero**: it never beats, so the 8-second read is its only liveness, and a v1.3
+watch that dies mid-measurement is still caught in seconds rather than after five minutes. **A padam bit0 is given 8 seconds of grace**, because the
+firmware sends that Status from inside `ukur_selesai()` while the Sampel leaves through the ring
+buffer afterwards, so "status first, sample second" is the normal order. And `KemajuanUkur` reaches
+every screen through `SesiMakanController.kemajuanUkur`, where **null means the watch is not
+measuring** — `PindaiKesehatanPage`, the calibration card, and `PetunjukTombolUkur` derive their copy
+from it rather than from elapsed seconds, which is what used to write "Sedang mengukur" at second 8
+no matter what the watch was doing. **It is published for every measurement, not only the one a
+screen is awaiting**: `_kabarkanUkur` sits beside `_denyutUkur` in `_terimaStatus` and answers a
+different question — that one guards a wait, this one reports the watch's state. A session point
+(`UKUR`) has no waiter at all, so while the progress rode on `_PenantiUkur` the longest measurement
+anyone actually sits through was the only one showing nothing: the button said "Mengukur…" until the
+ACK, a fraction of a second, then lit up again while the watch worked on. **The baseline is the same
+gap one step earlier** — it is requested at shutter time, before t0 exists and therefore before
+`PetunjukTombolUkur` is on screen at all, so `PetunjukTombolJam` carries its own line for it. That
+line never disables the "Selesai Makan" button: firmware deliberately omits the `s_ukur_aktif` check
+when that button is pressed (§9), because someone who has finished eating must not wait on a sensor. Its own 8-second staleness
+check reads Status once before clearing, so a watch that dies mid-measurement stops claiming to
+measure without a waiter to notice. `FakeBleService(denyutUkur:, denyutUkurBerhenti:, persenUkurMacet:)`
+models the three watch behaviours; a real watch cannot be ordered to die mid-measurement.
+
+**A critical battery is the watch refusing service, not a low number.** §5.5 `flag` bit2 is set
+below `AW_BATERAI_KRITIS_PCT` (10%), and under it the firmware `NAK`s `UKUR`, `UKUR_SEKARANG`,
+`ARM_SESI`, and `MULAI_SESI`, and its physical button does nothing (§7 code `0x06`). The bit reached
+`StatusJam` and stopped there for a long time: the screen said "8%", the user pressed a button that
+was certain to be refused, and the reason arrived only afterwards. It now rides on
+`StatusPerangkat.bateraiKritis` — **dropped on disconnect like `baterai`, not retained like
+`kemampuan`**, since it is a state that changes by the minute — and
+`SesiMakanController.alasanJamTidakBisaUkur` is the single sentence four surfaces share
+(`PetunjukTombolUkur`, `PetunjukTombolJam`, `PindaiKesehatanPage`, the calibration card). Two rules.
+**The threshold is never re-derived from the percentage**: 10% belongs to the firmware, and a copy
+in Dart is a second place that must change in step. And the copy names the *consequence*, never the
+number alone — "jam menolak mengukur di bawah 10%" — because 8% and 12% look equally low while only
+one of them stops the watch working.
 
 **Blood-pressure calibration follows the repeated-cuff method** used by comparable products
 (Samsung Health Monitor), and [lib/kalibrasi_tekanan_darah_page.dart](lib/kalibrasi_tekanan_darah_page.dart)

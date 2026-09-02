@@ -187,6 +187,145 @@ void main() {
 
       await hentikanSesi(tester, c);
     });
+
+    testWidgets('baseline yang sedang diukur ikut dikabarkan', (tester) async {
+      // Baseline diminta tepat saat rana kamera ditekan, jadi ia berjalan
+      // sebelum sesinya punya t0 — dan karena itu sebelum `PetunjukTombolUkur`
+      // ada di layar sama sekali. Ia satu-satunya pengukuran yang terjadi tanpa
+      // diminta pengguna, sehingga jam yang bekerja diam-diam paling mudah
+      // terbaca sebagai jam yang tidak melakukan apa-apa.
+      final ble = FakeBleService(
+        percepatan: 60, // pengukuran palsu ~330 ms
+        otomatisSelesaiMakan: null,
+      );
+      final c = buatControllerUji(ble: ble, jadwal: jadwalUjiTitik);
+      await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
+
+      await c.mulaiDraft(contohFotoPath);
+      await tester.pump(const Duration(milliseconds: 120));
+
+      expect(c.sesiAktif!.t0, isNull, reason: 'masih draft, belum ada t0');
+      expect(find.textContaining('mengukur baseline'), findsOneWidget);
+
+      // Tombol "Selesai Makan" **tidak** ikut mati: firmware sengaja tidak
+      // memeriksa `s_ukur_aktif` saat tombolnya ditekan (§9), dan orang yang
+      // selesai makan tidak boleh menunggu sensor.
+      final tombol = tester.widget<ElevatedButton>(
+        find.ancestor(
+          of: find.textContaining('Selesai Makan'),
+          matching: find.byType(ElevatedButton),
+        ),
+      );
+      expect(tombol.onPressed, isNotNull);
+
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.textContaining('mengukur baseline'), findsNothing);
+
+      await hentikanSesi(tester, c);
+    });
+
+    testWidgets('selama jam mengukur, kartunya menampilkan kemajuannya', (
+      tester,
+    ) async {
+      // Sebelum ini, satu-satunya perubahan di layar adalah "Mengukur…" yang
+      // hidup sampai ACK — sepersekian detik — lalu tombolnya menyala lagi
+      // sementara jamnya masih bekerja puluhan detik. Denyutnya sudah datang
+      // sejak §5.5 v1.4; yang kurang hanya yang memancarkannya, karena titik
+      // ukur sesi tidak punya penantian di aplikasi seperti `ukurSekarang()`.
+      final ble = FakeBleService(
+        percepatan: 60, // pengukuran palsu ~330 ms: cukup untuk dilihat
+        lewatkan: {2, 3},
+        otomatisSelesaiMakan: null,
+      );
+      final jam = JamPalsu();
+      final c = buatControllerUji(
+        ble: ble,
+        jadwal: jadwalUjiTitik,
+        jam: jam.call,
+      );
+      await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
+      await c.mulaiDraft(contohFotoPath);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tekanTombolJam(tester, c);
+      await tester.pump(const Duration(milliseconds: 500));
+
+      await majuBersama(tester, jam, const Duration(seconds: 56));
+      ble.lewatkan.clear();
+
+      await tester.tap(find.textContaining('Ukur '));
+      await tester.pump(const Duration(milliseconds: 120));
+
+      // Kemajuannya datang dari jam, bukan dari hitungan layar.
+      expect(c.kemajuanUkur, isNotNull);
+      // Persennya ada di label tombolnya sendiri — halaman ini penuh angka
+      // ber-% lain (baterai, SpO2), jadi yang dicari adalah label itu.
+      expect(find.textContaining(RegExp(r'Jam mengukur… \d+%')), findsOneWidget);
+      expect(find.textContaining('Perkiraan sisa'), findsWidgets);
+
+      // Tombolnya tetap mati selama jam bekerja — bukan menyala kembali
+      // beberapa milidetik setelah ACK.
+      final tombol = tester.widget<ElevatedButton>(
+        find.ancestor(
+          of: find.textContaining('Jam mengukur…'),
+          matching: find.byType(ElevatedButton),
+        ),
+      );
+      expect(tombol.onPressed, isNull);
+
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(c.kemajuanUkur, isNull);
+
+      await hentikanSesi(tester, c);
+    });
+
+    testWidgets('baterai kritis mematikan tombol sebelum perintahnya dikirim', (
+      tester,
+    ) async {
+      // Di bawah 10% jam men-`NAK` setiap `UKUR` (§5.5 bit2, §7 kode 0x06).
+      // Tombol yang tetap menyala mengundang tekanan berulang yang semuanya
+      // ditolak — dan sebabnya baru terbaca sesudah orangnya menekan.
+      final ble = FakeBleService(
+        percepatan: 3600,
+        lewatkan: {2, 3},
+        otomatisSelesaiMakan: null,
+        status: const StatusPerangkat(
+          tersambung: true,
+          baterai: 7,
+          namaPerangkat: 'AsaWatch X1',
+          bateraiKritis: true,
+        ),
+      );
+      final jam = JamPalsu();
+      final c = buatControllerUji(
+        ble: ble,
+        jadwal: jadwalUjiTitik,
+        jam: jam.call,
+      );
+      await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
+      await jalankan(tester, c);
+      await majuBersama(tester, jam, const Duration(seconds: 56));
+
+      // Jendelanya sudah terbuka — yang menahan hanyalah baterainya.
+      expect(c.sisaSampaiTitikBerikutnya!.inSeconds, lessThanOrEqualTo(0));
+
+      final tombol = tester.widget<ElevatedButton>(
+        find.ancestor(
+          of: find.textContaining('Ukur '),
+          matching: find.byType(ElevatedButton),
+        ),
+      );
+      expect(tombol.onPressed, isNull);
+      expect(find.textContaining('menolak mengukur'), findsWidgets);
+      // Bukan "belum tersambung": jamnya tersambung dan justru sedang
+      // melaporkan keadaannya.
+      expect(find.text('Jam belum tersambung'), findsNothing);
+
+      final galat = await c.ukurTitikSekarang();
+      expect(galat, contains('10%'));
+      expect(c.sesiAktif!.sampel[2].status, StatusSampel.menunggu);
+
+      await hentikanSesi(tester, c);
+    });
   });
 
   group('Tombol ukur di jam (ARM_TITIK)', () {

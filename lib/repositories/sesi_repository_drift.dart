@@ -23,13 +23,19 @@ class SesiRepositoryDrift implements SesiRepository {
     // Urutan "terbaru di depan" ditegakkan di SQL, bukan diwariskan dari urutan
     // penyisipan — dan memakai kunci yang sama dengan yang dipakai aplikasi
     // untuk mengurutkan sesi: t0 bila sudah ada, jika tidak waktu fotonya.
+    // Baris bernisan disaring **di SQL**, bukan sesudahnya di Dart. Bedanya
+    // bukan kecepatan: baris itu tidak pernah menjadi `SesiMakan`, tidak pernah
+    // sampai ke controller, dan karena itu tidak ada pemanggil yang bisa lupa
+    // menyaringnya lalu menghidupkan lagi sesi yang sudah dibatalkan.
     final barisSesi =
-        await (db.select(db.tabelSesi)..orderBy([
-              (t) => OrderingTerm(
-                expression: coalesce<int>([t.t0, t.waktuFoto]),
-                mode: OrderingMode.desc,
-              ),
-            ]))
+        await (db.select(db.tabelSesi)
+              ..where((t) => t.dihapusPada.isNull())
+              ..orderBy([
+                (t) => OrderingTerm(
+                  expression: coalesce<int>([t.t0, t.waktuFoto]),
+                  mode: OrderingMode.desc,
+                ),
+              ]))
             .get();
     if (barisSesi.isEmpty) return const [];
 
@@ -203,6 +209,50 @@ class SesiRepositoryDrift implements SesiRepository {
     // ulang selamanya setiap aplikasi start.
     await (db.update(db.tabelEntriJam)..where((t) => t.sesiId.equals(sesiId)))
         .write(const TabelEntriJamCompanion(diproses: Value(true)));
+  }
+
+  @override
+  Future<void> nisankan(String sesiId) async {
+    await db.transaction(() async {
+      // Isinya dibuang lebih dulu, dan seluruhnya: nisan yang masih menyimpan
+      // sampel dan angka gizi bukan nisan, melainkan sesi yang disembunyikan.
+      // `fotoPath` dikosongkan karena berkasnya memang sudah dihapus pemanggil
+      // — jalur yang menunjuk ke berkas yang tidak ada lebih buruk daripada
+      // jalur kosong.
+      await (db.delete(
+        db.tabelSampel,
+      )..where((t) => t.sesiId.equals(sesiId))).go();
+      await (db.delete(
+        db.tabelHasilDeteksi,
+      )..where((t) => t.sesiId.equals(sesiId))).go();
+      await (db.delete(
+        db.tabelItemMakanan,
+      )..where((t) => t.sesiId.equals(sesiId))).go();
+
+      await (db.update(db.tabelSesi)..where((t) => t.id.equals(sesiId))).write(
+        TabelSesiCompanion(
+          fotoPath: const Value(''),
+          dihapusPada: Value(_keEpoch(DateTime.now())),
+        ),
+      );
+
+      // Sama seperti pada [hapus]: entri mentahnya tidak akan tersimpan di
+      // dalam sesi mana pun lagi, jadi tanpa tanda ini ia diputar ulang setiap
+      // aplikasi start — dan memutarnya ulang berarti membangun kembali sesi
+      // yang baru saja dibatalkan.
+      await (db.update(db.tabelEntriJam)..where((t) => t.sesiId.equals(sesiId)))
+          .write(const TabelEntriJamCompanion(diproses: Value(true)));
+    });
+  }
+
+  @override
+  Future<List<String>> ambilNisan() async {
+    final baris =
+        await (db.select(db.tabelSesi)
+              ..where((t) => t.dihapusPada.isNotNull())
+              ..orderBy([(t) => OrderingTerm(expression: t.dihapusPada)]))
+            .get();
+    return [for (final b in baris) b.id];
   }
 
   @override

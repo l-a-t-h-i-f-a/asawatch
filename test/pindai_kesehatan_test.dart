@@ -13,7 +13,8 @@ import 'package:asawatch/models/sesi_makan.dart';
 import 'package:asawatch/pindai_kesehatan_page.dart';
 import 'package:asawatch/services/ble_service.dart';
 import 'package:asawatch/services/izin_ble.dart';
-import 'package:asawatch/services/protokol_jam.dart' show GalatJam;
+import 'package:asawatch/services/protokol_jam.dart'
+    show GalatJam, ProtokolJam;
 
 import 'helpers.dart';
 
@@ -21,6 +22,14 @@ import 'helpers.dart';
 /// selesai dalam ~8 ms waktu test. Satu pompa 100 ms cukup untuk melewatinya
 /// dengan lapang.
 const _selesaiMengukur = Duration(milliseconds: 100);
+
+/// Cukup untuk melewati satu-dua denyut jam palsu (yang, dipercepat 3600x,
+/// berjarak ~1,4 ms) tanpa sampai ke ujung pengukurannya.
+const _tengahMengukur = Duration(milliseconds: 3);
+
+/// Cukup jauh untuk melewati denyut ketiga, tempat [FakeBleService] mulai
+/// melaporkan persen yang mandek.
+const _macetTerlihat = Duration(milliseconds: 4);
 
 void main() {
   setUpAll(loadMontserrat);
@@ -113,10 +122,19 @@ void main() {
       await tester.tap(find.text('Mulai Pindai'));
       await tester.pump();
 
-      // Layar menunggu: apa yang sedang terjadi, dan apa yang harus dilakukan.
-      expect(find.text('Jam mulai membaca'), findsOneWidget);
+      // Belum ada satu pun kabar dari jam, jadi layar belum boleh berkata jam
+      // sedang mengukur — perintahnya baru dikirim.
+      expect(find.text('Menunggu jam'), findsOneWidget);
+      expect(find.text('Jam sedang mengukur'), findsNothing);
       expect(find.text('0 dtk'), findsOneWidget);
       expect(find.text('Berhenti Menunggu'), findsOneWidget);
+
+      // Denyut pertama tiba: barulah kalimatnya berubah, dan cincinnya
+      // menampilkan angka dari jam alih-alih detik yang dihitung layar.
+      await tester.pump(_tengahMengukur);
+      expect(find.text('Jam sedang mengukur'), findsOneWidget);
+      expect(find.textContaining('%'), findsOneWidget);
+      expect(find.textContaining('Perkiraan sisa'), findsOneWidget);
 
       await tester.pump(_selesaiMengukur);
 
@@ -130,6 +148,97 @@ void main() {
       final sampel = c.pindaiTerakhir!.sampel;
       expect(find.text('${sampel.gulaDarah}'), findsOneWidget);
       expect(find.text(sampel.tekananDarah!), findsOneWidget);
+    });
+
+    testWidgets('jam yang berhenti mengabari dikatakan, bukan digantung', (
+      tester,
+    ) async {
+      // Inilah keadaan yang membuat seluruh denyut §5.5 v1.4 ada: sebelum itu,
+      // jam yang mati di tengah pengukuran tetap tampil "sedang mengukur"
+      // sampai satu timeout tunggal habis — lalu dilaporkan sebagai jam yang
+      // tidak menjawab, yang mengirim orang merapatkan tali jam yang sudah
+      // mati.
+      final c = buatControllerUji(
+        ble: FakeBleService(
+          percepatan: 3600,
+          otomatisSelesaiMakan: null,
+          denyutUkurBerhenti: 2,
+        ),
+      );
+
+      await pumpHalaman(
+        tester,
+        const PindaiKesehatanPage(izin: IzinBleSelaluBoleh()),
+        controller: c,
+      );
+
+      await tester.tap(find.text('Mulai Pindai'));
+      await tester.pump(_tengahMengukur);
+      expect(find.text('Jam sedang mengukur'), findsOneWidget);
+
+      // Denyutnya berhenti. Yang muncul adalah sebabnya, bukan "tidak
+      // menjawab", dan layar kembali ke persiapan alih-alih menggantung.
+      await tester.pump(ProtokolJam.denyutUkurBasi + _selesaiMengukur);
+      expect(find.textContaining('berhenti mengabari'), findsOneWidget);
+      expect(find.text('Mulai Pindai'), findsOneWidget);
+    });
+
+    testWidgets('nadi yang belum ketemu punya kalimatnya sendiri', (
+      tester,
+    ) async {
+      // Denyut tetap datang, persennya tidak bergerak: jam hidup dan sedang
+      // kesulitan. Tindak lanjutnya berbeda dari denyut yang berhenti, jadi
+      // kalimatnya pun harus berbeda.
+      final c = buatControllerUji(
+        ble: FakeBleService(
+          percepatan: 3600,
+          otomatisSelesaiMakan: null,
+          persenUkurMacet: true,
+        ),
+      );
+
+      await pumpHalaman(
+        tester,
+        const PindaiKesehatanPage(izin: IzinBleSelaluBoleh()),
+        controller: c,
+      );
+
+      await tester.tap(find.text('Mulai Pindai'));
+      await tester.pump(_macetTerlihat);
+
+      expect(find.text('Nadi belum ketemu'), findsOneWidget);
+      expect(find.textContaining('Rapatkan jam'), findsOneWidget);
+
+      // Tetap berakhir dengan hasil: macet bukan kegagalan, hanya lama.
+      await tester.pump(_selesaiMengukur);
+      expect(find.text('Pindai selesai'), findsOneWidget);
+    });
+
+    testWidgets('jam lama tanpa denyut tetap bisa memindai', (tester) async {
+      // Firmware ≤ v1.3 tidak pernah mengirim kemajuan. Layar tidak boleh
+      // mengarang persen, dan penjaga denyut tidak boleh menggagalkannya.
+      final c = buatControllerUji(
+        ble: FakeBleService(
+          percepatan: 3600,
+          otomatisSelesaiMakan: null,
+          denyutUkur: false,
+        ),
+      );
+
+      await pumpHalaman(
+        tester,
+        const PindaiKesehatanPage(izin: IzinBleSelaluBoleh()),
+        controller: c,
+      );
+
+      await tester.tap(find.text('Mulai Pindai'));
+      await tester.pump(_tengahMengukur);
+
+      expect(find.text('Menunggu jam'), findsOneWidget);
+      expect(find.textContaining('%'), findsNothing);
+
+      await tester.pump(_selesaiMengukur);
+      expect(find.text('Pindai selesai'), findsOneWidget);
     });
 
     testWidgets('hasilnya tidak ikut masuk riwayat sesi makan', (tester) async {

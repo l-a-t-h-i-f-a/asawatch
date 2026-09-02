@@ -270,7 +270,18 @@ void main() {
       // Jam mati, sensornya gagal, atau tombolnya ditekan lalu jamnya tidak
       // pernah tersambung lagi: sampelnya tidak akan datang, dan tidak ada
       // seorang pun yang akan menutup sesinya (§4.3 rencana produksi).
-      final c = buatController();
+      //
+      // `lewatkan` mencakup baseline supaya jam palsu **tidak** sedang mengukur
+      // apa pun saat tenggatnya jatuh — kalau ia sedang mengukur, tenggatnya
+      // memang sengaja menunda (lihat tenggat_sesi_test.dart), dan premis test
+      // ini adalah jam yang sudah mati.
+      final c = buatController(
+        ble: FakeBleService(
+          percepatan: 3600,
+          otomatisSelesaiMakan: null,
+          lewatkan: {0, 1, 2, 3},
+        ),
+      );
       addTearDown(c.dispose);
 
       await c.mulaiDraft(contohFotoPath);

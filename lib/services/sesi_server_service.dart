@@ -85,6 +85,19 @@ abstract class SesiServerService {
   /// gizi — persis seperti `NutrisiService.analisis`. Kalau suatu saat server
   /// berpindah ke jawaban langsung, yang berubah hanya berkas ini.
   Future<HasilDeteksi?> mintaAnalisis(String token, String sesiId);
+
+  /// Menghapus satu sesi di server (§5.2 `DELETE /sesi/{id}`, soft delete).
+  ///
+  /// Untuk sesi yang dibatalkan pengguna. Draft-nya sudah terunggah sejak rana
+  /// ditekan, jadi tanpa ini pembatalan hanya berlaku di ponsel yang menekan
+  /// tombolnya: di server sesi itu tinggal selamanya sebagai draft yang tak
+  /// pernah selesai, terlihat di dashboard dan ikut terunduh ke perangkat kedua.
+  ///
+  /// **Idempoten, dan 404 dihitung berhasil.** Yang ditanyakan pemanggil bukan
+  /// "apakah ada yang terhapus" melainkan "apakah sesi ini masih ada di sana" —
+  /// dan sesi yang tidak pernah sampai ke server sudah memenuhi jawabannya.
+  /// Membedakan keduanya hanya akan melahirkan nisan yang tidak bisa mati.
+  Future<bool> hapus(String token, String sesiId);
 }
 
 class SesiHttpService implements SesiServerService {
@@ -252,6 +265,43 @@ class SesiHttpService implements SesiServerService {
   /// Lebih longgar daripada permintaan biasa: yang dikirim beberapa ratus
   /// kilobyte foto, bukan beberapa baris JSON.
   static const Duration batasUnggahFoto = Duration(seconds: 60);
+
+  @override
+  Future<bool> hapus(String token, String sesiId) async {
+    try {
+      final jawaban = await _klien
+          .delete(
+            Uri.parse('$basisUrl/api/v1/sesi/$sesiId'),
+            headers: {
+              'accept': 'application/json',
+              'authorization': 'Bearer $token',
+            },
+          )
+          .timeout(AuthService.batasWaktu);
+
+      if (jawaban.statusCode == 401) {
+        await onTokenDitolak?.call();
+        return false;
+      }
+      // 404: server tidak punya sesi ini — pembatalan yang mendahului unggahan
+      // draft-nya, atau nisan yang terkirim dua kali. Keduanya berarti nisannya
+      // sudah selesai bertugas.
+      if (jawaban.statusCode == 404) return true;
+      if (jawaban.statusCode >= 200 && jawaban.statusCode < 300) return true;
+
+      debugPrint(
+        'DELETE /sesi/$sesiId ditolak ${jawaban.statusCode}: '
+        '${_ringkas(jawaban.body)}',
+      );
+      return false;
+    } on TimeoutException {
+      return false;
+    } on SocketException {
+      return false;
+    } on http.ClientException {
+      return false;
+    }
+  }
 
   @override
   Future<HasilDeteksi?> mintaAnalisis(String token, String sesiId) async {
@@ -655,7 +705,8 @@ class SesiServerPalsu implements SesiServerService {
       ? null
       : [
           for (final s in tersedia ?? diterima)
-            SesiUnduhan(sesi: s, urlFoto: urlFoto[s.id]),
+            if (!dihapus.contains(s.id))
+              SesiUnduhan(sesi: s, urlFoto: urlFoto[s.id]),
         ];
 
   @override
@@ -698,5 +749,20 @@ class SesiServerPalsu implements SesiServerService {
     if (gagal) return null;
     analisisDiminta.add(sesiId);
     return hasilAnalisis;
+  }
+
+  /// Id sesi yang penghapusannya sampai ke "server".
+  ///
+  /// Dipakai juga oleh [ambilSemua] sebagai saringan, meniru soft delete di
+  /// sana: sesi yang sudah dihapus tidak boleh muncul lagi di unduhan, sebab
+  /// justru itu yang harus dibuktikan — nisan yang terkirim mengakhiri sesi
+  /// hantunya, bukan sekadar mencatat sebuah panggilan.
+  final List<String> dihapus = [];
+
+  @override
+  Future<bool> hapus(String token, String sesiId) async {
+    if (gagal) return false;
+    dihapus.add(sesiId);
+    return true;
   }
 }

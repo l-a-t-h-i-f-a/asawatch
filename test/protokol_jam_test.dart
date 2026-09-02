@@ -89,21 +89,29 @@ Uint8List paketPeristiwa({
   return d;
 }
 
-/// Paket Status 8 byte (§5.5).
+/// Paket Status — 8 byte (§5.5), atau 10 sejak firmware v1.4 bila [persen]
+/// atau [sisaDetik] diisi.
 Uint8List paketStatus({
   int statusSesi = 2,
   int sampelTertunda = 5,
   int baterai = 68,
   int flag = 0x0A,
   int uptimeS = 999,
+  int? persen,
+  int? sisaDetik,
 }) {
-  final d = Uint8List(8);
+  final panjang = (persen == null && sisaDetik == null) ? 8 : 10;
+  final d = Uint8List(panjang);
   final b = ByteData.view(d.buffer);
   b.setUint8(0, statusSesi);
   b.setUint8(1, sampelTertunda);
   b.setUint8(2, baterai);
   b.setUint8(3, flag);
   b.setUint32(4, uptimeS, Endian.little);
+  if (panjang == 10) {
+    b.setUint8(8, persen ?? 0);
+    b.setUint8(9, sisaDetik ?? 0);
+  }
   return d;
 }
 
@@ -314,6 +322,35 @@ void main() {
 
     test('baterai kritis terbaca dari bit2', () {
       expect(bacaStatus(paketStatus(flag: 0x04)).bateraiKritis, isTrue);
+    });
+
+    test('kemajuan pengukuran terbaca dari byte 8 dan 9 (v1.4)', () {
+      final s = bacaStatus(
+        paketStatus(flag: 0x01, persen: 45, sisaDetik: 20),
+      );
+
+      expect(s.sedangMengukur, isTrue);
+      expect(s.ukurPersen, 45);
+      expect(s.ukurSisaDetik, 20);
+      expect(s.punyaKemajuan, isTrue);
+    });
+
+    test('paket 8 byte firmware lama: kemajuan null, bukan nol', () {
+      // Bedanya bukan kosmetik. null berarti jam ini tidak pernah mengabarkan
+      // kemajuan sama sekali, sehingga aplikasi tidak boleh memasang penjaga
+      // denyut yang akan menggagalkan setiap pengukurannya setelah 8 detik;
+      // 0 berarti pengukuran yang baru saja dimulai.
+      final s = bacaStatus(paketStatus(flag: 0x01));
+
+      expect(s.sedangMengukur, isTrue);
+      expect(s.ukurPersen, isNull);
+      expect(s.ukurSisaDetik, isNull);
+      expect(s.punyaKemajuan, isFalse);
+    });
+
+    test('byte berlebih di luar v1.4 diabaikan, bukan ditolak', () {
+      final panjang = [...paketStatus(persen: 10, sisaDetik: 3), 0xFF, 0xFF];
+      expect(bacaStatus(panjang).ukurPersen, 10);
     });
 
     test('status sesi tidak dikenal melempar, bukan diam-diam jadi idle', () {

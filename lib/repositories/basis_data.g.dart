@@ -99,6 +99,17 @@ class $TabelSesiTable extends TabelSesi
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _dihapusPadaMeta = const VerificationMeta(
+    'dihapusPada',
+  );
+  @override
+  late final GeneratedColumn<int> dihapusPada = GeneratedColumn<int>(
+    'dihapus_pada',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -109,6 +120,7 @@ class $TabelSesiTable extends TabelSesi
     waktuTidakPasti,
     sesiUji,
     diperbaruiPada,
+    dihapusPada,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -170,6 +182,15 @@ class $TabelSesiTable extends TabelSesi
         ),
       );
     }
+    if (data.containsKey('dihapus_pada')) {
+      context.handle(
+        _dihapusPadaMeta,
+        dihapusPada.isAcceptableOrUnknown(
+          data['dihapus_pada']!,
+          _dihapusPadaMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -212,6 +233,10 @@ class $TabelSesiTable extends TabelSesi
       diperbaruiPada: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}diperbarui_pada'],
+      ),
+      dihapusPada: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}dihapus_pada'],
       ),
     );
   }
@@ -263,6 +288,21 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
   /// paling baru walau isinya tidak berubah, dan suntingan dari perangkat lain
   /// akan tertimpa salinan lama tanpa ada yang menghalangi.
   final int? diperbaruiPada;
+
+  /// Batu nisan: kapan sesi ini dibatalkan pengguna di perangkat ini.
+  ///
+  /// Bukan "sesi yang disembunyikan". Saat kolom ini terisi, sampel, hasil
+  /// gizi, item makanan, dan **berkas fotonya** sudah dihapus permanen; yang
+  /// tersisa hanya id dan waktunya. Gunanya satu: memberi tahu server bahwa
+  /// sesi ini dibuang (§7 `dihapus_pada`, `POST /sinkron`) — draft-nya sudah
+  /// terunggah sejak rana ditekan, jadi tanpa nisan ia tinggal di sana selamanya
+  /// sebagai sesi yang tak pernah selesai, dan ikut terunduh ke perangkat kedua.
+  ///
+  /// Umurnya pendek: begitu server mengakuinya, barisnya dihapus betulan
+  /// (`SesiRepository.ambilNisan` → `hapus`). Yang menumpuk hanya milik
+  /// pengguna yang belum pernah masuk — dan di sana tidak ada server untuk
+  /// diberi tahu, jadi nisannya tidak pernah dibuat sejak awal.
+  final int? dihapusPada;
   const TabelSesiData({
     required this.id,
     required this.fotoPath,
@@ -272,6 +312,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
     required this.waktuTidakPasti,
     required this.sesiUji,
     this.diperbaruiPada,
+    this.dihapusPada,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -292,6 +333,9 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
     if (!nullToAbsent || diperbaruiPada != null) {
       map['diperbarui_pada'] = Variable<int>(diperbaruiPada);
     }
+    if (!nullToAbsent || dihapusPada != null) {
+      map['dihapus_pada'] = Variable<int>(dihapusPada);
+    }
     return map;
   }
 
@@ -307,6 +351,9 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
       diperbaruiPada: diperbaruiPada == null && nullToAbsent
           ? const Value.absent()
           : Value(diperbaruiPada),
+      dihapusPada: dihapusPada == null && nullToAbsent
+          ? const Value.absent()
+          : Value(dihapusPada),
     );
   }
 
@@ -326,6 +373,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
       waktuTidakPasti: serializer.fromJson<bool>(json['waktuTidakPasti']),
       sesiUji: serializer.fromJson<bool>(json['sesiUji']),
       diperbaruiPada: serializer.fromJson<int?>(json['diperbaruiPada']),
+      dihapusPada: serializer.fromJson<int?>(json['dihapusPada']),
     );
   }
   @override
@@ -342,6 +390,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
       'waktuTidakPasti': serializer.toJson<bool>(waktuTidakPasti),
       'sesiUji': serializer.toJson<bool>(sesiUji),
       'diperbaruiPada': serializer.toJson<int?>(diperbaruiPada),
+      'dihapusPada': serializer.toJson<int?>(dihapusPada),
     };
   }
 
@@ -354,6 +403,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
     bool? waktuTidakPasti,
     bool? sesiUji,
     Value<int?> diperbaruiPada = const Value.absent(),
+    Value<int?> dihapusPada = const Value.absent(),
   }) => TabelSesiData(
     id: id ?? this.id,
     fotoPath: fotoPath ?? this.fotoPath,
@@ -365,6 +415,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
     diperbaruiPada: diperbaruiPada.present
         ? diperbaruiPada.value
         : this.diperbaruiPada,
+    dihapusPada: dihapusPada.present ? dihapusPada.value : this.dihapusPada,
   );
   TabelSesiData copyWithCompanion(TabelSesiCompanion data) {
     return TabelSesiData(
@@ -380,6 +431,9 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
       diperbaruiPada: data.diperbaruiPada.present
           ? data.diperbaruiPada.value
           : this.diperbaruiPada,
+      dihapusPada: data.dihapusPada.present
+          ? data.dihapusPada.value
+          : this.dihapusPada,
     );
   }
 
@@ -393,7 +447,8 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
           ..write('status: $status, ')
           ..write('waktuTidakPasti: $waktuTidakPasti, ')
           ..write('sesiUji: $sesiUji, ')
-          ..write('diperbaruiPada: $diperbaruiPada')
+          ..write('diperbaruiPada: $diperbaruiPada, ')
+          ..write('dihapusPada: $dihapusPada')
           ..write(')'))
         .toString();
   }
@@ -408,6 +463,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
     waktuTidakPasti,
     sesiUji,
     diperbaruiPada,
+    dihapusPada,
   );
   @override
   bool operator ==(Object other) =>
@@ -420,7 +476,8 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
           other.status == this.status &&
           other.waktuTidakPasti == this.waktuTidakPasti &&
           other.sesiUji == this.sesiUji &&
-          other.diperbaruiPada == this.diperbaruiPada);
+          other.diperbaruiPada == this.diperbaruiPada &&
+          other.dihapusPada == this.dihapusPada);
 }
 
 class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
@@ -432,6 +489,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
   final Value<bool> waktuTidakPasti;
   final Value<bool> sesiUji;
   final Value<int?> diperbaruiPada;
+  final Value<int?> dihapusPada;
   final Value<int> rowid;
   const TabelSesiCompanion({
     this.id = const Value.absent(),
@@ -442,6 +500,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
     this.waktuTidakPasti = const Value.absent(),
     this.sesiUji = const Value.absent(),
     this.diperbaruiPada = const Value.absent(),
+    this.dihapusPada = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   TabelSesiCompanion.insert({
@@ -453,6 +512,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
     this.waktuTidakPasti = const Value.absent(),
     this.sesiUji = const Value.absent(),
     this.diperbaruiPada = const Value.absent(),
+    this.dihapusPada = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        fotoPath = Value(fotoPath),
@@ -467,6 +527,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
     Expression<bool>? waktuTidakPasti,
     Expression<bool>? sesiUji,
     Expression<int>? diperbaruiPada,
+    Expression<int>? dihapusPada,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -478,6 +539,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
       if (waktuTidakPasti != null) 'waktu_tidak_pasti': waktuTidakPasti,
       if (sesiUji != null) 'sesi_uji': sesiUji,
       if (diperbaruiPada != null) 'diperbarui_pada': diperbaruiPada,
+      if (dihapusPada != null) 'dihapus_pada': dihapusPada,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -491,6 +553,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
     Value<bool>? waktuTidakPasti,
     Value<bool>? sesiUji,
     Value<int?>? diperbaruiPada,
+    Value<int?>? dihapusPada,
     Value<int>? rowid,
   }) {
     return TabelSesiCompanion(
@@ -502,6 +565,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
       waktuTidakPasti: waktuTidakPasti ?? this.waktuTidakPasti,
       sesiUji: sesiUji ?? this.sesiUji,
       diperbaruiPada: diperbaruiPada ?? this.diperbaruiPada,
+      dihapusPada: dihapusPada ?? this.dihapusPada,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -535,6 +599,9 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
     if (diperbaruiPada.present) {
       map['diperbarui_pada'] = Variable<int>(diperbaruiPada.value);
     }
+    if (dihapusPada.present) {
+      map['dihapus_pada'] = Variable<int>(dihapusPada.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -552,6 +619,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
           ..write('waktuTidakPasti: $waktuTidakPasti, ')
           ..write('sesiUji: $sesiUji, ')
           ..write('diperbaruiPada: $diperbaruiPada, ')
+          ..write('dihapusPada: $dihapusPada, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -4547,6 +4615,7 @@ typedef $$TabelSesiTableCreateCompanionBuilder =
       Value<bool> waktuTidakPasti,
       Value<bool> sesiUji,
       Value<int?> diperbaruiPada,
+      Value<int?> dihapusPada,
       Value<int> rowid,
     });
 typedef $$TabelSesiTableUpdateCompanionBuilder =
@@ -4559,6 +4628,7 @@ typedef $$TabelSesiTableUpdateCompanionBuilder =
       Value<bool> waktuTidakPasti,
       Value<bool> sesiUji,
       Value<int?> diperbaruiPada,
+      Value<int?> dihapusPada,
       Value<int> rowid,
     });
 
@@ -4675,6 +4745,11 @@ class $$TabelSesiTableFilterComposer
 
   ColumnFilters<int> get diperbaruiPada => $composableBuilder(
     column: $table.diperbaruiPada,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get dihapusPada => $composableBuilder(
+    column: $table.dihapusPada,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -4802,6 +4877,11 @@ class $$TabelSesiTableOrderingComposer
     column: $table.diperbaruiPada,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get dihapusPada => $composableBuilder(
+    column: $table.dihapusPada,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$TabelSesiTableAnnotationComposer
@@ -4838,6 +4918,11 @@ class $$TabelSesiTableAnnotationComposer
 
   GeneratedColumn<int> get diperbaruiPada => $composableBuilder(
     column: $table.diperbaruiPada,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get dihapusPada => $composableBuilder(
+    column: $table.dihapusPada,
     builder: (column) => column,
   );
 
@@ -4958,6 +5043,7 @@ class $$TabelSesiTableTableManager
                 Value<bool> waktuTidakPasti = const Value.absent(),
                 Value<bool> sesiUji = const Value.absent(),
                 Value<int?> diperbaruiPada = const Value.absent(),
+                Value<int?> dihapusPada = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TabelSesiCompanion(
                 id: id,
@@ -4968,6 +5054,7 @@ class $$TabelSesiTableTableManager
                 waktuTidakPasti: waktuTidakPasti,
                 sesiUji: sesiUji,
                 diperbaruiPada: diperbaruiPada,
+                dihapusPada: dihapusPada,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -4980,6 +5067,7 @@ class $$TabelSesiTableTableManager
                 Value<bool> waktuTidakPasti = const Value.absent(),
                 Value<bool> sesiUji = const Value.absent(),
                 Value<int?> diperbaruiPada = const Value.absent(),
+                Value<int?> dihapusPada = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TabelSesiCompanion.insert(
                 id: id,
@@ -4990,6 +5078,7 @@ class $$TabelSesiTableTableManager
                 waktuTidakPasti: waktuTidakPasti,
                 sesiUji: sesiUji,
                 diperbaruiPada: diperbaruiPada,
+                dihapusPada: dihapusPada,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

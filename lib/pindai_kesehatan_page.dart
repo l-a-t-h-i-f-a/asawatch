@@ -192,7 +192,8 @@ class _PindaiKesehatanPageState extends State<PindaiKesehatanPage>
     final controller = context.watch<SesiMakanController>();
     final perangkat = controller.statusPerangkat;
     final terakhir = controller.pindaiTerakhir;
-    final siap = perangkat.tersambung && !controller.sedangMemindai;
+    final halangan = controller.alasanJamTidakBisaUkur;
+    final siap = halangan == null && !controller.sedangMemindai;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -309,7 +310,12 @@ class _PindaiKesehatanPageState extends State<PindaiKesehatanPage>
             child: Text(
               controller.sedangMemindai
                   ? 'Pengukuran sebelumnya masih berjalan.'
-                  : 'Jam perlu tersambung dulu sebelum bisa memindai.',
+                  // Sebabnya diambil dari controller, bukan ditulis ulang di
+                  // sini: baterai kritis dan jam terputus menuntut hal yang
+                  // berbeda, dan dua salinan kalimat akan berbeda pada saat
+                  // yang paling tidak tepat.
+                  : (halangan ??
+                        'Jam perlu tersambung dulu sebelum bisa memindai.'),
               style: const TextStyle(fontSize: 11, color: Color(0xFF9CB1AC)),
             ),
           ),
@@ -322,34 +328,60 @@ class _PindaiKesehatanPageState extends State<PindaiKesehatanPage>
   // Tahap 2 — menunggu jawaban jam.
   Widget _mengukur() {
     final detik = _detikBerjalan;
+    final kemajuan = context.watch<SesiMakanController>().kemajuanUkur;
 
-    // Kalimatnya berganti seiring waktu karena yang dibutuhkan pengguna juga
-    // berganti: mula-mula tahu apa yang sedang terjadi, lalu diingatkan supaya
-    // tidak bergerak, lalu diyakinkan bahwa lamanya memang wajar.
-    final (String judul, String penjelasan) = switch (detik) {
-      < 8 => (
-        'Jam mulai membaca',
-        'Tetap diam sebentar. Jam sedang mencari gelombang nadi di pergelangan '
-            'Anda.',
+    // **Kalimatnya berasal dari kabar jam, bukan dari detik yang berjalan.**
+    // Sebelumnya seluruh copy di sini disetir `detik`: layar menuliskan "Sedang
+    // mengukur" pada detik ke-8 apa pun yang terjadi di pergelangan — termasuk
+    // ketika jamnya sudah mati, sudah keluar jangkauan, atau tidak pernah
+    // mulai. Yang membuat kalimat itu benar sekarang adalah paket Status yang
+    // betul-betul tiba tiap dua detik (docs/protokol-jam.md §5.5 v1.4); tanpa
+    // kabar itu, layar tidak berhak berkata jam sedang bekerja.
+    //
+    // Tiga keadaan, tiga kalimat, karena tindak lanjutnya tiga-tiganya berbeda:
+    // belum ada kabar (tunggu), macet (rapatkan jam), berjalan (diam saja).
+    final (String judul, String penjelasan) = switch (kemajuan) {
+      null => (
+        'Menunggu jam',
+        'Perintah sudah dikirim. Layar ini akan berubah begitu jam melaporkan '
+            'bahwa ia mulai membaca.',
       ),
-      < 25 => (
-        'Sedang mengukur',
+      final k when k.macet => (
+        'Nadi belum ketemu',
+        'Jam masih bekerja, tetapi belum menemukan gelombang nadi. Rapatkan '
+            'jam di pergelangan dan diamkan tangan.',
+      ),
+      final k when (k.sisaDetik ?? 99) <= 5 => (
+        'Hampir selesai',
+        'Tahan posisi sebentar lagi sampai jam mengirim hasilnya.',
+      ),
+      _ => (
+        'Jam sedang mengukur',
         'Jangan bicara dan jangan menggerakkan tangan. Satu gerakan kecil '
             'membuat jam mengulang pembacaannya dari awal.',
       ),
-      _ => (
-        'Masih berjalan',
-        'Bagian tekanan darah memang yang paling lama. Tahan posisi sedikit '
-            'lagi.',
-      ),
     };
+
+    // Perkiraan sisa **dari jam**, bukan hitung mundur buatan layar: yang
+    // mengakhiri pengukuran adalah kecukupan data, jadi angka ini boleh
+    // memanjang — dan justru itulah yang membuatnya jujur.
+    final sisa = kemajuan?.sisaDetik;
+    final keterangan = sisa == null
+        ? null
+        : sisa >= 255
+        ? 'Perkiraan sisa: lebih dari 4 menit'
+        : 'Perkiraan sisa: ±$sisa detik menurut jam';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: 24),
         Center(
-          child: _CincinDenyut(denyut: _denyut, detik: detik),
+          child: _CincinDenyut(
+            denyut: _denyut,
+            detik: detik,
+            persen: kemajuan?.persen,
+          ),
         ),
         const SizedBox(height: 28),
         Text(
@@ -374,6 +406,14 @@ class _PindaiKesehatanPageState extends State<PindaiKesehatanPage>
             ),
           ),
         ),
+        if (keterangan != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            keterangan,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 11, color: Color(0xFF9CB1AC)),
+          ),
+        ],
         const SizedBox(height: 28),
 
         const _KartuInfo(
@@ -631,10 +671,20 @@ class _PindaiKesehatanPageState extends State<PindaiKesehatanPage>
 /// kebohongan yang persis paling terasa. Yang dijanjikan cincin ini hanya satu
 /// hal yang memang benar — sesuatu sedang berjalan.
 class _CincinDenyut extends StatelessWidget {
-  const _CincinDenyut({required this.denyut, required this.detik});
+  const _CincinDenyut({
+    required this.denyut,
+    required this.detik,
+    this.persen,
+  });
 
   final Animation<double> denyut;
   final int detik;
+
+  /// Kemajuan yang dilaporkan jam, 0..100. null berarti jam belum (atau tidak
+  /// pernah) mengabarkannya — firmware ≤ v1.3 tidak mengirimkannya sama sekali,
+  /// jadi detik yang berjalan tetap ditampilkan sebagai gantinya, bukan angka
+  /// yang dikarang layar ini.
+  final int? persen;
 
   @override
   Widget build(BuildContext context) {
@@ -673,7 +723,7 @@ class _CincinDenyut extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               Text(
-                '$detik dtk',
+                persen != null ? '$persen%' : '$detik dtk',
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.bold,

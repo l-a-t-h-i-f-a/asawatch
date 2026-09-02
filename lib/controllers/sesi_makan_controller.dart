@@ -87,6 +87,14 @@ class SesiMakanController extends ChangeNotifier {
 
     _langgananSampel = ble.sampelMasuk.listen(_terimaSampel);
     _langgananT0 = ble.selesaiMakanDitekan.listen(_terimaT0);
+    // Kabar jam selagi ia mengukur (§5.5 v1.4). Disimpan apa adanya: yang
+    // memutuskan apakah pengukurannya masih hidup adalah `BleAsliService`,
+    // yang memegang penjaga denyutnya — controller hanya meneruskan kabar
+    // terakhir ke layar, dan membuangnya begitu penantiannya berakhir.
+    _langgananKemajuan = ble.kemajuanUkur.listen((k) {
+      _kemajuanUkur = k.sedangMengukur ? k : null;
+      notifyListeners();
+    });
     _langgananStatus = ble.statusPerangkat.listen((status) {
       final sebelumnya = _statusPerangkat;
       _statusPerangkat = status;
@@ -199,6 +207,7 @@ class SesiMakanController extends ChangeNotifier {
   StreamSubscription<({String sesiId, DateTime t0, bool waktuTidakPasti})>?
   _langgananT0;
   StreamSubscription<StatusPerangkat>? _langgananStatus;
+  StreamSubscription<KemajuanUkur>? _langgananKemajuan;
 
   final List<SesiMakan> _riwayat; // terbaru di depan
   final Set<String> _sampelDiterima = {}; // kunci "sesiId#index"
@@ -237,6 +246,15 @@ class SesiMakanController extends ChangeNotifier {
   List<SesiMakan> get riwayat => List.unmodifiable(_riwayat);
 
   StatusPerangkat get statusPerangkat => _statusPerangkat;
+
+  /// Kabar terakhir dari jam selagi ia mengukur, atau null bila tidak ada
+  /// pengukuran yang sedang berjalan.
+  ///
+  /// **null bukan berarti jam diam, melainkan tidak ada yang sedang
+  /// ditunggu.** Selama sebuah pengukuran berjalan, nilainya hanya diperbarui
+  /// oleh paket yang benar-benar tiba dari jam — lihat [KemajuanUkur].
+  KemajuanUkur? get kemajuanUkur => _kemajuanUkur;
+  KemajuanUkur? _kemajuanUkur;
 
   /// Ada sesi mode uji tersimpan — dipakai Profil untuk memunculkan tombol
   /// pembersihannya.
@@ -358,9 +376,22 @@ class SesiMakanController extends ChangeNotifier {
     return t0.add(Duration(seconds: titikTerakhir)).add(tenggatSampelTerakhir);
   }
 
+  /// Jeda sebelum tenggat diperiksa lagi ketika jamnya ternyata sedang
+  /// mengukur, dan berapa kali penundaan itu boleh berulang.
+  ///
+  /// Hasil kalinya (6 menit) sengaja melampaui batas keras pengukuran di
+  /// firmware (`UKUR_BATAS_KERAS_MS`, 5 menit): pengukuran yang sah pasti
+  /// selesai di dalamnya, sedangkan jam yang bit0-nya menyala selamanya karena
+  /// bug tetap tidak bisa menahan sesi tanpa ujung.
+  static const Duration _jedaTenggatUkur = Duration(seconds: 30);
+  static const int _maksTundaTenggat = 12;
+
+  int _tundaTenggat = 0;
+
   void _jadwalkanTenggat() {
     _tenggat?.cancel();
     _tenggat = null;
+    _tundaTenggat = 0;
 
     final sesi = _sesiAktif;
     if (sesi == null) return;
@@ -369,23 +400,55 @@ class SesiMakanController extends ChangeNotifier {
 
     final sisa = batas.difference(jam());
     if (!sisa.isNegative) {
-      _tenggat = Timer(sisa, _lewatTenggat);
+      _tenggat = Timer(sisa, () => unawaited(_lewatTenggat()));
       return;
     }
     // Sesi yang dipulihkan dari basis data bisa sudah lewat tenggat sejak lama.
     // Ditutup segera, tetapi lewat microtask supaya konstruktor tidak
     // memanggil `notifyListeners()` sebelum ada yang mendengarkan.
-    scheduleMicrotask(_lewatTenggat);
+    scheduleMicrotask(() => unawaited(_lewatTenggat()));
   }
 
   /// Tenggat lewat: yang belum datang dinyatakan terlewat dan sesinya ditutup.
   ///
   /// Sesinya **tidak dibatalkan** — sampel yang sudah masuk tetap data yang sah,
   /// dan `tidakLengkap` justru status yang menyatakan itu.
-  void _lewatTenggat() {
+  ///
+  /// **Kecuali kalau jamnya sedang mengukur saat ini juga.** Menutup sesi pada
+  /// detik itu membuang pengukuran yang tinggal beberapa detik lagi selesai,
+  /// dan sampelnya tiba beberapa saat kemudian ke sesi yang sudah tidak aktif —
+  /// hilang tanpa satu pun gejala. Keadaan itu bukan teoretis: pada jadwal uji
+  /// yang dimampatkan 60x, seluruh sesi berdurasi dua menit sementara satu
+  /// pengukuran sungguhan memakan puluhan detik.
+  ///
+  /// Yang menahannya harus **bukti**, bukan asumsi: [BleService.jamSedangMengukur]
+  /// membaca karakteristik Status, jadi jam yang mati atau di luar jangkauan
+  /// menjawab false dan tenggatnya berjalan seperti biasa. Itu yang memisahkan
+  /// penundaan ini dari melumpuhkan tenggat sama sekali.
+  Future<void> _lewatTenggat() async {
     final sesi = _sesiAktif;
     if (sesi == null || sesi.t0 == null) return;
     if (sesi.sampelBerikutnya == null) return; // sudah lengkap
+
+    if (_statusPerangkat.tersambung && _tundaTenggat < _maksTundaTenggat) {
+      final sedangUkur = await ble.jamSedangMengukur();
+      // Sesinya bisa berganti atau berakhir selagi pembacaan berjalan.
+      if (_dibuang || _sesiAktif?.id != sesi.id) return;
+      if (sedangUkur) {
+        _tundaTenggat++;
+        debugPrint(
+          'Tenggat sesi ditunda: jam sedang mengukur '
+          '($_tundaTenggat/$_maksTundaTenggat).',
+        );
+        _tenggat?.cancel();
+        _tenggat = Timer(
+          _jedaTenggatUkur,
+          () => unawaited(_lewatTenggat()),
+        );
+        return;
+      }
+    }
+
     _selesaikan(_tandaiSisanyaTerlewat(sesi));
   }
 
@@ -594,6 +657,33 @@ class SesiMakanController extends ChangeNotifier {
     return Duration(seconds: titik.jendelaAwal!) - jam().difference(t0);
   }
 
+  /// Kalimat yang menerangkan mengapa jam tidak bisa diminta mengukur
+  /// sekarang, atau null bila tidak ada halangan.
+  ///
+  /// Satu tempat untuk empat permukaan (titik sesi, pindai kesehatan,
+  /// kalibrasi, tombol "sudah selesai makan") karena halangannya milik jam,
+  /// bukan milik layar — dan karena kalimat yang ditulis ulang di empat tempat
+  /// akan berbeda-beda pada saat yang paling tidak tepat.
+  ///
+  /// Baterai kritis ada di sini, bukan hanya di jalur galat, karena jam
+  /// **sudah** memberitahukannya lewat §5.5 bit2 sebelum satu perintah pun
+  /// dikirim. Membiarkan tombolnya menyala berarti mengirim perintah yang
+  /// sudah pasti di-`NAK` (§7 kode `0x06`), lalu menerangkan sebabnya sesudah
+  /// orangnya menekan — padahal sebabnya sudah diketahui sejak sebelum itu.
+  String? get alasanJamTidakBisaUkur {
+    final p = _statusPerangkat;
+    if (p.belumDipasangkan) return 'Belum ada jam yang tersandingkan.';
+    if (!p.tersambung) {
+      return 'Jam belum tersambung. Nyalakan jam dan dekatkan ke ponsel, lalu '
+          'coba lagi.';
+    }
+    if (p.bateraiKritis) {
+      return 'Baterai jam tinggal ${p.baterai ?? 0}% dan jam menolak mengukur '
+          'di bawah 10%. Isi daya jam dulu.';
+    }
+    return null;
+  }
+
   /// Mengukur titik sesi berikutnya dari aplikasi (`UKUR`, protokol §5.1).
   ///
   /// Pasangan tombol fisik di jam, bukan penggantinya — keduanya mengirim
@@ -613,12 +703,8 @@ class SesiMakanController extends ChangeNotifier {
     final titik = titikBerikutnya;
     if (sesi == null || titik == null) return null;
 
-    if (!_statusPerangkat.tersambung) {
-      return _statusPerangkat.namaPerangkat == null
-          ? 'Belum ada jam yang tersandingkan.'
-          : 'Jam belum tersambung. Nyalakan jam dan dekatkan ke ponsel, lalu '
-                'coba lagi.';
-    }
+    final halangan = alasanJamTidakBisaUkur;
+    if (halangan != null) return halangan;
 
     // Terlalu cepat ditahan, bukan ditandai: titik ini belum lewat dan masih
     // bisa diukur dengan benar sebentar lagi (docs/jadwal-titik-ukur.md §3).
@@ -812,6 +898,11 @@ class SesiMakanController extends ChangeNotifier {
     if (sesi == null) return false;
     if (sesi.t0 != null) return false; // sudah berjalan
     if (!_statusPerangkat.tersambung) return false;
+    // Jam men-`NAK` `MULAI_SESI` saat baterainya kritis, sama seperti tombol
+    // fisiknya yang tidak berbuat apa-apa. Sesi yang "dimulai" lalu ditolak
+    // diam-diam adalah keadaan terburuk di alur ini: fotonya sudah diambil,
+    // orangnya sudah selesai makan, dan t0-nya tidak pernah ada.
+    if (_statusPerangkat.bateraiKritis) return false;
 
     // Jam menolak `MULAI_SESI` selama belum di-ARM — aturan yang sama yang
     // menjamin tidak ada sesi tanpa foto makanan (§5.1). Kalau ARM sebelumnya
@@ -887,17 +978,71 @@ class SesiMakanController extends ChangeNotifier {
     // Draft-nya sudah tertulis sejak shutter ditekan, jadi membatalkan berarti
     // menghapus — bukan sekadar melupakan. Tanpa ini sesi yang dibatalkan hidup
     // kembali sebagai sesi aktif saat aplikasi dibuka lagi.
-    unawaited(_hapus(sesi.id));
+    // Pembuangan lokalnya **ditunggu**, kiriman ke servernya tidak. Bedanya
+    // bukan gaya: sesudah `batalkan()` selesai, tidak boleh ada lagi jendela
+    // waktu di mana sesi itu masih tertulis di basis data — pembukaan aplikasi
+    // yang kebetulan jatuh di jendela itu akan menghidupkannya kembali sebagai
+    // sesi aktif. Penghapusan berkas dan satu baris SQLite adalah hitungan
+    // milidetik; permintaan jaringan tidak.
+    final bernisan = await _buangLokal(sesi);
     notifyListeners();
+
+    // Dicoba sekarang juga — pembatalan hampir selalu terjadi dengan ponsel di
+    // tangan dan jaringan hidup, jadi menunggu pembukaan aplikasi berikutnya
+    // berarti sesi hantu itu sempat terlihat di dashboard tanpa alasan. Yang
+    // gagal di sini tidak hilang: nisannya tetap ada dan ikut tersapu nanti.
+    if (bernisan) unawaited(_sapuNisan());
   }
 
-  Future<void> _hapus(String sesiId) async {
+  /// Membuang sesi yang dibatalkan dari ponsel ini. `true` bila yang tersisa
+  /// adalah batu nisan yang masih perlu dikirim ke server.
+  ///
+  /// Fotonya hilang lebih dulu dan tanpa syarat: apa pun yang terjadi
+  /// sesudahnya, piring yang tidak jadi dimakan siapa pun tidak perlu tinggal
+  /// di penyimpanan. Yang tersisa hanya soal siapa lagi yang perlu diberi tahu.
+  ///
+  /// Barisnya **dinisankan, bukan dihapus**, bila ponsel ini punya akun:
+  /// draft-nya sudah terunggah sejak rana ditekan, jadi menghapusnya di sini
+  /// saja meninggalkan sesi yang tak pernah selesai di server — dan
+  /// [kirimRiwayatKeServer] tidak akan pernah menemukannya lagi untuk dihapus,
+  /// sebab barisnya sudah tidak ada. Tanpa akun tidak ada yang perlu diberi
+  /// tahu, dan nisan yang tidak pernah bisa dikirim hanya akan menumpuk.
+  Future<bool> _buangLokal(SesiMakan sesi) async {
+    await _hapusBerkasFoto([sesi.fotoPath]);
+
+    final adaAkun =
+        serverSesi != null && (await sesiLogin?.muat())?.token != null;
     try {
-      await repo?.hapus(sesiId);
+      if (adaAkun) {
+        await repo?.nisankan(sesi.id);
+      } else {
+        await repo?.hapus(sesi.id);
+      }
     } catch (e) {
       // Sesi yatim di basis data jauh lebih ringan akibatnya daripada sesi yang
       // gagal disimpan: ia hanya muncul lagi sekali, lalu lewat tenggat.
-      debugPrint('Gagal menghapus sesi $sesiId: $e');
+      debugPrint('Gagal menghapus sesi ${sesi.id}: $e');
+      return false;
+    }
+    return adaAkun;
+  }
+
+  /// Mengirim penghapusan sesi yang dibatalkan ke server, lalu membuang
+  /// nisannya yang sudah diakui.
+  ///
+  /// Nisan yang gagal terkirim sengaja dibiarkan: ia ikut lagi pada sapuan
+  /// berikutnya, dan itulah seluruh percobaan ulangnya. Kegagalannya diam —
+  /// sama seperti unggahan — sebab tidak ada yang hilang dan tidak ada yang bisa
+  /// dilakukan pengguna.
+  Future<void> _sapuNisan() async {
+    final server = serverSesi;
+    final gudang = repo;
+    if (server == null || gudang == null) return;
+    final token = (await sesiLogin?.muat())?.token;
+    if (token == null) return;
+
+    for (final id in await gudang.ambilNisan()) {
+      if (await server.hapus(token, id)) await gudang.hapus(id);
     }
   }
 
@@ -1004,7 +1149,15 @@ class SesiMakanController extends ChangeNotifier {
   int? get sisaHariKalibrasi => _kalibrasiTerakhir?.sisaHariPada(jam());
 
   /// Meminta jam mengukur bersamaan dengan tensimeter.
-  Future<Sampel> ukurUntukKalibrasi() => ble.ukurSekarang();
+  Future<Sampel> ukurUntukKalibrasi() {
+    // Kalibrasi memakai perintah yang sama dengan pindai kesehatan, jadi
+    // halangannya juga sama — dan pada alur ini akibatnya lebih mahal: tiga
+    // putaran berjeda 60 detik yang gagal di putaran terakhir berarti seluruh
+    // prosedurnya diulang dari awal.
+    final halangan = alasanJamTidakBisaUkur;
+    if (halangan != null) return Future.error(GalatJam(halangan));
+    return ble.ukurSekarang();
+  }
 
   // --- Pindai kesehatan atas permintaan ----------------------------------
 
@@ -1051,6 +1204,16 @@ class SesiMakanController extends ChangeNotifier {
     if (!p.tersambung) {
       throw const GalatJam(
         'Jam belum tersambung. Dekatkan jam ke ponsel, lalu coba lagi.',
+      );
+    }
+    if (p.bateraiKritis) {
+      // Dilempar di sini, bukan dibiarkan menjadi `NAK 0x06` dari jam: jawaban
+      // yang sama, satu perjalanan radio lebih sedikit, dan yang lebih penting
+      // — kalimatnya menyebut apa yang harus dilakukan, bukan sekadar
+      // "baterai jam terlalu rendah untuk mengukur".
+      throw GalatJam(
+        'Baterai jam tinggal ${p.baterai ?? 0}% dan jam menolak mengukur di '
+        'bawah 10%. Isi daya jam dulu.',
       );
     }
     if (_sedangMemindai) {
@@ -1372,6 +1535,12 @@ class SesiMakanController extends ChangeNotifier {
     final token = (await sesiLogin?.muat())?.token;
     if (token == null) return;
 
+    // Penghapusan berangkat **sebelum** unggahan dan sebelum unduhan (lihat
+    // urutan di `main.dart` dan `login_page.dart`). Nisan yang terkirim
+    // belakangan berarti sesi yang sudah dibatalkan sempat ditarik kembali dari
+    // server pada pembukaan yang sama.
+    await _sapuNisan();
+
     // **Siapa yang fotonya belum sampai ditanyakan ke server, bukan ditebak.**
     //
     // Sebelum ini penandanya adalah "sesi ini sudah punya angka gizi", dengan
@@ -1564,6 +1733,7 @@ class SesiMakanController extends ChangeNotifier {
     _langgananSampel?.cancel();
     _langgananT0?.cancel();
     _langgananStatus?.cancel();
+    _langgananKemajuan?.cancel();
     ble.dispose();
     super.dispose();
   }

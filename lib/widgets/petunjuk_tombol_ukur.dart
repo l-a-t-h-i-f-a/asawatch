@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/sesi_makan_controller.dart';
+import '../models/sesi_makan.dart';
 
 /// Dua cara mengukur satu titik sesi, dan keduanya berujung di tempat yang sama.
 ///
@@ -93,6 +94,27 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
     }
   }
 
+  /// Satu kalimat untuk tiga keadaan pengukuran yang sedang berjalan.
+  ///
+  /// Perkiraan sisanya berasal **dari jam**, dihitung ulang dari laju detak
+  /// yang benar-benar terjadi, jadi ia boleh memanjang — dan justru itu yang
+  /// membuatnya jujur. Hitung mundur buatan layar akan menjanjikan detik yang
+  /// tidak dijanjikan siapa pun.
+  static String _kalimatKemajuan(KemajuanUkur k) {
+    if (k.macet) {
+      return 'Jam masih bekerja tetapi belum menemukan gelombang nadi. '
+          'Rapatkan jam di pergelangan dan diamkan tangan.';
+    }
+    final sisa = k.sisaDetik;
+    if (sisa == null) {
+      return 'Diamkan tangan sampai jam selesai. Jangan lepas jamnya.';
+    }
+    if (sisa >= 255) {
+      return 'Diamkan tangan. Perkiraan sisa lebih dari 4 menit menurut jam.';
+    }
+    return 'Diamkan tangan. Perkiraan sisa ±$sisa detik menurut jam.';
+  }
+
   String _hitungMundur(Duration sisa) {
     final menit = (sisa.inSeconds / 60).ceil();
     if (menit >= 60) {
@@ -115,7 +137,21 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
     final sisa = c.sisaSampaiTitikBerikutnya ?? Duration.zero;
     final belumWaktunya = sisa.inSeconds > 0;
     final tersambung = c.statusPerangkat.tersambung;
-    final siap = !belumWaktunya && tersambung;
+    // Baterai kritis dibaca dari jam (§5.5 bit2), bukan disimpulkan dari
+    // persennya: ambang 10% itu milik firmware, dan di bawahnya setiap `UKUR`
+    // dijawab `NAK`. Tombol yang menyala untuk perintah yang pasti ditolak
+    // membuat orang menekannya berkali-kali, lalu menyalahkan jamnya.
+    final bateraiKritis = c.statusPerangkat.bateraiKritis;
+    // Jam sedang mengukur — kabar yang datang dari denyut Status (§5.5 v1.4),
+    // bukan dari "perintahnya sudah dikirim". Bedanya terlihat justru di sini:
+    // `_mengirim` hanya hidup sampai ACK, yaitu sepersekian detik, sementara
+    // pengukurannya sendiri berjalan puluhan detik. Tanpa kabar ini tombolnya
+    // menyala kembali selagi jamnya masih bekerja, dan tidak ada satu pun
+    // tulisan di kartu ini yang berubah sampai sampelnya tiba.
+    final kemajuan = c.kemajuanUkur;
+    final sedangUkur = kemajuan != null;
+    final siap =
+        !belumWaktunya && tersambung && !bateraiKritis && !sedangUkur;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -132,8 +168,10 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(
-                  siap
+                  siap || sedangUkur
                       ? Icons.monitor_heart_rounded
+                      : bateraiKritis
+                      ? Icons.battery_alert_rounded
                       : (belumWaktunya
                             ? Icons.schedule_rounded
                             : Icons.watch_off_rounded),
@@ -148,11 +186,17 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        belumWaktunya
+                        sedangUkur
+                            ? (kemajuan.macet
+                                  ? 'Jam belum menemukan nadi'
+                                  : 'Jam sedang mengukur ${titik.label}')
+                            : belumWaktunya
                             ? 'Pengukuran ${titik.label} ${_hitungMundur(sisa)}'
-                            : (tersambung
-                                  ? 'Saatnya pengukuran ${titik.label}'
-                                  : 'Jam belum tersambung'),
+                            : !tersambung
+                            ? 'Jam belum tersambung'
+                            : bateraiKritis
+                            ? 'Baterai jam habis'
+                            : 'Saatnya pengukuran ${titik.label}',
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.bold,
@@ -163,7 +207,9 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        belumWaktunya
+                        sedangUkur
+                            ? _kalimatKemajuan(kemajuan)
+                            : belumWaktunya
                             // Diminta menyalakan jam **sebelum** waktunya, bukan
                             // tepat pada waktunya: menyalakan jam dan
                             // memasangnya butuh waktu, dan titik yang diukur
@@ -171,14 +217,22 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
                             ? 'Jam boleh dimatikan dulu untuk menghemat baterai. '
                                   'Nyalakan dan pakai kembali beberapa menit '
                                   'sebelum waktunya.'
-                            : (tersambung
-                                  ? 'Nyalakan jam, pakai rapat di pergelangan, '
-                                        'lalu tekan tombol di bawah. Bisa juga '
-                                        'langsung dari tombol ukur di jam kalau '
-                                        'ponsel sedang tidak dipegang.'
-                                  : 'Nyalakan jam dan dekatkan ke ponsel. '
-                                        'Pengukuran ini masih bisa diambil '
-                                        'setelahnya.'),
+                            : !tersambung
+                            ? 'Nyalakan jam dan dekatkan ke ponsel. '
+                                  'Pengukuran ini masih bisa diambil '
+                                  'setelahnya.'
+                            : bateraiKritis
+                            // Disebut sebagai penolakan jam, bukan sebagai
+                            // saran: di bawah 10% jam memang tidak akan
+                            // mengukur, dan tombol ukur di jam pun tidak
+                            // berbuat apa-apa. Titik ini masih bisa diambil
+                            // setelah diisi — itu bagian yang menenangkan.
+                            ? 'Jam menolak mengukur di bawah 10%. Isi daya jam, '
+                                  'lalu ambil titik ini setelahnya.'
+                            : 'Nyalakan jam, pakai rapat di pergelangan, '
+                                  'lalu tekan tombol di bawah. Bisa juga '
+                                  'langsung dari tombol ukur di jam kalau '
+                                  'ponsel sedang tidak dipegang.',
                         style: const TextStyle(
                           fontSize: 11,
                           color: Color(0xFF6B807B),
@@ -211,7 +265,7 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                if (_mengirim)
+                if (_mengirim || sedangUkur)
                   const SizedBox(
                     width: 18,
                     height: 18,
@@ -224,7 +278,13 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
                   const Icon(Icons.favorite_rounded, size: 20),
                 const SizedBox(width: 10),
                 Text(
-                  _mengirim ? 'Mengukur…' : 'Ukur ${titik.label} Sekarang',
+                  sedangUkur
+                      ? (kemajuan.persen != null
+                            ? 'Jam mengukur… ${kemajuan.persen}%'
+                            : 'Jam sedang mengukur…')
+                      : _mengirim
+                      ? 'Mengukur…'
+                      : 'Ukur ${titik.label} Sekarang',
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.bold,
@@ -237,7 +297,9 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
         const SizedBox(height: 8),
         Text(
           _galat ??
-              (belumWaktunya
+              (sedangUkur
+                  ? _kalimatKemajuan(kemajuan)
+                  : belumWaktunya
                   ? 'Mengukur terlalu awal akan mencatat angka dari titik yang '
                         'salah, jadi tombolnya menyala tepat waktu.'
                   : !tersambung
@@ -245,6 +307,9 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
                   // mengatakannya di dalam kotak di atas.
                   ? 'Jam belum tersambung — nyalakan dan dekatkan ke ponsel. '
                         'Pengukuran ini masih bisa diambil setelahnya.'
+                  : bateraiKritis
+                  ? 'Baterai jam tinggal ${c.statusPerangkat.baterai ?? 0}% — '
+                        'jam menolak mengukur di bawah 10%. Isi daya jam dulu.'
                   : 'Pengukuran memakan waktu beberapa detik.'),
           textAlign: TextAlign.center,
           style: TextStyle(

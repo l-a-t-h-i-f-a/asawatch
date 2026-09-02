@@ -144,9 +144,28 @@ iklan dan tetap mengunci tombolnya, sebagai jaring kedua bila filternya suatu ha
 |---|---|
 | Tidak punya bond | 100 ms, **terus-menerus, tanpa batas waktu** |
 | Punya bond, 30 detik pertama sesudah boot atau sesudah putus | 100 ms |
+| Punya bond, dan ada entri baru yang menunggu diambil (5 menit) | 100 ms |
 | Punya bond, sesudah itu | 1000 ms |
 
-Baris tengah bukan sisa dari rancangan tombol pairing, dan jendelanya tidak boleh dipakai untuk
+**Baris ketiga dihidupkan kembali di v1.3.** Mekanisme ini pernah ada di v1.1 lalu dicabut di v1.2,
+waktu itu dengan jendela 10 menit yang dinyalakan ulang oleh entri mana pun yang masih ada — jam
+yang ditinggal seharian dengan hasil yang tidak pernah diambil jadi mengiklan 10x lebih sering
+sepanjang hari demi HP yang memang tidak datang.
+
+Yang berubah bukan penalarannya melainkan pola pemakaiannya: sejak v1.3 jam **tidak** ditinggal
+menyala, ia dinyalakan sebentar lalu dimatikan lagi, jadi "baru menyala dan masih memegang hasil"
+hampir selalu berarti seseorang sedang menunggu sinkronisasi saat itu juga. Di situ 1000 ms paling
+merugikan: Android `connect()` memindai dengan duty cycle rendah, dan pada pengiklan satu detik,
+timeout 15 detik di `BleAsliService._sambungkan` sudah marjinal bahkan tanpa gangguan apa pun.
+
+**Gejalanya menyesatkan dan perlu dikenali:** perangkat *ditemukan* saat memindai — iklan hanya
+perlu TX sekali tembak — lalu setiap `connect` timeout, karena connect request menuntut jam
+*mendengar* di jendela sesaat sesudah paket iklan. "Ditemukan tapi selalu timeout" karena itu
+adalah keluhan interval, bukan jam yang rusak. Dua batas menjaganya tidak mengulang kesalahan v1.1:
+jendelanya 5 menit, dan yang menyalakannya ulang adalah entri **baru**, bukan entri yang sekadar
+masih ada.
+
+Baris kedua bukan sisa dari rancangan tombol pairing, dan jendelanya tidak boleh dipakai untuk
 menghidupkannya kembali: ia melayani kasus yang berbeda, yaitu **jam yang baru saja terputus dan
 membawa sampel di buffer-nya**. Ponsel yang kembali mendekat menemukannya dalam hitungan detik,
 bukan puluhan detik, dan biayanya 30 detik iklan cepat per peristiwa putus.
@@ -546,7 +565,7 @@ justru event inilah yang paling sering terjadi saat HP tidak tersambung.
 Selama jam menyala tanpa HP, event ini juga menunggu di buffer — dan `boot_id`-nya sendiri yang
 memberi tahu aplikasi bahwa ada garis waktu baru.
 
-### 5.5 Status (`A5A70006`, Read + Notify) — 8 byte
+### 5.5 Status (`A5A70006`, Read + Notify) — 10 byte (8 sebelum v1.4)
 
 | Offset | Ukuran | Field |
 |---|---|---|
@@ -555,6 +574,12 @@ memberi tahu aplikasi bahwa ada garis waktu baru.
 | 2 | 1 | `baterai` % (duplikasi `0x2A19`, agar satu kali baca cukup) |
 | 3 | 1 | `flag`: bit0 sedang mengukur, bit1 kalibrasi tersimpan, bit2 baterai kritis, bit3 boot ini sudah punya anchor |
 | 4 | 4 | `uptime_s` uint32 LE |
+| 8 | 1 | `ukur_persen` 0..100, 0 bila tidak mengukur **(v1.4)** |
+| 9 | 1 | `ukur_sisa_detik`, jenuh di 255, 0 bila tidak mengukur **(v1.4)** |
+
+Kedua byte terakhir dibaca dari **panjang paketnya sendiri**, bukan dari `versi_minor` handshake:
+paket Status pertama bisa datang sebelum handshake sempat dibaca. Paket 8 byte tetap sah dan kedua
+field itu menjadi **null — bukan nol**. Bedanya menentukan perilaku, lihat §5.6.
 
 Mengisi `StatusPerangkat.sampelTertunda`, yang ditampilkan apa adanya di
 [../lib/sesi_berjalan_page.dart](../lib/sesi_berjalan_page.dart).
@@ -571,6 +596,62 @@ Mengisi `StatusPerangkat.sampelTertunda`, yang ditampilkan apa adanya di
 > Paket Status tetap yang berkuasa — ia menimpa hitungan lokal itu apa adanya. **Firmware
 > dianjurkan mengirim notifikasi Status setelah buffer terkuras**, tetapi aplikasi tidak boleh
 > bergantung padanya.
+
+### 5.6 Denyut pengukuran (v1.4)
+
+**Selama `flag` bit0 menyala, jam mengirim paket Status setiap 2 detik walaupun isinya tidak
+berubah.** Itu satu-satunya penyimpangan dari aturan "kirim hanya saat berubah", dan tanpa
+penyimpangan itu bit0 tidak bisa dipercaya sama sekali:
+
+selama pengukuran byte 0..3 diam, jadi bit0 hanya pernah terkirim **dua kali** — sekali saat mulai,
+sekali saat selesai. Ia sebuah *level*, bukan denyut, dan level tidak bisa membedakan tiga keadaan
+yang akibatnya jauh berbeda: jam yang benar-benar mengukur dengan nadi sulit ditemukan, jam yang mati
+atau keluar jangkauan di tengah pengukuran, dan notifikasi selesai yang hilang di udara. Dua yang
+terakhir meninggalkan "sedang mengukur" menyala selamanya. Layar yang menulis *"jam sedang
+memproses"* atas dasar itu sama saja menulisnya atas dasar perintah yang sudah dikirim.
+
+Karena itu **yang menjadi bukti hidup adalah paket yang sampai, bukan angka yang bergeser**: denyut
+tetap dikirim walau `ukur_persen` tidak berubah, karena persen yang mandek adalah keadaan sah — nadi
+yang belum ketemu — dan punya tindak lanjutnya sendiri (rapatkan jam), bukan alasan menghentikan
+pengukuran.
+
+Yang menggantikan tenggat tunggal 60 detik di `ukurSekarang()` — angka yang tidak pernah cocok
+dengan apa pun, sementara firmware menunggu 90 detik tanpa kulit menempel dan 5 menit sebagai batas
+keras, sehingga setiap nadi yang sulit dilaporkan sebagai "jam tidak menjawab" tepat ketika jam
+sedang bekerja:
+
+| Kejadian | Sikap aplikasi | Kalimat |
+|---|---|---|
+| ACK datang, bit0 tidak pernah menyala dalam 20 dtk | Hentikan | "jam menerima perintahnya tetapi tidak mulai mengukur" |
+| Denyut datang | Tunggu terus, setel ulang penjaga | "jam sedang mengukur", dengan persen dan perkiraan sisa |
+| Denyut datang, persen diam ≥ 60 dtk | Tunggu terus | "jam belum menemukan nadi — rapatkan jam" |
+| 3 denyut terlewat (8 dtk) | **Baca** karakteristik Status sekali. Berhasil dan bit0 masih menyala → lanjut menunggu; pembacaannya gagal → hentikan | "jam berhenti mengabari" |
+| Paket 8 byte (firmware ≤ v1.3) | Jalur yang sama: tidak ada denyut, jadi pembacaan tiap 8 dtk itulah bukti hidupnya | "jam sedang mengukur", tanpa persen |
+| bit0 padam, Sampel belum datang | Beri 8 detik | "jam selesai mengukur, hasilnya tidak sampai" |
+| Tautan putus | Hentikan seketika | "jam terputus" |
+| `UKUR_GAGAL` ber-`sesiId` nol | Hentikan seketika | "jam tidak berhasil membaca satu pun angka" |
+
+**Kabar kemajuannya sendiri terbit untuk setiap pengukuran, bukan hanya yang sedang ditunggu sebuah
+layar.** Titik ukur sesi (`UKUR`) tidak punya penantian di aplikasi — perintahnya dikirim, sampelnya
+datang entah kapan — sehingga selama kabar itu menumpang pada penanti `UKUR_SEKARANG`, pengukuran
+yang paling lama ditunggui orang justru satu-satunya yang tidak menampilkan apa pun. Penjaga
+basinya sama: 8 detik tanpa denyut, lalu satu pembacaan Status sebelum kabarnya dipadamkan.
+
+Baris terakhir sekaligus satu-satunya pengecualian atas aturan §5.4 bahwa `UKUR_GAGAL` cukup
+dicatat: yang ber-`sesiId` nol adalah jawaban atas `UKUR_SEKARANG` yang sedang ditunggu sebuah layar.
+Yang ber-`sesiId` sungguhan tetap milik jadwal sesi dan tidak boleh menjatuhkan pindai kesehatan yang
+kebetulan berjalan bersamaan.
+
+**Diam tidak pernah langsung diartikan mati.** Saat penjaga denyut habis, aplikasi *bertanya* lebih
+dulu — satu pembacaan karakteristik Status, yang memang Read + Notify dan disegarkan firmware di
+`onRead`. Pembacaan yang berhasil membuktikan dua hal sekaligus (tautannya hidup, jamnya masih
+mengukur) dan penantian dilanjutkan; hanya pembacaan yang **gagal** yang mengakhirinya. Itu juga yang
+membuat firmware ≤ v1.3 ikut terjaga: ia tidak berdenyut, jadi pembacaan tiap 8 detik itulah satu-
+satunya kabarnya — dan jam v1.3 yang mati di tengah pengukuran tetap ketahuan dalam hitungan detik,
+bukan setelah lima menit.
+
+Batas keras 5 menit + kelonggaran tetap dipasang sebagai **langit-langit**, bukan kesabaran: ia hanya
+menjaga dari firmware yang berdenyut selamanya.
 
 ---
 
@@ -623,6 +704,25 @@ Ini **tidak** berlaku untuk kegagalan *menyimpan* (basis data penuh, terkunci). 
 sesaat, entrinya masih punya harapan diproses pada percobaan berikutnya, dan karena itu tetap tidak
 boleh di-ack.
 
+**Dan ini tidak berlaku untuk paket yang kependekan.** Panjang paket bukan properti isi paket, ia
+properti tautannya: paket yang lebih pendek dari panjang minimum §5 belum pernah benar-benar dibaca,
+jadi tidak ada apa pun tentang isinya yang bisa disebut rusak. Pengecualian di atas dibatasi pada
+kegagalan yang diputuskan dari **isi** byte; yang diputuskan dari **jumlah** byte tidak termasuk.
+Paket kependekan **tidak di-ack** — entrinya ditinggal di buffer jam dan akan terbaca benar pada
+sinkronisasi berikutnya begitu tautannya benar.
+
+Penyebabnya hampir selalu satu hal: **ATT MTU yang masih 23**, sehingga muatan notifikasi maksimum
+20 byte. Sisi jam memotong setiap PDU yang lebih panjang **tanpa error dan tanpa log** (NimBLE
+`ble_att_truncate_to_mtu()` bertipe `void` dan dipanggil pada setiap PDU ATT; `notify()` tetap
+melapor sukses), jadi tidak ada satu pun lapisan yang mengeluh. Kalau paket seperti ini di-ack, jam
+menghapusnya dari ring buffer 64 slot — satu-satunya salinan yang ada — dan sampelnya hilang di
+kedua sisi tanpa satu pun galat muncul di layar. Gejalanya bukan pesan kesalahan melainkan
+**sinkronisasi yang berjalan sampai 100% lalu tidak membawa satu pun sampel**: dari sudut pandang
+jam, seluruh buffernya memang terkirim dan di-ack.
+
+Aplikasi wajib mencatat MTU hasil negosiasi sekali per koneksi (§8). `connect(mtu: …)` hanya
+*meminta*; hasilnya tidak dilaporkan ke mana pun kecuali diminta.
+
 Duplikat tetap mungkin (ack hilang di udara). Itu normal; dedup `(sesiId, index)` di controller
 menanganinya.
 
@@ -650,7 +750,7 @@ Semua write memakai timeout 5 detik dan maksimal 3 percobaan, kecuali yang dilar
 
 | Parameter | Nilai | Alasan |
 |---|---|---|
-| MTU | minta 185, terima ≥ 35 | Sampel butuh 31 byte dalam satu notifikasi. |
+| MTU | minta 185, terima ≥ 35 | Sampel butuh 31 byte dalam satu notifikasi. Di bawah itu jam memotong diam-diam — lihat §6. |
 | Connection interval | 30–50 ms saat sesi berjalan, 200–500 ms saat idle | Hemat baterai di luar sesi. |
 | Bonding | Wajib, LE Secure Connections, **Just Works** | Data kesehatan; lihat §10 rencana produksi dan kotak di bawah. |
 | Enkripsi | Wajib pada semua karakteristik kustom | — |
@@ -775,6 +875,12 @@ Payload-nya `sesiId` + `index` saja. **Tidak ada waktu di dalamnya**, dan itu di
   percobaan ulang. Padam mengikuti keberhasilan, bukan penekanan.
 - Menerima `ARM_TITIK` baru **menimpa** yang lama, di RAM maupun di NVS. Hanya satu titik ter-ARM
   pada satu waktu, dan tidak ada keadaan setengah jalan yang perlu dijaga.
+- **Sesi yang berakhir memadamkannya**, bila titik yang ter-ARM milik sesi itu: `BATAL_SESI`, dan
+  ARM yang kedaluwarsa 4 jam. Ini tidak bertabrakan dengan "ARM_TITIK hidup lebih lama daripada
+  mesin status" — aturan itu tentang IDLE yang lahir dari **daya diputus**, yang memuat titiknya
+  dari NVS saat boot dan tidak lewat jalur ini sama sekali. Titik milik sesi yang selesai tidak akan
+  pernah bisa terisi, karena aplikasi membuang sampel dengan `sesiId` yang tidak dikenalnya; tombol
+  yang tetap menyala untuknya adalah kebohongan di layar jam.
 - **`UKUR` untuk titik yang sedang ter-ARM memadamkan tombolnya dan menghapus catatan NVS-nya**,
   sesudah pengukurannya tuntas. Jam tahu apakah keduanya titik yang sama: `ARM_TITIK` menyimpan
   `(sesiId, index)` dan `UKUR` membawa `(sesiId, index)`.
@@ -924,6 +1030,17 @@ Dipakai kedua tim sebelum integrasi dinyatakan selesai.
 - [ ] `UKUR_SEKARANG` dijawab paket Sampel ber-`sesiId` 16 byte nol, `index` 0 (§5.1).
 - [ ] `UKUR_SEKARANG` dilayani di **IDLE, ARMED, maupun RUNNING**, dan tidak menggeser jadwal titik
       ukur sesi (§9). Bila sensornya sedang sibuk, jawabannya `NAK` `0x05` — bukan pembacaan lama.
+- [ ] Paket Status **10 byte**, dan `ukur_persen`/`ukur_sisa_detik` benar-benar bergerak selama
+      pengukuran (§5.5). Nol keduanya di luar pengukuran.
+- [ ] **Denyut Status tiap 2 detik selama mengukur**, walau tidak ada byte lain yang berubah (§5.6).
+      Cara mengujinya: mulai `UKUR_SEKARANG`, hitung notifikasi Status yang datang sampai selesai —
+      pengukuran 40 detik harus menghasilkan ~20, bukan 2.
+- [ ] Matikan jam di tengah pengukuran: aplikasi harus berkata **"jam berhenti mengabari"** dalam
+      ~8 detik, bukan menggantung sampai batas keras. Ini butir yang membuat seluruh §5.6 ada.
+- [ ] Ukur dengan jam sengaja dilonggarkan sampai nadinya tidak ketemu: persen mandek, denyut tetap
+      datang, dan aplikasi **tidak** menghentikan pengukuran — kalimatnya "rapatkan jam".
+- [ ] `UKUR_GAGAL` untuk `UKUR_SEKARANG` membawa `sesiId` **16 byte nol** (§5.4). Bila firmware
+      mengisinya dengan sesi lain, layar pindai akan menggantung sampai denyutnya habis.
 - [ ] Iklan memuat service UUID, nama, dan versi mayor.
 - [ ] **Service UUID ada di paket iklan, bukan di scan response** (§2.2). Ini butir paling mudah
       dilewatkan dan paling mahal akibatnya: jam yang salah menaruhnya tidak akan pernah terlihat
@@ -1056,6 +1173,32 @@ yang diimplementasikannya di byte 0–1 handshake (§3).
 
 Bagian ini adalah satu-satunya tempat yang memberi arti pada angka itu. Tanpanya, `versi_minor` cuma
 bilangan yang naik.
+
+### v1.4
+
+Satu tambahan, dan seluruh alasannya adalah satu kalimat di layar yang tidak pernah bisa dipercaya:
+**"jam sedang memproses"**.
+
+Sebelum versi ini, satu-satunya kabar dari jam selama pengukuran adalah `flag` bit0 di paket Status —
+dan firmware menahan paket Status yang isinya tidak berubah, sehingga bit itu hanya terkirim dua kali
+seumur pengukuran. Aplikasi karena itu tidak punya cara membedakan jam yang bekerja dari jam yang
+mati di tengah jalan, dan menutupinya dengan satu tenggat 60 detik yang lebih pendek daripada batas
+firmware sendiri (90 detik tanpa kulit menempel, 5 menit batas keras). Akibatnya di tangan pengguna:
+pengukuran yang berjalan wajar — pergelangan dingin, tali agak longgar, hal yang lazim pada pengguna
+lansia — dilaporkan gagal tepat ketika jam sedang bekerja, dan sampelnya datang beberapa detik
+kemudian lalu dibuang tanpa jejak.
+
+| Perubahan | Bagian |
+|---|---|
+| Paket Status tumbuh 8 → 10 byte: `ukur_persen` dan `ukur_sisa_detik`. | §5.5 |
+| Selama mengukur, Status dikirim tiap 2 detik walau isinya tidak berubah — denyut. | §5.6 |
+| `ukurSekarang()` dijaga denyut, bukan satu tenggat; delapan kejadian, delapan kalimat. | §5.6 |
+| `UKUR_GAGAL` ber-`sesiId` nol menghentikan penantian `UKUR_SEKARANG` seketika. | §5.4, §5.6 |
+
+**Kompatibel dua arah.** Aplikasi v1.4 membaca paket 8 byte firmware lama dengan benar (kedua field
+baru null, dan penjaga denyut tidak dipasang, jadi pengukurannya tidak digagalkan); aplikasi lama
+membaca 10 byte dan mengabaikan dua byte terakhir, sebagaimana §3 memang mewajibkannya. Tidak ada
+opcode baru, tidak ada perubahan pada Sampel maupun Peristiwa.
 
 ### v1.3
 

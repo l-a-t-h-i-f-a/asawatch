@@ -197,6 +197,48 @@ integrasi hardware bisa diuji end-to-end berkali-kali dalam satu sore.
 `FakeBleService(percepatan:)` adalah hal yang berbeda dan tetap ada: ia mempercepat perilaku jam
 palsu, sedangkan mode ini mengecilkan jadwal sesi. Keduanya boleh dipakai bersamaan.
 
+### 7.0 Faktor 60 lahir dari jam palsu — dengan jam sungguhan, kecilkan faktornya
+
+```bash
+flutter run --dart-define=PAKAI_JADWAL_UJI=true --dart-define=FAKTOR_JADWAL_UJI=12
+```
+
+Dengan `FakeBleService` jawaban datang seketika, jadi jendela 55–70 detik untuk `+1 jam` masuk akal.
+**Pengukuran sungguhan tidak begitu**: lantainya saja `UKUR_MIN_MS` 10 detik, praktiknya puluhan
+detik, dan nadi yang sulit ditemukan membuatnya jauh lebih lama (batas keras firmware 5 menit). Tiga
+akibatnya pada faktor 60, ketiganya terlihat seperti kerusakan aplikasi padahal jadwalnya yang
+terlalu rapat:
+
+- pengukuran yang dimulai **tepat waktu** selesai setelah jendelanya tutup, lalu ditandai terlambat;
+- titik berikutnya jatuh tempo selagi titik sekarang masih diukur, dan jam men-`NAK` yang kedua
+  dengan `0x05` (`sedang mengukur`);
+- tenggat sesi (150 detik sesudah t0) jatuh sebelum pengukuran terakhir sempat menjawab.
+
+Yang ketiga sudah **tidak lagi merusak data** sejak tenggat belajar menunda selama jamnya terbukti
+sedang mengukur (§7.2), tetapi dua yang pertama tetap membuat hasil ujinya menyesatkan.
+
+Faktor 12 memberi `+1 jam` pada menit ke-5 dengan jendela 4,6–5,8 menit dan sesi penuh 10 menit —
+lapang untuk satu pengukuran sungguhan, masih jauh lebih cepat daripada 2,5 jam. Bawaannya tetap 60,
+karena mayoritas pemakaian mode ini adalah dengan jam palsu.
+
+### 7.2 Tenggat mengalah pada pengukuran yang sedang berjalan
+
+Tenggat sesi jatuh pada waktu jam dinding; pengukuran memakan puluhan detik. Menutup sesi tepat pada
+detik jam sedang mengukur berarti membuang pengukuran yang beberapa detik lagi selesai — dan
+sampelnya kemudian tiba ke sesi yang sudah tidak aktif, hilang tanpa satu pun gejala di layar.
+
+Karena itu `_lewatTenggat()` bertanya lebih dulu: `BleService.jamSedangMengukur()` **membaca**
+karakteristik Status (§5.5 bit0). Jawaban "ya" menunda pemeriksaan 30 detik dan mengulanginya.
+
+Dua hal menjaga penundaan itu tetap jujur:
+
+- **Yang menahan adalah bukti, bukan asumsi.** Pembacaan yang gagal — jam mati, di luar jangkauan —
+  menjawab false, dan tenggatnya berjalan seperti biasa. Justru itulah keadaan yang tenggatnya
+  dirancang untuk menutup.
+- **Penundaannya berujung**: 12 x 30 detik = 6 menit, sedikit melampaui batas keras pengukuran di
+  firmware (5 menit). Pengukuran yang sah tidak pernah menyentuh batas itu; firmware yang lupa
+  mencabut bit0 selalu.
+
 ### 7.1 Tiga pengaman, dan kenapa ketiganya perlu
 
 1. **Gerbang saat kompilasi.** `bool.fromEnvironment` dievaluasi saat kompilasi

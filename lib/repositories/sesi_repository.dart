@@ -36,13 +36,38 @@ abstract class SesiRepository {
   /// server.
   Future<DateTime> simpan(SesiMakan sesi);
 
-  /// Menghapus satu sesi berikut seluruh anaknya.
+  /// Menghapus satu sesi berikut seluruh anaknya, tanpa sisa.
   ///
-  /// Hanya untuk sesi yang **dibatalkan user**: ia sudah pernah ditulis sebagai
-  /// draft, dan sesi yang tidak jadi dijalani tidak boleh muncul kembali sebagai
-  /// sesi aktif saat aplikasi dibuka lagi. Riwayat tidak pernah dihapus dari
-  /// sini.
+  /// Dua pemanggil, dan keduanya sudah selesai berurusan dengan sesi itu: sesi
+  /// yang dibatalkan pada ponsel yang **belum pernah masuk** (tidak ada server
+  /// yang perlu diberi tahu, jadi nisannya tidak ada gunanya), dan nisan yang
+  /// sudah diakui server. Riwayat tidak pernah dihapus dari sini.
   Future<void> hapus(String sesiId);
+
+  /// Mengubah satu sesi menjadi **batu nisan**: isinya dibuang, idnya tinggal.
+  ///
+  /// Untuk sesi yang dibatalkan user pada ponsel yang punya akun. Draft-nya
+  /// sudah terunggah sejak rana ditekan, jadi menghapus barisnya begitu saja
+  /// membuat sesi itu hidup selamanya di server sebagai draft yang tak pernah
+  /// selesai — terlihat di dashboard, dan ikut terunduh ke perangkat kedua.
+  /// Nisan inilah yang nanti dikirim sebagai `dihapus_pada` (§7).
+  ///
+  /// Yang dibuang di sini: sampel, hasil gizi, item makanan. Berkas fotonya
+  /// dibuang pemanggil — repository tidak menyentuh berkas. Yang tersisa satu
+  /// baris berisi id dan waktu, dan baris itu **tidak pernah muncul di**
+  /// [muatSemua]: penyaringannya di SQL, bukan di pemanggil, supaya satu
+  /// pemanggil yang lupa menyaring tidak bisa menghidupkan lagi sesi yang sudah
+  /// dibatalkan.
+  Future<void> nisankan(String sesiId);
+
+  /// Id sesi yang penghapusannya belum sampai ke server.
+  ///
+  /// Satu-satunya pembaca baris bernisan. Dipanggil tiap `kirimRiwayatKeServer`
+  /// — nisan yang gagal terkirim ikut tersapu lagi pada pembukaan berikutnya,
+  /// dan itulah percobaan ulangnya. Tidak perlu kolom "sudah terkirim":
+  /// penghapusan idempoten, jadi mengirimnya dua kali tidak berakibat apa pun,
+  /// sedangkan tanda yang meleset sekali akan meninggalkan sesi hantu selamanya.
+  Future<List<String>> ambilNisan();
 
   /// Membuang **seluruh** riwayat beserta anaknya.
   ///
@@ -69,6 +94,10 @@ class SesiRepositoryMemori implements SesiRepository {
 
   final List<SesiMakan> _riwayat;
 
+  /// Id sesi yang sudah dinisankan. Sengaja daftar id saja: yang tersisa dari
+  /// sebuah nisan memang hanya idnya.
+  final List<String> _nisan = [];
+
   @override
   Future<List<SesiMakan>> muatSemua() async => List.unmodifiable(_riwayat);
 
@@ -91,8 +120,23 @@ class SesiRepositoryMemori implements SesiRepository {
   @override
   Future<void> hapus(String sesiId) async {
     _riwayat.removeWhere((s) => s.id == sesiId);
+    _nisan.remove(sesiId);
   }
 
   @override
-  Future<void> hapusSemua() async => _riwayat.clear();
+  Future<void> nisankan(String sesiId) async {
+    _riwayat.removeWhere((s) => s.id == sesiId);
+    _nisan.add(sesiId);
+  }
+
+  @override
+  Future<List<String>> ambilNisan() async => List.unmodifiable(_nisan);
+
+  @override
+  Future<void> hapusSemua() async {
+    _riwayat.clear();
+    // Ikut terbuang, sama seperti di SQLite: nisan milik akun lama tidak bisa
+    // lagi dikirim dengan token akun yang baru masuk.
+    _nisan.clear();
+  }
 }

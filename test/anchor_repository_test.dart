@@ -165,6 +165,11 @@ void main() {
       final db = BasisData(NativeDatabase(berkas));
       await SesiRepositoryDrift(db).simpan(sesi);
 
+      if (versi < 7) {
+        await db.customStatement(
+          'ALTER TABLE tabel_sesi DROP COLUMN dihapus_pada',
+        );
+      }
       if (versi < 6) {
         await db.customStatement(
           'ALTER TABLE tabel_sesi DROP COLUMN diperbarui_pada',
@@ -275,6 +280,24 @@ void main() {
       // sejak stempelnya ada.
       expect(hasil.zatTidakLengkap, isEmpty);
       expect(riwayat.single.diperbaruiPada, isNull);
+    });
+
+    test('basis data v6 naik ke v7 dan sesinya bisa dinisankan', () async {
+      final sesi = contohRiwayatSesi().first;
+      final berkas = await siapkanBerkasVersi(6, sesi);
+
+      final db = BasisData(NativeDatabase(berkas));
+      addTearDown(db.close);
+      final repo = SesiRepositoryDrift(db);
+
+      // Bawaan yang benar untuk baris lama: sesi yang direkam sebelum kolom ini
+      // ada jelas bukan sesi yang dibatalkan.
+      expect((await repo.muatSemua()).single.id, sesi.id);
+      expect(await repo.ambilNisan(), isEmpty);
+
+      await repo.nisankan(sesi.id);
+      expect(await repo.muatSemua(), isEmpty);
+      expect(await repo.ambilNisan(), [sesi.id]);
     });
 
     test('basis data v1 naik ke v6 tanpa kehilangan sesi', () async {

@@ -86,7 +86,20 @@ class _PetunjukTombolJamState extends State<PetunjukTombolJam> {
     // sinyalnya justru baru saja sampai, dan sampel sedang ditulis.
     final sudahMulai =
         status != StatusSesi.draft && status != StatusSesi.menungguPerangkat;
-    final siap = status == StatusSesi.draft && perangkat.tersambung;
+    // Baterai kritis membuat jam men-`NAK` `MULAI_SESI` **dan** membuat tombol
+    // fisiknya tidak berbuat apa-apa (§5.5 bit2, §7 kode 0x06). Jadi bukan
+    // hanya tombol di layar ini yang mati — kalimatnya harus menyebut keduanya,
+    // atau orang akan berpindah menekan tombol jam yang sama-sama tidak
+    // menjawab dan menyimpulkan sesinya rusak.
+    final bateraiKritis = perangkat.bateraiKritis;
+    // Baseline diukur tepat saat rana kamera ditekan (`UKUR` index 0), jadi
+    // pengukuran itu sedang berjalan justru di layar ini — sebelum sesinya
+    // punya t0, dan karena itu sebelum `PetunjukTombolUkur` ada di layar sama
+    // sekali. Tanpa baris ini, satu-satunya pengukuran yang terjadi tanpa
+    // diminta pengguna adalah juga satu-satunya yang tidak pernah dikabarkan.
+    final kemajuan = context.watch<SesiMakanController>().kemajuanUkur;
+    final siap =
+        status == StatusSesi.draft && perangkat.tersambung && !bateraiKritis;
     final hijau = siap || sudahMulai;
 
     return Column(
@@ -105,6 +118,8 @@ class _PetunjukTombolJamState extends State<PetunjukTombolJam> {
               Icon(
                 sudahMulai
                     ? Icons.check_circle_rounded
+                    : bateraiKritis
+                    ? Icons.battery_alert_rounded
                     : (siap ? Icons.watch_rounded : Icons.watch_off_rounded),
                 size: 18,
                 color: hijau
@@ -119,9 +134,11 @@ class _PetunjukTombolJamState extends State<PetunjukTombolJam> {
                     Text(
                       sudahMulai
                           ? 'Sesi sudah dimulai'
-                          : (siap
-                                ? 'Selesai makan? Tekan tombol di jam'
-                                : 'Jam belum tersambung'),
+                          : siap
+                          ? 'Selesai makan? Tekan tombol di jam'
+                          : bateraiKritis
+                          ? 'Baterai jam habis'
+                          : 'Jam belum tersambung',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
@@ -143,6 +160,10 @@ class _PetunjukTombolJamState extends State<PetunjukTombolJam> {
                                 ? 'Tombolnya bekerja walau ponsel Anda sedang '
                                       'tidak dipegang. Kalau ponselnya ada di '
                                       'tangan, tombol di bawah ini sama saja.'
+                                : bateraiKritis
+                                ? 'Di bawah 10%, tombol Selesai Makan di jam '
+                                      'juga tidak berfungsi. Isi daya jam dulu '
+                                      '— fotonya tetap tersimpan.'
                                 : 'Tombol Selesai Makan di jam baru menyala '
                                       'setelah jam tersambung. Fotonya tetap '
                                       'tersimpan.'),
@@ -158,6 +179,44 @@ class _PetunjukTombolJamState extends State<PetunjukTombolJam> {
             ],
           ),
         ),
+
+        // Kabar pengukuran baseline. **Tombolnya tidak dimatikan** — firmware
+        // sengaja tidak memeriksa `s_ukur_aktif` saat tombol Selesai Makan
+        // ditekan (§9), karena orang yang selesai makan tidak boleh menunggu
+        // sensor. Yang perlu diketahui hanyalah jamnya memang sedang bekerja,
+        // supaya pengukuran yang berjalan sendiri tidak terbaca sebagai jam
+        // yang tidak melakukan apa-apa.
+        if (kemajuan != null && !sudahMulai) ...[
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Color(0xFF0EAD69),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  kemajuan.macet
+                      ? 'Jam sedang mengukur baseline, tetapi belum menemukan '
+                            'nadi. Rapatkan jam di pergelangan.'
+                      : kemajuan.persen != null
+                      ? 'Jam sedang mengukur baseline… ${kemajuan.persen}%'
+                      : 'Jam sedang mengukur baseline…',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFF6B807B),
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
 
         // Tombolnya hanya ada selama sesi memang belum dimulai. Setelah t0
         // datang tidak ada lagi yang bisa dilakukannya, dan tombol yang tersisa
@@ -216,6 +275,9 @@ class _PetunjukTombolJamState extends State<PetunjukTombolJam> {
                 (siap
                     ? 'Jam yang mencatat waktunya, bukan ponsel — hasilnya sama '
                           'persis dengan menekan tombol di jam.'
+                    : bateraiKritis
+                    ? 'Baterai jam tinggal ${perangkat.baterai ?? 0}% — jam '
+                          'menolak memulai sesi di bawah 10%. Isi daya jam dulu.'
                     : 'Menunggu jam tersambung kembali.'),
             textAlign: TextAlign.center,
             style: TextStyle(

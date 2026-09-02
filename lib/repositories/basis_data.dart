@@ -70,6 +70,21 @@ class TabelSesi extends Table {
   /// akan tertimpa salinan lama tanpa ada yang menghalangi.
   IntColumn get diperbaruiPada => integer().nullable()();
 
+  /// Batu nisan: kapan sesi ini dibatalkan pengguna di perangkat ini.
+  ///
+  /// Bukan "sesi yang disembunyikan". Saat kolom ini terisi, sampel, hasil
+  /// gizi, item makanan, dan **berkas fotonya** sudah dihapus permanen; yang
+  /// tersisa hanya id dan waktunya. Gunanya satu: memberi tahu server bahwa
+  /// sesi ini dibuang (§7 `dihapus_pada`, `POST /sinkron`) — draft-nya sudah
+  /// terunggah sejak rana ditekan, jadi tanpa nisan ia tinggal di sana selamanya
+  /// sebagai sesi yang tak pernah selesai, dan ikut terunduh ke perangkat kedua.
+  ///
+  /// Umurnya pendek: begitu server mengakuinya, barisnya dihapus betulan
+  /// (`SesiRepository.ambilNisan` → `hapus`). Yang menumpuk hanya milik
+  /// pengguna yang belum pernah masuk — dan di sana tidak ada server untuk
+  /// diberi tahu, jadi nisannya tidak pernah dibuat sejak awal.
+  IntColumn get dihapusPada => integer().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -287,7 +302,7 @@ class BasisData extends _$BasisData {
   BasisData(super.e);
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -400,6 +415,19 @@ class BasisData extends _$BasisData {
               (b) => b.read<String>('name') == 'diperbarui_pada',
             )) {
               await m.addColumn(tabelSesi, tabelSesi.diperbaruiPada);
+            }
+
+          case 6: // v6 → v7: batu nisan sesi yang dibatalkan (§7)
+            // Ditanya lebih dulu, dengan alasan yang sama seperti langkah v4 →
+            // v5 di atas: perangkat yang melompat dari versi lama bisa tiba di
+            // sini dengan tabel yang sudah berbentuk v7.
+            final kolomSesiV7 = await m.database
+                .customSelect('PRAGMA table_info(tabel_sesi)')
+                .get();
+            if (!kolomSesiV7.any(
+              (b) => b.read<String>('name') == 'dihapus_pada',
+            )) {
+              await m.addColumn(tabelSesi, tabelSesi.dihapusPada);
             }
 
           default:

@@ -52,7 +52,7 @@ const bool pakaiAuthPalsu = bool.fromEnvironment('PAKAI_AUTH_PALSU');
 /// gejalanya mudah disalahartikan sebagai server yang mati.
 const String basisUrlApi = String.fromEnvironment(
   'BASIS_URL_API',
-  defaultValue: 'https://api.asawatch.id',
+  defaultValue: 'https://asawatch.enumatechnology.com',
 );
 
 /// Sakelar ketiga: jadwal sesi yang dikecilkan untuk pengujian.
@@ -89,7 +89,31 @@ const bool pakaiJadwalUji = bool.fromEnvironment('PAKAI_JADWAL_UJI');
 /// dijaga oleh kompilasi tetap dijaga: [pakaiJadwalUji] const, jadi tidak ada
 /// rakitan rilis yang bisa **berperilaku** memakai jadwal uji. Yang ikut
 /// terbawa hanyalah satu struktur data empat elemen.
-final JadwalSesi jadwalBawaan = pakaiJadwalUji ? jadwalUji : jadwalNormal;
+final JadwalSesi jadwalBawaan = pakaiJadwalUji
+    ? jadwalNormal.dibagi(faktorJadwalUjiTerpakai)
+    : jadwalNormal;
+
+/// Seberapa jauh jadwal uji dimampatkan. Bawaannya [faktorJadwalUji] (60).
+///
+/// **Bisa diturunkan karena 60 lahir dari jam palsu, bukan dari jam sungguhan.**
+/// Dengan `FakeBleService` jawaban datang seketika, jadi titik `+1 jam` yang
+/// jatuh pada detik ke-60 dengan jendela 55–70 detik masuk akal. Pengukuran
+/// sungguhan memakan puluhan detik — lantainya saja `UKUR_MIN_MS` 10 detik, dan
+/// nadi yang sulit bisa membuatnya jauh lebih lama — sehingga pengukuran yang
+/// dimulai tepat waktu selesai **setelah** jendelanya tutup, dan titik
+/// berikutnya jatuh tempo selagi yang sekarang masih berjalan. Yang terlihat di
+/// layar: sesi berakhir sebelum jamnya sempat menjawab.
+///
+/// 12 adalah angka yang masuk akal untuk perangkat keras (`+1 jam` menjadi 5
+/// menit, jendelanya 4,6–5,8 menit, sesi penuh 10 menit) — cukup lapang untuk
+/// satu pengukuran sungguhan, masih jauh lebih cepat daripada 2,5 jam.
+///
+/// `int.fromEnvironment` juga dievaluasi saat kompilasi, jadi pengaman yang
+/// sama seperti [pakaiJadwalUji] tetap berlaku.
+const int faktorJadwalUjiTerpakai = int.fromEnvironment(
+  'FAKTOR_JADWAL_UJI',
+  defaultValue: faktorJadwalUji,
+);
 
 /// Auth yang dipakai alur masuk.
 ///

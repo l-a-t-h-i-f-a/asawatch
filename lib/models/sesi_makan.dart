@@ -905,7 +905,13 @@ class StatusPerangkat {
     this.namaPerangkat,
     this.penyandinganHilang = false,
     this.kemampuan,
-  }) : _bateraiTerakhir = baterai;
+    bool bateraiKritis = false,
+  }) : _bateraiTerakhir = baterai,
+       // Namanya sengaja tanpa garis bawah di luar: getter di bawah
+       // menyaringnya dengan `tersambung`, dan pemanggil tidak perlu tahu ada
+       // dua bentuk — persis pola `baterai` di atasnya.
+       // ignore: prefer_initializing_formals
+       _bateraiKritis = bateraiKritis;
 
   /// Belum pernah ada jam yang dipasangkan sama sekali.
   static const StatusPerangkat kosong = StatusPerangkat(tersambung: false);
@@ -928,6 +934,22 @@ class StatusPerangkat {
   /// berubah jadi terputus; nilai yang segar datang lagi dari paket status
   /// saat menyambung (§7) dan dari langganan Battery Service.
   int? get baterai => tersambung ? _bateraiTerakhir : null;
+
+  final bool _bateraiKritis;
+
+  /// Jam melaporkan baterainya kritis (§5.5 `flag` bit2, di bawah 10%).
+  ///
+  /// **Ini bukan sekadar "baterai tinggal sedikit": ini jam yang berhenti
+  /// melayani.** Di bawah ambang itu firmware men-`NAK` `UKUR`,
+  /// `UKUR_SEKARANG`, `ARM_SESI`, dan `MULAI_SESI`, dan tombol fisiknya pun
+  /// tidak berbuat apa-apa (`AW_NAK_BATERAI_RENDAH`, §7 kode `0x06`). Angka
+  /// persennya sendiri tidak cukup untuk menyimpulkan itu — ambangnya milik
+  /// firmware, dan menyalinnya ke aplikasi berarti dua tempat yang harus
+  /// berubah bersamaan. Jamnya sudah menjawab, jadi jawabannya yang dipakai.
+  ///
+  /// Dibuang saat terputus, sama seperti [baterai] dan berbeda dari
+  /// [kemampuan]: ia keadaan yang berubah tiap menit, bukan sifat alatnya.
+  bool get bateraiKritis => tersambung && _bateraiKritis;
   final int sampelTertunda; // masih tertahan di buffer jam
   final DateTime? sinkronTerakhir;
 
@@ -976,6 +998,7 @@ class StatusPerangkat {
     String? namaPerangkat,
     bool? penyandinganHilang,
     KemampuanPerangkat? kemampuan,
+    bool? bateraiKritis,
   }) {
     return StatusPerangkat(
       tersambung: tersambung ?? this.tersambung,
@@ -987,10 +1010,64 @@ class StatusPerangkat {
       sinkronTerakhir: sinkronTerakhir ?? this.sinkronTerakhir,
       namaPerangkat: namaPerangkat ?? this.namaPerangkat,
       penyandinganHilang: penyandinganHilang ?? this.penyandinganHilang,
+      // Lewat getternya, jadi status yang sudah terputus tidak membawa kabar
+      // lama ikut serta — persis alasan yang sama dengan baterai di atas.
+      bateraiKritis: bateraiKritis ?? this.bateraiKritis,
       // Ditahan, tidak seperti baterai: lihat alasannya di definisi field-nya.
       kemampuan: kemampuan ?? this.kemampuan,
     );
   }
+}
+
+/// Kabar dari jam selagi ia mengukur (`UKUR_SEKARANG`, §5.1 & §5.5 v1.4).
+///
+/// **Ia lahir dari paket yang sampai, bukan dari perintah yang dikirim.** Itu
+/// seluruh gunanya. Sebelum v1.4, satu-satunya kabar adalah bit "sedang
+/// mengukur" di paket Status — dan bit itu hanya terkirim dua kali seumur
+/// pengukuran, di awal dan di akhir, karena firmware menahan paket Status yang
+/// isinya tidak berubah. Layar yang menulis "jam sedang memproses" atas dasar
+/// itu menuliskan hal yang sama untuk tiga keadaan yang sama sekali berbeda:
+/// jam yang benar-benar mengukur dengan nadi lambat, jam yang mati di tengah
+/// jalan, dan notifikasi selesai yang hilang di udara. Dua yang terakhir
+/// menggantung selamanya.
+///
+/// Sejak v1.4 jam berdenyut tiap dua detik selama mengukur, dan
+/// `BleAsliService` hanya memancarkan nilai ini saat sebuah denyut betul-betul
+/// tiba. Denyut yang berhenti menghentikan penantian dengan kalimatnya sendiri
+/// — bukan dengan kalimat "tidak menjawab", yang salah alamat.
+class KemajuanUkur {
+  const KemajuanUkur({
+    required this.sedangMengukur,
+    this.persen,
+    this.sisaDetik,
+    this.macet = false,
+  });
+
+  /// Tidak ada pengukuran yang sedang berjalan — dipancarkan sekali saat
+  /// penantian berakhir, bagaimanapun akhirnya.
+  static const KemajuanUkur diam = KemajuanUkur(sedangMengukur: false);
+
+  final bool sedangMengukur;
+
+  /// Kemajuan 0..100 dari jam. null berarti firmware ≤ v1.3, yang tidak
+  /// mengirimkannya — bukan berarti kemajuannya nol.
+  final int? persen;
+
+  /// Perkiraan sisa detik menurut jam, jenuh di 255. Perkiraan, bukan hitung
+  /// mundur: yang mengakhiri pengukuran adalah kecukupan data, jadi angka ini
+  /// boleh memanjang.
+  final int? sisaDetik;
+
+  /// Denyut tetap datang, tetapi [persen] tidak bergerak selama
+  /// [ambangMacet] — jam hidup dan sedang kesulitan menemukan nadi.
+  ///
+  /// Dibedakan dari denyut yang berhenti karena tindak lanjutnya berbeda:
+  /// yang ini diperbaiki dengan merapatkan jam, yang itu tidak bisa
+  /// diperbaiki pengguna sama sekali.
+  final bool macet;
+
+  /// Berapa lama [persen] boleh diam sebelum disebut [macet].
+  static const Duration ambangMacet = Duration(seconds: 60);
 }
 
 /// Satu jam yang terlihat saat memindai (§12.5, tambahan alur pemasangan).

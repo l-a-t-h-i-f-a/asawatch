@@ -726,7 +726,18 @@ class _StatusJam extends StatelessWidget {
                 // sebagai "aplikasi seharusnya tahu ini", padahal jam yang
                 // terputus memang tidak bisa ditanya.
                 if (status.baterai != null)
-                  _petak(label: 'Baterai', nilai: '${status.baterai}%'),
+                  _petak(
+                    label: 'Baterai',
+                    nilai: '${status.baterai}%',
+                    // Angka saja tidak memberitahu apa pun yang bisa
+                    // ditindaklanjuti: "8%" dan "12%" terlihat sama-sama
+                    // rendah, sedangkan di bawah 10% jam berhenti melayani
+                    // seluruh perintah ukur (§5.5 bit2). Yang membedakan
+                    // keduanya adalah jamnya sendiri, bukan pembacanya.
+                    keterangan: status.bateraiKritis
+                        ? 'jam menolak mengukur — isi daya'
+                        : null,
+                  ),
                 if (status.baterai != null && status.sampelTertunda > 0)
                   const SizedBox(width: 12),
                 if (status.sampelTertunda > 0)

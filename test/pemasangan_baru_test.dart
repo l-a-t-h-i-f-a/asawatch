@@ -33,6 +33,12 @@ class _RepoGagalMenyimpan implements SesiRepository {
 
   @override
   Future<void> hapus(String sesiId) async {}
+
+  @override
+  Future<void> nisankan(String sesiId) async {}
+
+  @override
+  Future<List<String>> ambilNisan() async => const [];
 }
 
 void main() {

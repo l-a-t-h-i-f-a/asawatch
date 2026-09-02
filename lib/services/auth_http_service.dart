@@ -37,8 +37,8 @@ class AuthHttpService implements AuthService {
        _klienMilikSendiri = klien == null;
 
   /// Akar alamat API, tanpa garis miring di ujung — mis.
-  /// `https://api.asawatch.id`. Diambil dari `konfigurasi.dart` agar alamat
-  /// pengembangan tidak pernah ikut terbawa ke rakitan rilis.
+  /// `https://asawatch.enumatechnology.com`. Diambil dari `konfigurasi.dart`
+  /// agar alamat pengembangan tidak pernah ikut terbawa ke rakitan rilis.
   final String basisUrl;
 
   /// Label token di sisi server (`nama_perangkat`, §4). Sanctum menyimpannya

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import '../models/sesi_makan.dart';
-import 'protokol_jam.dart' show GalatJam;
+import 'protokol_jam.dart' show GalatJam, PesanUkur, ProtokolJam;
 
 /// Tahap penyambungan yang sedang berjalan — docs/alur-pemasangan-jam.md §4.3.
 ///
@@ -108,6 +108,15 @@ abstract class BleService {
   /// Status terakhir yang diketahui, agar UI tidak kosong sebelum stream
   /// mengirim nilai pertamanya.
   StatusPerangkat get statusTerakhir;
+
+  /// Kabar jam selagi [ukurSekarang] berjalan (§5.5 v1.4).
+  ///
+  /// Hanya memancar saat sebuah paket Status **benar-benar tiba** — tidak
+  /// pernah karena perintahnya sudah dikirim. Perbedaan itulah seluruh gunanya:
+  /// lihat [KemajuanUkur]. Nilai terakhir setiap penantian selalu
+  /// [KemajuanUkur.diam], bagaimanapun penantian itu berakhir, sehingga layar
+  /// tidak pernah tertinggal menampilkan pengukuran yang sudah tidak ada.
+  Stream<KemajuanUkur> get kemajuanUkur;
 
   /// Memindai jam di sekitar. Perangkat dikirim satu per satu selagi terlihat,
   /// dan stream-nya ditutup sendiri saat pemindaian selesai — UI memakai
@@ -234,6 +243,21 @@ abstract class BleService {
   /// bukan ketiadaan nilai.
   Future<Sampel> ukurSekarang();
 
+  /// Apakah jam **sedang mengukur saat ini juga** (§5.5 `flag` bit0).
+  ///
+  /// Dijawab dengan **membaca** karakteristik Status, bukan dari salinan
+  /// terakhir yang ada di memori, dan perbedaan itu seluruh gunanya: bit0
+  /// adalah level yang menyala sampai jam mencabutnya, jadi jam yang mati di
+  /// tengah pengukuran meninggalkannya menyala selamanya di sisi aplikasi.
+  /// Pembacaan yang berhasil membuktikan tautannya hidup **dan** jamnya masih
+  /// bekerja; yang gagal menjawab false, karena jam yang tidak bisa ditanya
+  /// tidak boleh menahan apa pun.
+  ///
+  /// Dipakai [SesiMakanController] saat tenggat sesi jatuh: menutup sesi selagi
+  /// jamnya sedang mengukur titik terakhir akan membuang pengukuran yang
+  /// beberapa detik lagi selesai.
+  Future<bool> jamSedangMengukur();
+
   /// Mengirim koefisien kalibrasi ke jam.
   Future<void> kirimKalibrasi(Kalibrasi kalibrasi);
 
@@ -287,6 +311,9 @@ class FakeBleService implements BleService {
     this.otomatisSelesaiMakan = 600,
     this.penyandingan = PenyandinganPalsu.tidakPerlu,
     this.galatUkurSekarang,
+    this.denyutUkur = true,
+    this.denyutUkurBerhenti,
+    this.persenUkurMacet = false,
     this.metrikGagal = const {},
     KemampuanPerangkat kemampuan = KemampuanPerangkat.semua,
     StatusPerangkat? status,
@@ -312,6 +339,28 @@ class FakeBleService implements BleService {
   /// gagalnya yang paling perlu dilihat sebelum ada perangkat keras: baterai
   /// habis, sensor tidak membaca, jam tidak menjawab.
   final String? galatUkurSekarang;
+
+  /// Jam ini berdenyut selama mengukur (paket Status 10 byte, §5.5 v1.4).
+  ///
+  /// false menirukan firmware ≤ v1.3, yang hanya mengirim bit "sedang
+  /// mengukur" sekali di awal dan sekali di akhir — satu-satunya cara melihat
+  /// bahwa aplikasi tetap bekerja pada jam yang belum diperbarui, alih-alih
+  /// menggagalkan setiap pengukurannya setelah delapan detik.
+  final bool denyutUkur;
+
+  /// Denyut berhenti setelah sekian kali, lalu tidak ada apa pun lagi — jam
+  /// yang mati, tertidur, atau keluar jangkauan di tengah pengukuran.
+  ///
+  /// Inilah keadaan yang paling tidak bisa dipesan pada jam sungguhan dan
+  /// paling perlu dilihat: sebelum §5.5 v1.4 ia tampil sebagai "sedang
+  /// mengukur" selamanya, karena bit itu memang tidak pernah dicabut.
+  final int? denyutUkurBerhenti;
+
+  /// Denyut terus datang tetapi persennya tidak bergerak — nadi yang sulit
+  /// ditemukan. Berbeda dari [denyutUkurBerhenti]: yang ini **berhasil**, hanya
+  /// lama, dan kalimatnya di layar pun berbeda ("rapatkan jam", bukan "jam
+  /// berhenti mengabari").
+  final bool persenUkurMacet;
 
   /// **[kemampuan] berbeda dari [metrikGagal], dan bedanya adalah seluruh
   /// gunanya.** `metrikGagal` adalah sensor yang **ada tetapi gagal membaca** —
@@ -346,6 +395,7 @@ class FakeBleService implements BleService {
       StreamController<
         ({String sesiId, DateTime t0, bool waktuTidakPasti})
       >.broadcast();
+  final _pengendaliKemajuan = StreamController<KemajuanUkur>.broadcast();
   final _timer = <Timer>[];
 
   /// Sesi yang tombol "Selesai Makan"-nya sedang menyala di jam. null berarti
@@ -368,6 +418,9 @@ class FakeBleService implements BleService {
 
   @override
   StatusPerangkat get statusTerakhir => _status;
+
+  @override
+  Stream<KemajuanUkur> get kemajuanUkur => _pengendaliKemajuan.stream;
 
   Duration _jeda(int detikNyata) =>
       Duration(milliseconds: (detikNyata * 1000 / percepatan).round());
@@ -456,9 +509,31 @@ class FakeBleService implements BleService {
       tombolUkurMenyala = false;
     }
 
-    // Pengukuran atas permintaan tetap butuh waktu di jam sungguhan.
+    // Pengukuran atas permintaan tetap butuh waktu di jam sungguhan — dan
+    // selama waktu itu jam sungguhan berdenyut (§5.5 v1.4). Tanpa tiruan denyut
+    // di sini, indikator kemajuan pada kartu sesi tidak pernah terlihat sebelum
+    // ada perangkat keras, padahal justru pengukuran inilah yang paling lama
+    // ditunggui orang.
+    sedangMengukurTitik = true;
+    const langkah = 4;
+    for (var i = 1; i <= langkah; i++) {
+      _timer.add(
+        Timer(_jeda(20) * (i / langkah), () {
+          if (!denyutUkur) return;
+          _pengendaliKemajuan.add(
+            KemajuanUkur(
+              sedangMengukur: true,
+              persen: (i * 100 / langkah).round(),
+              sisaDetik: (langkah - i) * 5,
+            ),
+          );
+        }),
+      );
+    }
     _timer.add(
       Timer(_jeda(20), () {
+        sedangMengukurTitik = false;
+        _pengendaliKemajuan.add(KemajuanUkur.diam);
         _kirim(sesiId, _buatSampel(index, index == 0 ? -1500 : 0));
       }),
     );
@@ -524,11 +599,66 @@ class FakeBleService implements BleService {
       throw GalatJam(galatUkurSekarang!);
     }
 
-    await Future<void>.delayed(_jeda(30));
+    _sedangUkur = true;
+    try {
+      return await _ukurBerdenyut();
+    } finally {
+      _sedangUkur = false;
+    }
+  }
+
+  Future<Sampel> _ukurBerdenyut() async {
+    // Enam denyut menirukan paket Status yang datang tiap dua detik selama
+    // pengukuran (§5.5 v1.4). Yang ditirukan adalah **kedatangannya**, bukan
+    // sekadar angkanya: itulah yang dipakai layar untuk berkata jam sedang
+    // bekerja, dan tanpa tiruan di sini tidak satu pun kalimatnya bisa dilihat
+    // sebelum ada firmware v1.4 di tangan.
+    const langkah = 6;
+    for (var i = 1; i <= langkah; i++) {
+      await Future<void>.delayed(_jeda(5));
+      if (denyutUkurBerhenti != null && i > denyutUkurBerhenti!) {
+        // Jam berhenti mengabari. Yang ditirukan adalah akibatnya di layar,
+        // bukan algoritma penjaganya — penjaga denyut yang sesungguhnya hidup
+        // di `BleAsliService`, satu tempat saja.
+        await Future<void>.delayed(ProtokolJam.denyutUkurBasi);
+        _pengendaliKemajuan.add(KemajuanUkur.diam);
+        throw const GalatJam(PesanUkur.denyutBerhenti);
+      }
+      if (!denyutUkur) continue;
+      final persen = persenUkurMacet ? 35 : (i * 100 / langkah).round();
+      _pengendaliKemajuan.add(
+        KemajuanUkur(
+          sedangMengukur: true,
+          persen: persen,
+          sisaDetik: (langkah - i) * 5,
+          macet: persenUkurMacet && i >= 3,
+        ),
+      );
+    }
+    _pengendaliKemajuan.add(KemajuanUkur.diam);
+
     // Pengukuran di luar sesi tidak punya t0 dan tidak punya urutan titik ukur;
     // `index` 1 hanya mengikuti bentuk paketnya (§5.1), bukan posisi di jadwal.
     return _buatSampel(1, 0, gagal: metrikGagal);
   }
+
+  /// Diisi selama [ukurSekarang] berjalan, supaya jam palsu menjawab
+  /// [jamSedangMengukur] seperti jam sungguhan.
+  bool _sedangUkur = false;
+
+  /// Jam sedang mengukur **titik sesi** (`UKUR`), bukan atas permintaan
+  /// [ukurSekarang].
+  ///
+  /// Disetel test, karena jalur itu tidak punya penantian di aplikasi yang bisa
+  /// menyalakannya sendiri: perintahnya dikirim, lalu sampelnya datang entah
+  /// kapan. Justru di sanalah tenggat sesi bisa jatuh tepat di tengah
+  /// pengukuran — pada jadwal uji yang dimampatkan, itu keadaan yang biasa,
+  /// bukan langka.
+  bool sedangMengukurTitik = false;
+
+  @override
+  Future<bool> jamSedangMengukur() async =>
+      _status.tersambung && (_sedangUkur || sedangMengukurTitik);
 
   @override
   Future<void> kirimKalibrasi(Kalibrasi kalibrasi) async {
@@ -761,5 +891,6 @@ class FakeBleService implements BleService {
     _pengendaliTahap.close();
     _pengendaliSampel.close();
     _pengendaliT0.close();
+    _pengendaliKemajuan.close();
   }
 }

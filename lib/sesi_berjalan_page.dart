@@ -633,7 +633,13 @@ class StatusPerangkatBar extends StatelessWidget {
           : (p?.penyandinganHilang ?? false)
           ? 'Jam tidak tersandingkan'
           : 'Jam terputus',
-      if (p?.baterai != null) 'baterai ${p!.baterai}%',
+      // Baterai kritis tidak ditulis sebagai angka yang lebih kecil melainkan
+      // sebagai akibatnya: di bawah 10% jam menolak mengukur (§5.5 bit2), dan
+      // "baterai 8%" tidak memberitahukan itu kepada siapa pun.
+      if (p?.bateraiKritis ?? false)
+        'baterai ${p!.baterai ?? 0}% — jam menolak mengukur'
+      else if (p?.baterai != null)
+        'baterai ${p!.baterai}%',
       // "Sampel" adalah kosakata protokol, bukan kosakata pengguna. Yang perlu
       // diketahui adalah bahwa ada hasil pengukuran yang belum pindah dari jam
       // ke ponsel — dan kalimatnya berbeda menurut keadaan, karena artinya

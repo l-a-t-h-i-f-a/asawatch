@@ -100,6 +100,47 @@ abstract final class ProtokolJam {
   static const int panjangPeristiwa = 26;
   static const int panjangStatus = 8;
 
+  /// Panjang paket Status sejak firmware v1.4, yang menambahkan dua byte
+  /// kemajuan pengukuran di belakang (§5.5).
+  ///
+  /// [panjangStatus] sengaja **tidak** dinaikkan: firmware v1.3 yang masih
+  /// beredar mengirim 8 byte dan paketnya tetap sah. Kedua field barunya null
+  /// pada paket sependek itu, dan `BleAsliService` memakai ketiadaannya untuk
+  /// memutuskan bahwa jam ini tidak berdenyut — bukan bahwa jamnya diam.
+  static const int panjangStatusKemajuan = 10;
+
+  /// Kadensi denyut Status selama jam mengukur (§5.5, v1.4) dan ambang
+  /// basinya — tiga denyut terlewat.
+  ///
+  /// Ambangnya kelipatan kadensi, bukan angka yang dipilih terpisah: satu
+  /// notifikasi yang hilang di udara adalah kejadian biasa dan tidak boleh
+  /// menggagalkan pengukuran yang sah.
+  static const Duration denyutUkur = Duration(seconds: 2);
+  static const Duration denyutUkurBasi = Duration(seconds: 8);
+
+  /// Batas keras pengukuran di firmware (`UKUR_BATAS_KERAS_MS`, 5 menit) plus
+  /// kelonggaran untuk paket terakhirnya.
+  ///
+  /// Ini **langit-langit**, bukan kesabaran: yang mengakhiri penantian dalam
+  /// keadaan normal adalah denyut yang berhenti ([denyutUkurBasi]) atau jawaban
+  /// yang datang. Ia hanya menjaga dari firmware yang berdenyut selamanya.
+  static const Duration batasUkur = Duration(seconds: 315);
+
+  /// Berapa lama paket Sampel boleh menyusul setelah jam melaporkan bahwa ia
+  /// **berhenti** mengukur.
+  ///
+  /// Urutan itu normal, bukan kelainan: firmware mengirim paket Status dari
+  /// dalam `ukur_selesai()`, sementara Sampel-nya berangkat lewat ring buffer
+  /// sesudahnya. Menggagalkan penantian pada bit yang padam akan menggagalkan
+  /// setiap pengukuran yang berhasil.
+  static const Duration tenggatHasilUkur = Duration(seconds: 8);
+
+  /// Berapa lama jam boleh belum mulai mengukur setelah `UKUR_SEKARANG`
+  /// di-ACK. Firmware mengirim paket Status tepat di `ukur_mulai()`, jadi
+  /// denyut pertama datang dalam hitungan sepersekian detik; sisanya
+  /// kelonggaran untuk buffer yang sedang terkuras.
+  static const Duration tenggatMulaiUkur = Duration(seconds: 20);
+
   /// MTU yang diminta dan minimum yang masih bisa dipakai (§8). Sampel butuh 31
   /// byte utuh dalam satu notifikasi, plus 3 byte header ATT.
   static const int mtuDiminta = 185;
@@ -373,6 +414,51 @@ class EntriPeristiwa extends EntriJam {
   KodeGalatJam? get kodeGalat => KodeGalatJam.dariKode(payload);
 }
 
+/// Kalimat siap tampil untuk setiap cara sebuah `UKUR_SEKARANG` bisa berakhir
+/// tanpa hasil (§5.1, §5.5).
+///
+/// Dikumpulkan di satu tempat karena jam palsu harus mengucapkan kalimat yang
+/// **sama persis** dengan jam sungguhan: kalau tidak, seluruh copy ini hanya
+/// bisa dilihat setelah ada perangkat keras yang kebetulan gagal dengan cara
+/// yang tepat. Masing-masing menyebut sebab yang berbeda karena tindak
+/// lanjutnya berbeda — dan itulah alasan satu timeout tunggal dibongkar
+/// menjadi lima.
+class PesanUkur {
+  /// Perintah sudah di-ACK, tetapi jam tidak pernah melaporkan bahwa ia mulai
+  /// mengukur. Bukan "tidak menjawab": jam menjawab, ia hanya tidak mulai.
+  static const tidakMulai =
+      'Jam menerima perintahnya tetapi tidak mulai mengukur. Lepas lalu pasang '
+      'kembali jam di pergelangan, lalu coba lagi.';
+
+  /// Denyut Status berhenti di tengah pengukuran (§5.5 v1.4) — jam mati,
+  /// keluar jangkauan, atau berhenti tanpa pamit.
+  static const denyutBerhenti =
+      'Jam berhenti mengabari di tengah pengukuran. Pastikan jam menyala dan '
+      'dekat dengan ponsel, lalu coba lagi.';
+
+  /// Tautan putus selagi menunggu. Dipisahkan dari [denyutBerhenti] karena
+  /// sebabnya diketahui pasti, bukan disimpulkan dari diamnya jam.
+  static const terputus =
+      'Jam terputus sebelum pengukuran selesai. Dekatkan jam ke ponsel, lalu '
+      'coba lagi.';
+
+  /// Jam melaporkan `UKUR_GAGAL` — sensor menyerah, tidak satu metrik pun
+  /// terbaca (§5.4).
+  static const jamMenyerah =
+      'Jam tidak berhasil membaca satu pun angka. Rapatkan jam di pergelangan, '
+      'diamkan tangan, lalu ukur lagi.';
+
+  /// Jam berhenti mengukur, tetapi paket Sampel-nya tidak pernah sampai.
+  static const hasilTidakSampai =
+      'Jam selesai mengukur, tetapi hasilnya tidak sampai ke ponsel. Coba ukur '
+      'sekali lagi.';
+
+  /// Langit-langit: jam berdenyut melampaui batas kerasnya sendiri.
+  static const terlaluLama =
+      'Pengukuran berjalan terlalu lama dan dihentikan. Rapatkan jam di '
+      'pergelangan, lalu coba lagi.';
+}
+
 /// Isi karakteristik Status (§5.5).
 class StatusJam {
   const StatusJam({
@@ -384,6 +470,8 @@ class StatusJam {
     required this.bateraiKritis,
     required this.punyaAnchor,
     required this.uptimeS,
+    this.ukurPersen,
+    this.ukurSisaDetik,
   });
 
   final StatusSesiJam statusSesi;
@@ -394,6 +482,22 @@ class StatusJam {
   final bool bateraiKritis;
   final bool punyaAnchor;
   final int uptimeS;
+
+  /// Kemajuan pengukuran 0..100, atau null bila firmware belum mengirimkannya
+  /// (paket 8 byte, ≤ v1.3).
+  ///
+  /// **null berbeda dari 0**: null berarti jam ini tidak pernah mengabarkan
+  /// kemajuan sama sekali, 0 berarti pengukurannya baru saja dimulai. Yang
+  /// pertama membuat aplikasi tidak boleh memasang penjaga denyut; yang kedua
+  /// justru denyut pertamanya.
+  final int? ukurPersen;
+
+  /// Perkiraan sisa detik, jenuh di 255 (§5.5). null pada firmware ≤ v1.3.
+  final int? ukurSisaDetik;
+
+  /// Paket ini membawa kemajuan pengukuran, jadi jam yang mengirimnya
+  /// berdenyut selama mengukur (§5.5 v1.4).
+  bool get punyaKemajuan => ukurPersen != null;
 }
 
 // --- Pembacaan ------------------------------------------------------------
@@ -460,7 +564,7 @@ EntriPeristiwa bacaPeristiwa(List<int> data) {
   );
 }
 
-/// Membaca 8 byte status (§5.5).
+/// Membaca paket status (§5.5) — 8 byte, atau 10 sejak firmware v1.4.
 StatusJam bacaStatus(List<int> data) {
   final b = _periksa(data, ProtokolJam.panjangStatus, 'Status');
   final kode = b.getUint8(0);
@@ -478,6 +582,16 @@ StatusJam bacaStatus(List<int> data) {
     bateraiKritis: flag & 0x04 != 0,
     punyaAnchor: flag & 0x08 != 0,
     uptimeS: b.getUint32(4, Endian.little),
+    // Dua byte terakhir hanya ada sejak v1.4. Dibaca lewat panjang paketnya
+    // sendiri, bukan lewat `versi_minor` handshake: yang menentukan apakah byte
+    // ini boleh dibaca adalah paket yang sedang dipegang, dan handshake bisa
+    // saja belum sempat terjadi pada paket Status pertama yang datang.
+    ukurPersen: data.length >= ProtokolJam.panjangStatusKemajuan
+        ? b.getUint8(8)
+        : null,
+    ukurSisaDetik: data.length >= ProtokolJam.panjangStatusKemajuan
+        ? b.getUint8(9)
+        : null,
   );
 }
 

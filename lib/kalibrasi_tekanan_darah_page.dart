@@ -169,6 +169,30 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
     }
   }
 
+  /// Judul kartu selagi jam mengukur — tiga keadaan, tiga kalimat.
+  ///
+  /// Ketiganya lahir dari paket Status yang benar-benar tiba, karena "sedang
+  /// mengukur" yang ditulis atas dasar perintah yang sudah dikirim akan tetap
+  /// terpampang pada jam yang mati di tengah jalan.
+  static String _judulMengukur(KemajuanUkur? kemajuan) => switch (kemajuan) {
+    null => 'Menunggu jam mulai…',
+    final k when k.macet => 'Jam belum menemukan nadi',
+    _ => 'Jam sedang mengukur…',
+  };
+
+  static String _penjelasanMengukur(KemajuanUkur? kemajuan) =>
+      switch (kemajuan) {
+        null =>
+          'Perintah sudah dikirim. Kalimat ini berubah begitu jam melapor '
+              'bahwa ia mulai membaca.',
+        final k when k.macet =>
+          'Jam masih bekerja. Rapatkan jam di pergelangan dan diamkan tangan.',
+        final k when k.sisaDetik != null =>
+          'Diam, jangan bicara, kedua lengan tetap di meja. Perkiraan sisa '
+              '±${k.sisaDetik} detik menurut jam.',
+        _ => 'Diam, jangan bicara, kedua lengan tetap di meja.',
+      };
+
   void _simpanPutaran() {
     final putaran = _putaranIni;
     if (putaran == null) return;
@@ -432,6 +456,15 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
     // mengembalikan sampel tanpa tekanan darah (§5.2 sentinel 0 → null).
     final sudahAdaBacaan =
         _pembacaanJam?.sistolik != null && _pembacaanJam?.diastolik != null;
+    // Kabar dari jam, bukan tebakan layar. null selagi [_sedangMengukur]
+    // berarti perintahnya sudah dikirim tetapi jam belum sekali pun melapor —
+    // dan itu dikatakan apa adanya, bukan disamarkan sebagai "sedang
+    // mengukur" (docs/protokol-jam.md §5.5 v1.4).
+    final kemajuan = context.watch<SesiMakanController>().kemajuanUkur;
+    // Diperiksa sebelum tombolnya bisa ditekan, bukan sesudah: prosedur ini
+    // tiga putaran berjeda 60 detik, dan gagal di putaran terakhir karena
+    // baterai berarti seluruhnya diulang dari awal.
+    final halangan = context.watch<SesiMakanController>().alasanJamTidakBisaUkur;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -481,7 +514,7 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
                   Expanded(
                     child: Text(
                       _sedangMengukur
-                          ? 'Sedang mengukur…'
+                          ? _judulMengukur(kemajuan)
                           : _pembacaanJam == null
                           ? 'Jam belum mengukur'
                           : sudahAdaBacaan
@@ -514,7 +547,7 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
               const SizedBox(height: 4),
               Text(
                 _sedangMengukur
-                    ? 'Diam, jangan bicara, kedua lengan tetap di meja.'
+                    ? _penjelasanMengukur(kemajuan)
                     : sudahAdaBacaan
                     // Angkanya sengaja tidak ditampilkan di sini. Lihat
                     // alasannya di komentar kelas — ini yang menggantikan
@@ -532,7 +565,9 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton(
-                  onPressed: _sedangMengukur ? null : _ukurDenganJam,
+                  onPressed: (_sedangMengukur || halangan != null)
+                      ? null
+                      : _ukurDenganJam,
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFF0EAD69),
                     side: const BorderSide(
@@ -546,7 +581,9 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
                   ),
                   child: Text(
                     _sedangMengukur
-                        ? 'Jam sedang mengukur…'
+                        ? (kemajuan?.persen != null
+                              ? 'Jam sedang mengukur… ${kemajuan!.persen}%'
+                              : 'Menunggu jam…')
                         : _pembacaanJam == null
                         ? 'Mulai Ukur Bersamaan'
                         : 'Ukur Ulang',
@@ -557,6 +594,17 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
                   ),
                 ),
               ),
+              if (halangan != null && _galat == null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  halangan,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFFC0392B),
+                    height: 1.4,
+                  ),
+                ),
+              ],
               if (_galat != null) ...[
                 const SizedBox(height: 10),
                 _BarisGalat(pesan: _galat!),

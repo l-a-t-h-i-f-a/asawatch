@@ -73,10 +73,30 @@ class BleAsliService implements BleService {
   /// internal antara [_kirimPerintah] dan jam, bukan sesuatu yang UI tunggu.
   final _pengendaliBalasan = StreamController<EntriPeristiwa>.broadcast();
 
+  final _pengendaliKemajuan = StreamController<KemajuanUkur>.broadcast();
+
+  /// Penantian [ukurSekarang] yang sedang berjalan, atau null bila tidak ada.
+  ///
+  /// Ada di level objek, bukan sebagai variabel lokal, karena tiga jalur di
+  /// luar fungsi itu harus bisa menghentikannya: paket Status (denyut), event
+  /// `UKUR_GAGAL`, dan pemutusan tautan. Ketiganya tahu penantiannya gagal jauh
+  /// lebih awal daripada penjaga waktu mana pun.
+  _PenantiUkur? _penantiUkur;
+
+  /// Penjaga kabar kemajuan, terpisah dari penjaga penantian: ia hidup juga
+  /// saat yang diukur adalah titik sesi, yang tidak punya penanti.
+  Timer? _jagaTampilanUkur;
+  int? _persenTerakhir;
+  DateTime? _persenBerubahPada;
+
   StatusPerangkat _status = const StatusPerangkat(tersambung: false);
 
   BluetoothDevice? _perangkat;
   BluetoothCharacteristic? _kontrol;
+
+  /// Karakteristik Status, disimpan agar bisa **dibaca** saat denyutnya
+  /// menghilang — lihat [_periksaDenyutHilang].
+  BluetoothCharacteristic? _statusKar;
   InfoJam? _info;
 
   /// Anchor per `boot_id`, di-cache supaya konversi tiap sampel tidak menjadi
@@ -375,6 +395,49 @@ class BleAsliService implements BleService {
     }
   }
 
+  /// Mencatat MTU hasil negosiasi, satu baris per koneksi.
+  ///
+  /// `connect(mtu: …)` hanya **meminta**; yang menentukan adalah negosiasi
+  /// radio, dan hasilnya tidak pernah dilaporkan ke mana pun. Kalau ia tetap 23
+  /// (bawaan ATT), muatan notifikasi maksimum hanya 20 byte — dan sisi jam
+  /// memotong setiap paket yang lebih panjang **tanpa error dan tanpa log**
+  /// (NimBLE `ble_att_truncate_to_mtu`, bertipe `void`). Sampel 31 byte dan
+  /// Peristiwa 26 byte sama-sama tiba terpotong, `notify()` di jam tetap
+  /// melapor sukses, dan tidak ada satu pun lapisan di antaranya yang
+  /// mengeluh. Gejalanya di layar bukan galat melainkan sinkronisasi yang
+  /// berjalan sampai 100% tanpa satu pun sampel masuk.
+  ///
+  /// **Tidak membatalkan koneksi.** Jam yang tersambung dengan MTU kecil tetap
+  /// mengirim Status dan baterai, dan halaman perangkatnya tetap satu-satunya
+  /// tempat pengguna bisa memutus atau menyandingkan ulang. Sejak paket
+  /// kependekan berhenti di-ACK ([_buangPaketRusak]), koneksi seperti ini tidak
+  /// lagi merusak apa pun — entrinya menunggu di buffer jam sampai tautannya
+  /// benar. Menolak menyambung hanya akan menutup satu-satunya layar yang bisa
+  /// menjelaskan keadaannya.
+  void _catatMtu(BluetoothDevice perangkat) {
+    final int mtu;
+    try {
+      mtu = perangkat.mtuNow;
+    } catch (e) {
+      debugPrint('MTU tidak terbaca: $e');
+      return;
+    }
+
+    if (mtu >= ProtokolJam.mtuMinimum) {
+      debugPrint('MTU $mtu (diminta ${ProtokolJam.mtuDiminta}).');
+      return;
+    }
+
+    debugPrint(
+      'MTU $mtu, di bawah minimum ${ProtokolJam.mtuMinimum} '
+      '(diminta ${ProtokolJam.mtuDiminta}). '
+      'Muatan notifikasi hanya ${mtu - 3} byte, sedangkan Sampel butuh '
+      '${ProtokolJam.panjangSampel} dan Peristiwa ${ProtokolJam.panjangPeristiwa}. '
+      'Jam akan memotong keduanya tanpa memberi tahu, jadi tidak akan ada sampel '
+      'yang masuk sampai MTU dinaikkan.',
+    );
+  }
+
   Future<void> _sambungkan(
     String idPerangkat, {
     required bool simpanPasangan,
@@ -398,6 +461,7 @@ class BleAsliService implements BleService {
     );
 
     await _sandingkan(perangkat);
+    _catatMtu(perangkat);
 
     _tahap(TahapSambung.menyiapkan);
     final layanan = await perangkat.discoverServices();
@@ -528,6 +592,7 @@ class BleAsliService implements BleService {
     await peristiwa.setNotifyValue(true);
     await sampel.setNotifyValue(true);
     await status.setNotifyValue(true);
+    _statusKar = status;
 
     _pantau(
       peristiwa.onValueReceived.listen(
@@ -728,6 +793,9 @@ class BleAsliService implements BleService {
   }
 
   @override
+  Stream<KemajuanUkur> get kemajuanUkur => _pengendaliKemajuan.stream;
+
+  @override
   Future<Sampel> ukurSekarang() async {
     if (!_status.tersambung) {
       throw const GalatJam(
@@ -738,7 +806,7 @@ class BleAsliService implements BleService {
     // Pengukuran satu kali di luar sesi — kalibrasi tekanan darah dan pindai
     // kesehatan atas permintaan. Jawabannya datang lewat karakteristik Sampel
     // seperti yang lain, jadi yang ditunggu di sini adalah notifikasi
-    // berikutnya — dengan timeout, karena jam bisa saja tidak menjawab.
+    // berikutnya.
     //
     // **Yang ditunggu adalah sampel ber-`sesiId` nol, bukan sampel apa pun**
     // (§5.1). Perintah ini boleh dikirim kapan saja, termasuk selagi sebuah
@@ -746,24 +814,240 @@ class BleAsliService implements BleService {
     // berikutnya di stream ini bisa saja milik sesi yang sama sekali lain.
     // Menyerahkannya sebagai hasil pindai akan menampilkan angka dari satu jam
     // yang lalu sebagai "hasil barusan" — salah tanpa satu pun gejala.
-    final menunggu = _pengendaliSampel.stream
-        .firstWhere((e) => !sesiIdNyata(e.sesiId))
-        .timeout(
-          const Duration(seconds: 60),
-          onTimeout: () => throw const GalatJam(
-            'Jam tidak menjawab pengukuran. Pastikan jam terpakai rapat di '
-            'pergelangan, lalu coba lagi.',
-          ),
-        );
-    // Perintahnya bisa gagal sebelum jawabannya datang; future yang ditinggalkan
-    // akan menyelesaikan dirinya dengan timeout 60 detik kemudian tanpa ada yang
-    // menangkapnya, dan itu muncul sebagai galat tak tertangani yang tidak
-    // menyerupai penyebabnya sama sekali.
-    unawaited(menunggu.catchError((_) => _sampelDibuang));
+    //
+    // **Penantiannya dijaga oleh denyut, bukan oleh satu tenggat.** Dulu di
+    // sini ada `timeout(60 detik)` tunggal, dan angka itu tidak pernah cocok
+    // dengan apa pun: firmware menunggu 90 detik tanpa kulit menempel dan 5
+    // menit sebagai batas keras (`UKUR_TANPA_KONTAK_MS`, `UKUR_BATAS_KERAS_MS`),
+    // jadi setiap nadi yang sulit ditemukan — pergelangan dingin, tali agak
+    // longgar, hal yang lazim pada pengguna lansia — dilaporkan sebagai jam
+    // yang tidak menjawab, tepat ketika jam sedang bekerja. Sampelnya datang
+    // beberapa detik kemudian dan dibuang tanpa jejak.
+    //
+    // Yang menggantikannya adalah §5.5 v1.4: jam mengirim paket Status tiap dua
+    // detik selama mengukur, membawa kemajuan yang dihitungnya sendiri. Selama
+    // denyut itu datang, tidak ada alasan menghentikan penantian; begitu ia
+    // berhenti, tidak ada gunanya menunggu lebih lama. Empat sebab lain
+    // menghentikannya lebih cepat lagi, masing-masing dengan kalimatnya sendiri
+    // ([PesanUkur]) — jam yang tidak pernah mulai, tautan yang putus,
+    // `UKUR_GAGAL`, dan jam yang selesai tetapi hasilnya tidak sampai.
+    if (_penantiUkur != null) {
+      throw const GalatJam('Pengukuran sebelumnya masih berjalan.');
+    }
 
-    await _kirimPerintah(tulisUkurSekarang());
-    return (await menunggu).sampel;
+    final penanti = _PenantiUkur();
+    _penantiUkur = penanti;
+
+    // Langganan dipasang **sebelum** perintahnya dikirim: sampelnya boleh
+    // datang secepat apa pun, dan yang lewat sebelum kita mendengarkan hilang
+    // tanpa jejak — alasan yang sama dengan pemasangan langganan ACK di
+    // [_kirimPerintah].
+    penanti.langganan = _pengendaliSampel.stream
+        .where((e) => !sesiIdNyata(e.sesiId))
+        .listen((e) => penanti.selesaikan(e.sampel));
+
+    try {
+      // Sampai jam berdenyut, yang dijaga adalah "apakah pengukurannya mulai".
+      penanti.aturJaga(ProtokolJam.tenggatMulaiUkur, PesanUkur.tidakMulai);
+      // Langit-langit terpisah dari penjaga denyut, dan tidak pernah disetel
+      // ulang: penjaga denyut menjaga dari jam yang diam, ini dari jam yang
+      // berdenyut selamanya.
+      penanti.langit = Timer(
+        ProtokolJam.batasUkur,
+        () => penanti.gagalkan(const GalatJam(PesanUkur.terlaluLama)),
+      );
+
+      await _kirimPerintah(tulisUkurSekarang());
+      return await penanti.masaDepan;
+    } finally {
+      penanti.bersihkan();
+      _penantiUkur = null;
+      // Kabar kemajuan **tidak** dipadamkan di sini, dan itu disengaja sejak ia
+      // berhenti menumpang pada penanti: penantian yang berakhir bukan berarti
+      // jamnya berhenti mengukur. Layar yang menyerah menunggu boleh berhenti
+      // menampilkannya, tetapi kartu sesi yang lain masih berhak tahu jamnya
+      // sedang bekerja. Yang memadamkannya adalah bit0 yang padam atau
+      // denyutnya yang berhenti — keduanya di [_kabarkanUkur].
+    }
   }
+
+  /// Denyut Status selama [ukurSekarang] berjalan (§5.5 v1.4).
+  ///
+  /// Dipanggil dari [_terimaStatus] untuk setiap paket Status yang tiba —
+  /// termasuk yang tiba karena hal lain berubah, yang justru berguna: setiap
+  /// paket adalah bukti tautan masih hidup.
+  /// Meneruskan kemajuan ke [kemajuanUkur] — **untuk setiap pengukuran, bukan
+  /// hanya yang sedang ditunggu sebuah layar.**
+  ///
+  /// Ini terpisah dari [_denyutUkur] karena keduanya menjawab pertanyaan yang
+  /// berbeda: yang itu menjaga sebuah penantian, yang ini mengabarkan keadaan
+  /// jam. Titik ukur sesi (`UKUR`) tidak punya penantian sama sekali —
+  /// perintahnya dikirim, sampelnya datang entah kapan — sehingga selama kabar
+  /// ini menumpang pada penanti, satu-satunya pengukuran yang paling lama
+  /// ditunggui orang justru tidak menampilkan apa pun. Yang terlihat di layar
+  /// hanyalah "Mengukur…" yang membeku sejak ACK sampai sampelnya tiba.
+  ///
+  /// Denyutnya sendiri sudah datang sejak dulu (§5.5 v1.4); yang kurang hanya
+  /// yang memancarkannya.
+  void _kabarkanUkur(StatusJam s) {
+    if (_pengendaliKemajuan.isClosed) return;
+
+    if (!s.sedangMengukur) {
+      _jagaTampilanUkur?.cancel();
+      _jagaTampilanUkur = null;
+      _persenTerakhir = null;
+      _persenBerubahPada = null;
+      _pengendaliKemajuan.add(KemajuanUkur.diam);
+      return;
+    }
+
+    // Satu baris yang membedakan "jam tidak berdenyut" dari "denyutnya sampai
+    // tetapi aplikasi menghitungnya salah" — dua kemungkinan yang di layar
+    // menghasilkan kalimat yang sama persis.
+    debugPrint(
+      'Denyut ukur: persen=${s.ukurPersen} sisa=${s.ukurSisaDetik} '
+      '(paket ${s.punyaKemajuan ? "10" : "8"} byte)',
+    );
+
+    final sekarang = DateTime.now();
+    if (s.ukurPersen != _persenTerakhir) {
+      _persenTerakhir = s.ukurPersen;
+      _persenBerubahPada = sekarang;
+    }
+    // Persen yang tidak bergerak sementara denyutnya tetap datang adalah jam
+    // yang hidup dan sedang kesulitan menemukan nadi — keadaan sah dengan
+    // tindak lanjutnya sendiri, bukan kegagalan.
+    final macet =
+        _persenBerubahPada != null &&
+        sekarang.difference(_persenBerubahPada!) >= KemajuanUkur.ambangMacet;
+
+    _pengendaliKemajuan.add(
+      KemajuanUkur(
+        sedangMengukur: true,
+        persen: s.ukurPersen,
+        sisaDetik: s.ukurSisaDetik,
+        macet: macet,
+      ),
+    );
+
+    // Tanpa penanti, tidak ada yang akan memadamkan kabar ini bila jamnya mati
+    // di tengah pengukuran — dan "jam sedang mengukur" yang menyala selamanya
+    // adalah persis kebohongan yang seluruh §5.6 ada untuk mencegahnya.
+    _jagaTampilanUkur?.cancel();
+    _jagaTampilanUkur = Timer(
+      ProtokolJam.denyutUkurBasi,
+      () => unawaited(_periksaTampilanUkur()),
+    );
+  }
+
+  /// Denyut tampilan berhenti: tanya sekali, seperti [_periksaDenyutHilang].
+  Future<void> _periksaTampilanUkur() async {
+    final kar = _statusKar;
+    if (kar != null && _status.tersambung) {
+      try {
+        // Lewat jalur biasa: bila jamnya masih mengukur, kabarnya terbit lagi
+        // dan penjaganya dipasang ulang di sana.
+        _terimaStatus(await kar.read());
+        return;
+      } catch (e) {
+        debugPrint('Status tidak terbaca saat kabar ukur berhenti: $e');
+      }
+    }
+    if (!_pengendaliKemajuan.isClosed) {
+      _pengendaliKemajuan.add(KemajuanUkur.diam);
+    }
+  }
+
+  void _denyutUkur(StatusJam s) {
+    final penanti = _penantiUkur;
+    if (penanti == null) return;
+
+    if (s.sedangMengukur) {
+      penanti.pernahMengukur = true;
+
+      // **Diam bukan bukti mati — dan itu berlaku untuk kedua versi
+      // firmware.** Saat penjaga ini habis, yang dilakukan bukan menyerah
+      // melainkan BERTANYA: satu pembacaan karakteristik Status. Notifikasi
+      // bisa hilang di udara, tertahan interval koneksi, atau tidak pernah
+      // dikirim sama sekali oleh firmware ≤ v1.3 yang memang tidak berdenyut —
+      // sementara pembacaan yang berhasil membuktikan dua hal sekaligus:
+      // tautannya hidup, dan jamnya masih mengukur.
+      //
+      // Karena itu kedua versi firmware melewati jalur yang sama. Yang
+      // membedakan hanya sumber kabarnya: v1.4 dijawab denyut yang datang
+      // sendiri, v1.3 dijawab pembacaan tiap delapan detik. Menyerah tanpa
+      // bertanya lebih dulu adalah kesalahan yang sama dengan tenggat 60 detik
+      // yang digantikan seluruh bagian ini.
+      penanti.aturJagaPeriksa(
+        ProtokolJam.denyutUkurBasi,
+        _periksaDenyutHilang,
+      );
+      return;
+    }
+
+    // Jam berhenti mengukur. Sampelnya belum tentu terlambat: firmware
+    // mengirim paket Status ini di dalam `ukur_selesai()`, sementara paket
+    // Sampel-nya berangkat lewat ring buffer setelahnya — jadi urutan yang
+    // normal justru "status dulu, sampel menyusul". Yang dipasang di sini
+    // karena itu tenggat pendek, bukan kegagalan seketika.
+    if (penanti.pernahMengukur) {
+      penanti.aturJaga(
+        ProtokolJam.tenggatHasilUkur,
+        PesanUkur.hasilTidakSampai,
+      );
+    }
+  }
+
+  @override
+  Future<bool> jamSedangMengukur() async {
+    final kar = _statusKar;
+    if (kar == null || !_status.tersambung) return false;
+    try {
+      return bacaStatus(await kar.read()).sedangMengukur;
+    } catch (e) {
+      // Jam yang tidak bisa ditanya tidak boleh menahan apa pun. Ini dipakai
+      // untuk menunda tenggat sesi, dan tenggat itu ada justru untuk jam yang
+      // mati — menjawab true saat pembacaannya gagal akan membuat sesi
+      // menggantung persis pada keadaan yang tenggatnya dirancang untuk
+      // menutup.
+      debugPrint('Status tidak terbaca saat tenggat sesi: $e');
+      return false;
+    }
+  }
+
+  /// Denyutnya tidak datang — tanya langsung sebelum menyerah.
+  ///
+  /// Karakteristik Status bersifat Read **dan** Notify (§5.5), dan firmware
+  /// menyegarkannya di `onRead`. Satu pembacaan karena itu menjawab pertanyaan
+  /// yang sebenarnya: bukan "apakah ada paket yang datang", melainkan "apakah
+  /// jamnya masih mengukur". Jawaban yang gagal — tautan sudah tidak ada —
+  /// adalah satu-satunya yang mengakhiri penantian di sini.
+  Future<void> _periksaDenyutHilang() async {
+    final penanti = _penantiUkur;
+    if (penanti == null) return;
+
+    final kar = _statusKar;
+    if (kar == null) {
+      penanti.gagalkan(const GalatJam(PesanUkur.denyutBerhenti));
+      return;
+    }
+
+    try {
+      final data = await kar.read();
+      if (_penantiUkur != penanti) return; // sudah selesai selagi menunggu
+      // Lewat jalur yang sama dengan notifikasi: bila jamnya masih mengukur,
+      // penjaganya disetel ulang di sana dan kemajuannya ikut sampai ke layar;
+      // bila bit0-nya sudah padam, yang dipasang adalah tenggat pendek untuk
+      // sampel yang menyusul, bukan kegagalan seketika.
+      _terimaStatus(data);
+    } catch (e) {
+      debugPrint('Status tidak terbaca saat denyut hilang: $e');
+      penanti.gagalkan(const GalatJam(PesanUkur.denyutBerhenti));
+    }
+  }
+
+  /// Menghentikan penantian [ukurSekarang] yang sedang berjalan, kalau ada.
+  void _gagalkanUkur(GalatJam galat) => _penantiUkur?.gagalkan(galat);
 
   /// Bitfield `kemampuan` handshake → bentuk yang dimengerti UI (§3).
   ///
@@ -775,12 +1059,6 @@ class BleAsliService implements BleService {
     gulaDarah: k.gulaDarah,
     tekananDarah: k.tekananDarah,
     spo2: k.spo2,
-  );
-
-  /// Nilai buangan untuk `catchError` di atas — tidak pernah dibaca siapa pun.
-  static final ({String sesiId, Sampel sampel}) _sampelDibuang = (
-    sesiId: uuidSesiKosong,
-    sampel: const Sampel.menunggu(index: 0, detikRelatifT0: 0),
   );
 
   @override
@@ -807,6 +1085,9 @@ class BleAsliService implements BleService {
     _pengendaliSampel.close();
     _pengendaliT0.close();
     _pengendaliBalasan.close();
+    _penantiUkur?.gagalkan(const GalatJam(PesanUkur.terputus));
+    _jagaTampilanUkur?.cancel();
+    _pengendaliKemajuan.close();
   }
 
   // --- Perintah ----------------------------------------------------------
@@ -961,7 +1242,12 @@ class BleAsliService implements BleService {
     try {
       entri = bacaSampel(data);
     } on GalatProtokol catch (e) {
-      await _buangPaketRusak('sampel', data, e);
+      await _buangPaketRusak(
+        'sampel',
+        data,
+        e,
+        panjangMinimum: ProtokolJam.panjangSampel,
+      );
       return;
     }
 
@@ -987,10 +1273,33 @@ class BleAsliService implements BleService {
   Future<void> _buangPaketRusak(
     String nama,
     List<int> data,
-    GalatProtokol galat,
-  ) async {
+    GalatProtokol galat, {
+    required int panjangMinimum,
+  }) async {
     debugPrint('${galat.pesan} ${ringkasPaket(nama, data)}');
     if (data.isEmpty) return;
+
+    // **Paket yang kependekan tidak dibuang.** Panjang paket bukan properti isi
+    // paket, ia properti tautannya: paket sependek ini belum pernah benar-benar
+    // dibaca, jadi tidak ada apa pun tentang isinya yang bisa disebut rusak.
+    // Penyebabnya hampir selalu MTU yang terlalu kecil (lihat [_catatMtu]), dan
+    // itu sembuh dengan sendirinya begitu tautannya benar — berbeda dari byte
+    // yang memang cacat, yang akan gagal dibaca dengan cara yang sama selamanya.
+    //
+    // Karena itu justru **§6 yang ditegakkan di sini, bukan dilanggar**: tanpa
+    // ack, jam menahan entrinya dan mengirimnya lagi pada sinkronisasi
+    // berikutnya. Meng-ack-nya berarti jam menghapusnya dari ring buffer yang
+    // 64 slot itu — satu-satunya salinan yang ada — dan sampelnya hilang di
+    // kedua sisi tanpa satu pun galat muncul di layar. Gejalanya persis
+    // sinkronisasi yang naik sampai 100% lalu tidak membawa apa-apa.
+    if (data.length < panjangMinimum) {
+      debugPrint(
+        'Paket $nama hanya ${data.length} dari $panjangMinimum byte. Tidak '
+        'di-ACK: entrinya ditinggal di buffer jam supaya bisa diambil lagi '
+        'setelah MTU cukup.',
+      );
+      return;
+    }
 
     // `seq` ada di offset 0 pada paket Sampel maupun Peristiwa, jadi ia tetap
     // terbaca meski sisa paketnya tidak.
@@ -1014,7 +1323,12 @@ class BleAsliService implements BleService {
     try {
       entri = bacaPeristiwa(data);
     } on GalatProtokol catch (e) {
-      await _buangPaketRusak('peristiwa', data, e);
+      await _buangPaketRusak(
+        'peristiwa',
+        data,
+        e,
+        panjangMinimum: ProtokolJam.panjangPeristiwa,
+      );
       return;
     }
 
@@ -1118,6 +1432,18 @@ class BleAsliService implements BleService {
         debugPrint(
           'Jam melaporkan ${entri.jenis.name} (payload ${entri.payload})',
         );
+        // Kecuali satu: `UKUR_GAGAL` ber-`sesiId` nol adalah jawaban atas
+        // `UKUR_SEKARANG` yang sedang ditunggu sebuah layar (§5.1). Membiarkan
+        // penjaga waktunya yang menemukan berarti orang itu menatap layar
+        // selama delapan detik lagi untuk kabar yang sudah tiba — dan dengan
+        // kalimat yang salah, karena jamnya menjawab, bukan diam. Yang
+        // ber-`sesiId` sungguhan adalah titik ukur sesi: bukan urusan penanti
+        // ini, dan menghentikannya akan menjatuhkan pindai kesehatan yang
+        // kebetulan berjalan bersamaan.
+        if (entri.jenis == JenisPeristiwa.ukurGagal &&
+            !sesiIdNyata(entri.sesiId)) {
+          _gagalkanUkur(const GalatJam(PesanUkur.jamMenyerah));
+        }
 
       case JenisPeristiwa.ack:
       case JenisPeristiwa.nak:
@@ -1185,8 +1511,12 @@ class BleAsliService implements BleService {
         tersambung: true,
         baterai: s.baterai,
         sampelTertunda: s.sampelTertunda,
+        bateraiKritis: s.bateraiKritis,
       ),
     );
+
+    _kabarkanUkur(s);
+    _denyutUkur(s);
   }
 
   /// Menerjemahkan `uptime_s` sebuah entri menjadi waktu nyata (§4.2).
@@ -1250,7 +1580,21 @@ class BleAsliService implements BleService {
   void _tanganiPutus() {
     if (_dibuang) return;
     _kontrol = null;
+    _statusKar = null;
     _perbaruiStatus(_status.salin(tersambung: false));
+
+    // Penantian pengukuran diakhiri di sini, dengan sebabnya yang sudah pasti.
+    // Tanpa ini ia hidup sampai penjaga denyutnya habis, lalu berkata "jam
+    // berhenti mengabari" — benar secara harfiah, dan menyesatkan: yang perlu
+    // dilakukan adalah mendekatkan jam, bukan merapatkan talinya.
+    _gagalkanUkur(const GalatJam(PesanUkur.terputus));
+    _jagaTampilanUkur?.cancel();
+    _jagaTampilanUkur = null;
+    if (!_pengendaliKemajuan.isClosed) {
+      // Jam yang lepas tidak bisa lagi dikabarkan sedang mengukur: buktinya
+      // sudah tidak ada, dan itu satu-satunya alasan kabar ini boleh terbit.
+      _pengendaliKemajuan.add(KemajuanUkur.diam);
+    }
 
     // Sesi yang sedang berjalan **tidak** dibatalkan: sampelnya menunggu di
     // buffer jam dan menyusul saat tersambung lagi (§6). Yang perlu dilakukan
@@ -1366,5 +1710,70 @@ class BleAsliService implements BleService {
   void _perbaruiStatus(StatusPerangkat status) {
     _status = status;
     if (!_pengendaliStatus.isClosed) _pengendaliStatus.add(status);
+  }
+}
+
+/// Satu penantian [BleAsliService.ukurSekarang] yang sedang berjalan.
+///
+/// Ada sebagai kelas, bukan sebagai kumpulan variabel lokal di dalam
+/// `ukurSekarang`, karena tiga jalur di luar fungsi itu — paket Status,
+/// `UKUR_GAGAL`, dan pemutusan tautan — harus bisa mengakhirinya. Ketiganya
+/// tahu jawabannya jauh lebih awal daripada penjaga waktu mana pun, dan itulah
+/// bedanya dengan satu `timeout()` yang menampung semua sebab dengan satu
+/// kalimat.
+class _PenantiUkur {
+  final _selesai = Completer<Sampel>();
+
+  StreamSubscription<({String sesiId, Sampel sampel})>? langganan;
+
+  /// Penjaga yang disetel ulang setiap ada kabar baru dari jam.
+  Timer? _jaga;
+
+  /// Langit-langit yang **tidak pernah** disetel ulang.
+  Timer? langit;
+
+  /// Jam pernah melaporkan dirinya sedang mengukur. Membedakan "belum mulai"
+  /// dari "sudah selesai tetapi hasilnya belum sampai" — dua keadaan yang
+  /// sama-sama sunyi di stream Sampel.
+  bool pernahMengukur = false;
+
+  Future<Sampel> get masaDepan => _selesai.future;
+
+  void aturJaga(Duration tenggat, String pesan) {
+    _jaga?.cancel();
+    _jaga = Timer(tenggat, () => gagalkan(GalatJam(pesan)));
+  }
+
+  /// Penjaga yang, saat habis, **memeriksa** alih-alih menggagalkan.
+  ///
+  /// [periksa] bertanggung jawab menyetel penjaga berikutnya (bila jamnya masih
+  /// hidup) atau menggagalkan penantian ini. Ia dibungkus `catchError` karena
+  /// ia berjalan dari sebuah timer: galat yang lolos dari sana tidak punya
+  /// siapa pun yang menangkapnya dan muncul jauh dari sebabnya.
+  void aturJagaPeriksa(Duration tenggat, Future<void> Function() periksa) {
+    _jaga?.cancel();
+    _jaga = Timer(tenggat, () {
+      unawaited(
+        periksa().catchError(
+          (Object e) => gagalkan(const GalatJam(PesanUkur.denyutBerhenti)),
+        ),
+      );
+    });
+  }
+
+  void selesaikan(Sampel sampel) {
+    if (_selesai.isCompleted) return;
+    _selesai.complete(sampel);
+  }
+
+  void gagalkan(GalatJam galat) {
+    if (_selesai.isCompleted) return;
+    _selesai.completeError(galat);
+  }
+
+  void bersihkan() {
+    _jaga?.cancel();
+    langit?.cancel();
+    unawaited(langganan?.cancel());
   }
 }
