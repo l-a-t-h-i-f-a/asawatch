@@ -4,4 +4,9 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Izin bicara HTTP polos ke server pengembangan di laptop; lihat
+         res/xml/network_security_config.xml. Ditaruh di manifest debug supaya
+         rakitan rilis tetap menolak koneksi tanpa TLS. -->
+    <application android:networkSecurityConfig="@xml/network_security_config" />
 </manifest>

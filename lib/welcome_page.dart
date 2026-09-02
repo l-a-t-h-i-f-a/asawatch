@@ -1,9 +1,34 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'login_page.dart';
+import 'register_page.dart';
+import 'services/auth_service.dart';
+import 'repositories/profil_repository.dart';
+import 'repositories/sesi_login_repository.dart';
+import 'services/kamera_service.dart';
 
 class WelcomePage extends StatelessWidget {
-  const WelcomePage({super.key});
+  const WelcomePage({
+    super.key,
+    this.auth,
+    this.kamera,
+    this.sesiLogin,
+    this.profil,
+  });
+
+  /// Diteruskan apa adanya ke [LoginPage] — halaman ini tidak memakainya
+  /// sendiri. Pola yang sama dengan `MenghubungkanPerangkatPage` yang menerima
+  /// `izin:` semata-mata untuk meneruskannya.
+  final AuthService? auth;
+
+  /// Hanya diteruskan — lihat `MyApp.kamera`.
+  final KameraService? kamera;
+
+  /// Hanya diteruskan ke `LoginPage` — lihat `MyApp.sesiLogin`.
+  final SesiLoginRepository? sesiLogin;
+
+  /// Hanya diteruskan ke `LoginPage` — lihat `MyApp.profil`.
+  final ProfilRepository? profil;
 
   @override
   Widget build(BuildContext context) {
@@ -12,17 +37,13 @@ class WelcomePage extends StatelessWidget {
       body: Stack(
         children: [
           // Background soft waves and leaves
-          Positioned.fill(
-            child: CustomPaint(
-              painter: BackgroundPainter(),
-            ),
-          ),
-          
+          Positioned.fill(child: CustomPaint(painter: BackgroundPainter())),
+
           SafeArea(
             child: Column(
               children: [
                 const SizedBox(height: 20),
-                
+
                 // Watch and floating badges illustration area
                 Expanded(
                   flex: 11,
@@ -36,10 +57,10 @@ class WelcomePage extends StatelessWidget {
                         children: [
                           // 1. Concentric elliptical ripples under the watch
                           const RipplesWidget(),
-                          
+
                           // 2. Beautifully designed tilted Smartwatch
                           const SmartwatchMockup(),
-                          
+
                           // 3. Floating Badges around the watch
                           // Top-Left Badge (Water drop, outline style)
                           Positioned(
@@ -91,7 +112,7 @@ class WelcomePage extends StatelessWidget {
                     ),
                   ),
                 ),
-                
+
                 // Welcome / Onboarding Text
                 Expanded(
                   flex: 6,
@@ -131,7 +152,7 @@ class WelcomePage extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 16),
-                        // Title: HealthWatch
+                        // Wordmark: AsaWatch
                         RichText(
                           text: const TextSpan(
                             style: TextStyle(
@@ -142,7 +163,7 @@ class WelcomePage extends StatelessWidget {
                             ),
                             children: [
                               TextSpan(
-                                text: 'Health',
+                                text: 'Asa',
                                 style: TextStyle(color: Color(0xFF2C3E50)),
                               ),
                               TextSpan(
@@ -163,38 +184,17 @@ class WelcomePage extends StatelessWidget {
                           ),
                           textAlign: TextAlign.center,
                         ),
-                        const SizedBox(height: 24),
-                        // Page Indicator dots
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Container(
-                              width: 8,
-                              height: 8,
-                              decoration: const BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Color(0xFF1B9C73),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              width: 8,
-                              height: 8,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: const Color(0xFF1B9C73).withValues(alpha: 0.2),
-                              ),
-                            ),
-                          ],
-                        ),
                       ],
                     ),
                   ),
                 ),
-                
+
                 // Actions Area
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24.0,
+                    vertical: 20.0,
+                  ),
                   child: Column(
                     children: [
                       // "Mulai Sekarang" Button
@@ -206,7 +206,12 @@ class WelcomePage extends StatelessWidget {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) => const LoginPage(),
+                                builder: (context) => RegisterPage(
+                                  auth: auth,
+                                  kamera: kamera,
+                                  sesiLogin: sesiLogin,
+                                  profil: profil,
+                                ),
                               ),
                             );
                           },
@@ -237,7 +242,12 @@ class WelcomePage extends StatelessWidget {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) => const LoginPage(),
+                                builder: (context) => LoginPage(
+                                  auth: auth,
+                                  kamera: kamera,
+                                  sesiLogin: sesiLogin,
+                                  profil: profil,
+                                ),
                               ),
                             );
                           },
@@ -461,8 +471,12 @@ class SmartwatchMockup extends StatelessWidget {
                       child: CircularProgressIndicator(
                         value: 0.75,
                         strokeWidth: 4,
-                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF1B9C73)),
-                        backgroundColor: const Color(0xFF1B9C73).withValues(alpha: 0.12),
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                          Color(0xFF1B9C73),
+                        ),
+                        backgroundColor: const Color(
+                          0xFF1B9C73,
+                        ).withValues(alpha: 0.12),
                       ),
                     ),
                     // Inner progress indicator accent
@@ -472,7 +486,9 @@ class SmartwatchMockup extends StatelessWidget {
                       child: CircularProgressIndicator(
                         value: 0.45,
                         strokeWidth: 2,
-                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF7BE5C4)),
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                          Color(0xFF7BE5C4),
+                        ),
                         backgroundColor: Colors.transparent,
                       ),
                     ),
@@ -592,11 +608,7 @@ class BadgeWidget extends StatelessWidget {
   final IconData icon;
   final bool isSolid;
 
-  const BadgeWidget({
-    super.key,
-    required this.icon,
-    required this.isSolid,
-  });
+  const BadgeWidget({super.key, required this.icon, required this.isSolid});
 
   @override
   Widget build(BuildContext context) {
@@ -609,10 +621,7 @@ class BadgeWidget extends StatelessWidget {
         shape: BoxShape.circle,
         border: isSolid
             ? null
-            : Border.all(
-                color: const Color(0xFFD0EBE0),
-                width: 1.5,
-              ),
+            : Border.all(color: const Color(0xFFD0EBE0), width: 1.5),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.06),
@@ -622,11 +631,7 @@ class BadgeWidget extends StatelessWidget {
         ],
       ),
       alignment: Alignment.center,
-      child: Icon(
-        icon,
-        color: isSolid ? Colors.white : primaryColor,
-        size: 22,
-      ),
+      child: Icon(icon, color: isSolid ? Colors.white : primaryColor, size: 22),
     );
   }
 }
@@ -668,7 +673,7 @@ class BackgroundPainter extends CustomPainter {
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height * 0.4));
-      
+
     final path = Path();
     path.moveTo(0, 0);
     path.lineTo(size.width, 0);
@@ -719,7 +724,12 @@ class BackgroundPainter extends CustomPainter {
     _drawLeaf(canvas, Offset(size.width - 120, 35), 45, -math.pi / 6);
   }
 
-  void _drawLeaf(Canvas canvas, Offset stemOrigin, double length, double angle) {
+  void _drawLeaf(
+    Canvas canvas,
+    Offset stemOrigin,
+    double length,
+    double angle,
+  ) {
     canvas.save();
     canvas.translate(stemOrigin.dx, stemOrigin.dy);
     canvas.rotate(angle);

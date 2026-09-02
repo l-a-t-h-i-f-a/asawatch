@@ -1,6 +1,53 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+        Izin — docs/rencana-produksi.md §4.4.
+
+        Android 12 (API 31) memecah izin Bluetooth menjadi SCAN dan CONNECT.
+        `neverForLocation` menyatakan bahwa aplikasi ini tidak menyimpulkan lokasi
+        dari hasil pemindaian: itu benar (AsaWatch hanya mencari satu jam) dan
+        membebaskan pengguna Android 12+ dari dialog izin lokasi.
+
+        ACCESS_FINE_LOCATION tetap ada untuk Android 11 ke bawah, yang menurunkan
+        pemindaian BLE ke izin lokasi, dan dibatasi `maxSdkVersion="30"` supaya
+        tidak ikut diminta di versi yang tidak membutuhkannya.
+    -->
+    <!-- Masuk akun dan (nanti) cadangan data ke server AsaWatch. Sampai kini
+         izin ini hanya ada di manifest debug — dipasang Flutter untuk hot
+         reload — sehingga semuanya bekerja saat dikembangkan lalu gagal total
+         di rakitan rilis, tanpa satu pun pesan yang menyebut izin. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Pengingat titik ukur (docs/jadwal-titik-ukur.md §6). Wajib sejak
+         Android 13; tanpa ini notifikasinya dijadwalkan tetapi tidak pernah
+         terlihat, dan gejalanya sama persis dengan penjadwalan yang gagal. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Titik ukur punya jendela toleransi semenit-menitan, jadi pengingatnya
+         tidak boleh digeser Doze ke waktu yang nyaman bagi sistem. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- Sesi bisa melintasi restart perangkat; tanpa ini seluruh pengingat yang
+         sudah dijadwalkan hilang tanpa jejak. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+
+    <!--
+        BLE adalah syarat, bukan pelengkap: aplikasi ini tidak berguna sama sekali
+        tanpa jamnya. `required="true"` membuat Play Store menyembunyikannya dari
+        perangkat yang tidak punya BLE, bukan membiarkannya terpasang lalu gagal.
+    -->
+    <uses-feature android:name="android.hardware.bluetooth_le"
+        android:required="true" />
+
     <application
-        android:label="asawatch"
+        android:label="AsaWatch"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

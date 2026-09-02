@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Asawatch</string>
+	<string>AsaWatch</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -26,6 +26,35 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!--
+		Izin Bluetooth — docs/rencana-produksi.md §4.4.
+
+		Alasannya ditulis dalam Bahasa Indonesia dan menyebut manfaatnya bagi
+		pengguna, bukan nama teknis API-nya: App Review menolak alasan generik,
+		dan kalimat inilah yang muncul di dialog izin.
+	-->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>AsaWatch memakai Bluetooth untuk menyambung ke jam tangan Anda dan mengambil hasil pengukuran gula darah, detak jantung, serta tekanan darah selama sesi makan.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>AsaWatch memakai Bluetooth untuk menyambung ke jam tangan Anda dan mengambil hasil pengukuran selama sesi makan.</string>
+	<!--
+		Izin kamera dan galeri. Alasannya menyebut apa yang dilakukan foto itu —
+		ia yang memulai sesi makan — bukan sekadar "aplikasi butuh kamera".
+	-->
+	<key>NSCameraUsageDescription</key>
+	<string>AsaWatch memakai kamera untuk memotret makanan Anda; foto itulah yang memulai sesi makan dan menjadi dasar perkiraan gizinya.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>AsaWatch membuka galeri agar Anda bisa memilih foto makanan yang sudah diambil sebelumnya untuk memulai sesi makan.</string>
+	<!--
+		Sesi berlangsung ~2 jam dan pengguna pasti meninggalkan aplikasi. iOS
+		tidak bisa menjaga proses tetap hidup selama itu; mode ini yang
+		memungkinkan jam tersambung kembali dan buffer-nya ditarik saat aplikasi
+		kembali ke depan (docs/protokol-jam.md §6).
+	-->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-central</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

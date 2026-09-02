@@ -1,21 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-class RiwayatItem {
-  final DateTime dateTime;
-  final String type;
-  final String value;
-  final String status;
-  final bool isNormal;
+import 'controllers/sesi_makan_controller.dart';
+import 'models/sesi_makan.dart';
+import 'ringkasan_sesi_page.dart';
+import 'utils/format_waktu.dart';
+import 'utils/ikon.dart';
+import 'widgets/foto_makanan.dart';
+import 'widgets/lencana_kualitas.dart';
 
-  RiwayatItem({
-    required this.dateTime,
-    required this.type,
-    required this.value,
-    required this.status,
-    required this.isNormal,
-  });
-}
-
+/// Riwayat mendaftar **sesi**, bukan pembacaan tunggal (§4.2).
+///
+/// Gula darah 140 tanpa konteks "1 jam setelah makan 45 g karbohidrat" tidak
+/// bermakna, jadi pembacaan per metrik kini menjadi isi di dalam sesi —
+/// dibuka lewat `RingkasanSesiPage` — bukan entri sejajar. Filternya pun
+/// bergeser dari per-metrik menjadi per waktu makan dan per kualitas respons.
 class RiwayatTab extends StatefulWidget {
   const RiwayatTab({super.key});
 
@@ -24,123 +23,49 @@ class RiwayatTab extends StatefulWidget {
 }
 
 class _RiwayatTabState extends State<RiwayatTab> {
-  String _selectedFilter = 'Semua';
-  List<RiwayatItem> _allRiwayat = [];
+  WaktuMakan? _filterWaktu; // null = semua
+  KualitasRespons? _filterKualitas; // null = semua
 
-  @override
-  void initState() {
-    super.initState();
-    _initData();
-  }
+  bool get _adaFilter => _filterWaktu != null || _filterKualitas != null;
 
-  void _initData() {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-
-    _allRiwayat = [
-      RiwayatItem(
-        dateTime: DateTime(today.year, today.month, today.day, 8, 0),
-        type: 'Detak Jantung',
-        value: '78 bpm',
-        status: 'Normal',
-        isNormal: true,
-      ),
-      RiwayatItem(
-        dateTime: DateTime(today.year, today.month, today.day, 8, 0),
-        type: 'Gula Darah',
-        value: '112 mg/dL',
-        status: 'Normal',
-        isNormal: true,
-      ),
-      RiwayatItem(
-        dateTime: DateTime(today.year, today.month, today.day, 8, 0),
-        type: 'Tekanan Darah',
-        value: '118/78 mmHg',
-        status: 'Normal',
-        isNormal: true,
-      ),
-      RiwayatItem(
-        dateTime: DateTime(today.year, today.month, today.day, 6, 0),
-        type: 'Detak Jantung',
-        value: '82 bpm',
-        status: 'Normal',
-        isNormal: true,
-      ),
-      RiwayatItem(
-        dateTime: DateTime(yesterday.year, yesterday.month, yesterday.day, 20, 0),
-        type: 'Detak Jantung',
-        value: '95 bpm',
-        status: 'Normal',
-        isNormal: true,
-      ),
-      RiwayatItem(
-        dateTime: DateTime(yesterday.year, yesterday.month, yesterday.day, 18, 0),
-        type: 'Tekanan Darah',
-        value: '125/82 mmHg',
-        status: 'Sedikit Tinggi',
-        isNormal: false,
-      ),
-      RiwayatItem(
-        dateTime: DateTime(yesterday.year, yesterday.month, yesterday.day, 12, 0),
-        type: 'Gula Darah',
-        value: '140 mg/dL',
-        status: 'Tinggi',
-        isNormal: false,
-      ),
-      RiwayatItem(
-        dateTime: DateTime(yesterday.year, yesterday.month, yesterday.day, 8, 0),
-        type: 'Detak Jantung',
-        value: '75 bpm',
-        status: 'Normal',
-        isNormal: true,
-      ),
+  String get _labelFilter {
+    final bagian = <String>[
+      if (_filterWaktu != null) _filterWaktu!.label,
+      if (_filterKualitas != null) _filterKualitas!.label,
     ];
+    return bagian.isEmpty ? 'Filter' : bagian.join(' · ');
   }
 
-  List<RiwayatItem> get _filteredRiwayat {
-    if (_selectedFilter == 'Semua') {
-      return _allRiwayat;
+  List<SesiMakan> _saring(List<SesiMakan> semua) {
+    return semua.where((s) {
+      // Sesi berwaktu tidak pasti punya `waktuMakan` null, jadi ia jatuh dari
+      // setiap filter waktu makan dengan sendirinya (protokol §4.3) — dan tetap
+      // terlihat selama filter itu tidak dipasang.
+      if (_filterWaktu != null && s.waktuMakan != _filterWaktu) return false;
+      if (_filterKualitas != null && s.kualitasRespons != _filterKualitas) {
+        return false;
+      }
+      return true;
+    }).toList();
+  }
+
+  /// Kelompokkan per tanggal, urut terbaru lebih dulu.
+  Map<DateTime, List<SesiMakan>> _kelompokkan(List<SesiMakan> sesi) {
+    final peta = <DateTime, List<SesiMakan>>{};
+    for (final s in sesi) {
+      final waktu = s.t0 ?? s.waktuFoto;
+      final hari = DateTime(waktu.year, waktu.month, waktu.day);
+      peta.putIfAbsent(hari, () => []).add(s);
     }
-    return _allRiwayat.where((item) => item.type == _selectedFilter).toList();
+    return peta;
   }
 
-  String _formatDate(DateTime dt) {
-    const months = [
-      '',
-      'Januari',
-      'Februari',
-      'Maret',
-      'April',
-      'Mei',
-      'Juni',
-      'Juli',
-      'Agustus',
-      'September',
-      'Oktober',
-      'November',
-      'Desember',
-    ];
-    return '${dt.day} ${months[dt.month]} ${dt.year}';
-  }
-
-  String _formatMonthYear(DateTime dt) {
-    const months = [
-      '',
-      'Januari',
-      'Februari',
-      'Maret',
-      'April',
-      'Mei',
-      'Juni',
-      'Juli',
-      'Agustus',
-      'September',
-      'Oktober',
-      'November',
-      'Desember',
-    ];
-    return '${months[dt.month]} ${dt.year}';
+  String _labelHari(DateTime hari, DateTime sekarang) {
+    final hariIni = DateTime(sekarang.year, sekarang.month, sekarang.day);
+    final selisih = hariIni.difference(hari).inDays;
+    if (selisih == 0) return 'Hari Ini - ${formatTanggal(hari)}';
+    if (selisih == 1) return 'Kemarin - ${formatTanggal(hari)}';
+    return formatTanggal(hari);
   }
 
   void _showFilterBottomSheet() {
@@ -161,7 +86,7 @@ class _RiwayatTabState extends State<RiwayatTab> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text(
-                    'Filter Riwayat',
+                    'Filter Sesi',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -176,7 +101,7 @@ class _RiwayatTabState extends State<RiwayatTab> {
               ),
               const SizedBox(height: 16),
               const Text(
-                'Kategori Kesehatan',
+                'Waktu Makan',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -188,10 +113,27 @@ class _RiwayatTabState extends State<RiwayatTab> {
                 spacing: 10,
                 runSpacing: 10,
                 children: [
-                  _buildFilterChip('Semua'),
-                  _buildFilterChip('Detak Jantung'),
-                  _buildFilterChip('Gula Darah'),
-                  _buildFilterChip('Tekanan Darah'),
+                  _chipWaktu(null, 'Semua'),
+                  for (final w in WaktuMakan.values) _chipWaktu(w, w.label),
+                ],
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Kualitas Respons',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF7E9A94),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  _chipKualitas(null, 'Semua'),
+                  for (final k in KualitasRespons.values)
+                    _chipKualitas(k, k.label),
                 ],
               ),
               const SizedBox(height: 24),
@@ -202,28 +144,64 @@ class _RiwayatTabState extends State<RiwayatTab> {
     );
   }
 
-  Widget _buildFilterChip(String label) {
-    final isSelected = _selectedFilter == label;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _selectedFilter = label;
-        });
+  Widget _chipWaktu(WaktuMakan? nilai, String label) {
+    return _chip(
+      label,
+      _filterWaktu == nilai,
+      () {
+        setState(() => _filterWaktu = nilai);
         Navigator.pop(context);
       },
+      ikon: nilai == null ? Icons.done_all_rounded : ikonWaktuMakan(nilai),
+    );
+  }
+
+  Widget _chipKualitas(KualitasRespons? nilai, String label) {
+    return _chip(
+      label,
+      _filterKualitas == nilai,
+      () {
+        setState(() => _filterKualitas = nilai);
+        Navigator.pop(context);
+      },
+      ikon: nilai == null ? Icons.done_all_rounded : ikonKualitasRespons(nilai),
+    );
+  }
+
+  Widget _chip(
+    String label,
+    bool terpilih,
+    VoidCallback onTap, {
+    IconData? ikon,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF0EAD69) : const Color(0xFFE5EDE9),
+          color: terpilih ? const Color(0xFF0EAD69) : const Color(0xFFE5EDE9),
           borderRadius: BorderRadius.circular(12),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : const Color(0xFF6B807B),
-            fontWeight: FontWeight.bold,
-            fontSize: 13,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (ikon != null) ...[
+              Icon(
+                ikon,
+                size: 14,
+                color: terpilih ? Colors.white : const Color(0xFF6B807B),
+              ),
+              const SizedBox(width: 6),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                color: terpilih ? Colors.white : const Color(0xFF6B807B),
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -231,21 +209,11 @@ class _RiwayatTabState extends State<RiwayatTab> {
 
   @override
   Widget build(BuildContext context) {
+    final controller = context.watch<SesiMakanController>();
     final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-
-    // Pisahkan item yang sudah difilter menjadi Hari Ini dan Kemarin
-    final filtered = _filteredRiwayat;
-    final todayItems = filtered.where((item) {
-      final date = DateTime(item.dateTime.year, item.dateTime.month, item.dateTime.day);
-      return date.isAtSameMomentAs(today);
-    }).toList();
-
-    final yesterdayItems = filtered.where((item) {
-      final date = DateTime(item.dateTime.year, item.dateTime.month, item.dateTime.day);
-      return date.isAtSameMomentAs(yesterday);
-    }).toList();
+    final tersaring = _saring(controller.riwayat);
+    final kelompok = _kelompokkan(tersaring);
+    final hariUrut = kelompok.keys.toList()..sort((a, b) => b.compareTo(a));
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4FAF7),
@@ -254,8 +222,12 @@ class _RiwayatTabState extends State<RiwayatTab> {
         elevation: 0,
         automaticallyImplyLeading: false,
         title: const Text(
-          'Riwayat Kesehatan',
-          style: TextStyle(color: Color(0xFF1E3A34), fontWeight: FontWeight.bold, fontSize: 18),
+          'Riwayat Sesi',
+          style: TextStyle(
+            color: Color(0xFF1E3A34),
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
         ),
         centerTitle: true,
       ),
@@ -265,23 +237,36 @@ class _RiwayatTabState extends State<RiwayatTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Month selector Header
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  _formatMonthYear(now),
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1E3A34),
+                const Icon(
+                  Icons.event_note_rounded,
+                  size: 18,
+                  color: Color(0xFF0EAD69),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    tersaring.length == 1
+                        ? '1 sesi'
+                        : '${tersaring.length} sesi',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1E3A34),
+                    ),
                   ),
                 ),
                 TextButton.icon(
                   onPressed: _showFilterBottomSheet,
-                  icon: const Icon(Icons.filter_list_rounded, color: Color(0xFF0EAD69), size: 18),
+                  icon: const Icon(
+                    Icons.filter_list_rounded,
+                    color: Color(0xFF0EAD69),
+                    size: 18,
+                  ),
                   label: Text(
-                    _selectedFilter == 'Semua' ? 'Filter' : _selectedFilter,
+                    _labelFilter,
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
@@ -293,54 +278,31 @@ class _RiwayatTabState extends State<RiwayatTab> {
             ),
             const SizedBox(height: 12),
 
-            if (todayItems.isNotEmpty) ...[
-              // Today's Date header label
-              Text(
-                'Hari Ini - ${_formatDate(now)}',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF7E9A94),
-                ),
+            for (final hari in hariUrut) ...[
+              Row(
+                children: [
+                  const Icon(
+                    Icons.calendar_today_rounded,
+                    size: 12,
+                    color: Color(0xFF9CB1AC),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    _labelHari(hari, now),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF7E9A94),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 12),
-              ...todayItems.map((item) {
-                final timeStr = '${item.dateTime.hour.toString().padLeft(2, '0')}:${item.dateTime.minute.toString().padLeft(2, '0')}';
-                return _buildHistoryItem(
-                  time: timeStr,
-                  type: item.type,
-                  value: item.value,
-                  status: item.status,
-                  isNormal: item.isNormal,
-                );
-              }),
+              for (final sesi in kelompok[hari]!) _EntriSesi(sesi: sesi),
               const SizedBox(height: 12),
             ],
 
-            if (yesterdayItems.isNotEmpty) ...[
-              // Yesterday's Date header label
-              Text(
-                'Kemarin - ${_formatDate(yesterday)}',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF7E9A94),
-                ),
-              ),
-              const SizedBox(height: 12),
-              ...yesterdayItems.map((item) {
-                final timeStr = '${item.dateTime.hour.toString().padLeft(2, '0')}:${item.dateTime.minute.toString().padLeft(2, '0')}';
-                return _buildHistoryItem(
-                  time: timeStr,
-                  type: item.type,
-                  value: item.value,
-                  status: item.status,
-                  isNormal: item.isNormal,
-                );
-              }),
-            ],
-
-            if (todayItems.isEmpty && yesterdayItems.isEmpty)
+            if (tersaring.isEmpty)
               Container(
                 height: 250,
                 alignment: Alignment.center,
@@ -353,14 +315,33 @@ class _RiwayatTabState extends State<RiwayatTab> {
                       color: const Color(0xFF7E9A94).withValues(alpha: 0.5),
                     ),
                     const SizedBox(height: 16),
-                    const Text(
-                      'Tidak ada riwayat untuk filter ini',
-                      style: TextStyle(
+                    Text(
+                      _adaFilter
+                          ? 'Tidak ada sesi untuk filter ini'
+                          : 'Belum ada sesi yang selesai',
+                      style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF7E9A94),
                       ),
                     ),
+                    if (_adaFilter) ...[
+                      const SizedBox(height: 8),
+                      TextButton(
+                        onPressed: () => setState(() {
+                          _filterWaktu = null;
+                          _filterKualitas = null;
+                        }),
+                        child: const Text(
+                          'Hapus filter',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF0EAD69),
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -371,92 +352,104 @@ class _RiwayatTabState extends State<RiwayatTab> {
       ),
     );
   }
+}
 
-  Widget _buildHistoryItem({
-    required String time,
-    required String type,
-    required String value,
-    required String status,
-    required bool isNormal,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2EBE8), width: 1.2),
+/// Satu baris daftar: thumbnail foto · nama & kalori · indikator respons ·
+/// waktu (§4.2).
+class _EntriSesi extends StatelessWidget {
+  const _EntriSesi({required this.sesi});
+
+  final SesiMakan sesi;
+
+  @override
+  Widget build(BuildContext context) {
+    final waktu = sesi.t0 ?? sesi.waktuFoto;
+    final kalori = sesi.kalori;
+
+    return GestureDetector(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => RingkasanSesiPage(sesi: sesi)),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: isNormal ? const Color(0xFFE2F6F0) : const Color(0xFFFFEBEE),
-                  shape: BoxShape.circle,
-                ),
-                alignment: Alignment.center,
-                child: Icon(
-                  type == 'Detak Jantung'
-                      ? Icons.favorite_rounded
-                      : type == 'Gula Darah'
-                          ? Icons.water_drop_rounded
-                          : Icons.speed_rounded,
-                  color: isNormal ? const Color(0xFF0EAD69) : Colors.red,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Column(
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE2EBE8), width: 1.2),
+        ),
+        child: Row(
+          children: [
+            FotoMakanan(fotoPath: sesi.fotoPath, lebar: 48, tinggi: 48),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    type,
+                    sesi.hasil?.ringkasanNama ?? 'Makanan',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF1E3A34),
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    time,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Color(0xFF8FA7A1),
-                    ),
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      Icon(
+                        ikonWaktuMakan(sesi.waktuMakan),
+                        size: 12,
+                        color: const Color(0xFF8FA7A1),
+                      ),
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(
+                          [
+                            // Disebut lebih dulu, bukan diselipkan di ujung:
+                            // seluruh sisa baris ini adalah angka, dan pembaca
+                            // harus tahu angka siapa sebelum membacanya.
+                            if (sesi.sesiUji) 'SESI UJI',
+                            sesi.labelWaktuMakan,
+                            // Nutrisi yang belum dianalisis ditulis apa
+                            // adanya (§8).
+                            kalori == null
+                                ? 'nutrisi $tandaKosong'
+                                : '${formatAngka(kalori)} kcal',
+                          ].join(' · '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF8FA7A1),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1E3A34),
+            ),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                LencanaKualitas(kualitas: sesi.kualitasRespons),
+                const SizedBox(height: 4),
+                Text(
+                  formatJam(waktu),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFF8FA7A1),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                status,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: isNormal ? const Color(0xFF0EAD69) : Colors.red,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-        ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -2,7 +2,7 @@ name: asawatch
 description: "AsaWatch — aplikasi pendamping smartwatch untuk memantau detak jantung, gula darah, tekanan darah, dan tidur."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+publish_to: "none" # Remove this line if you wish to publish to pub.dev
 
 # The following defines the version and build number for your application.
 # A version number is three numbers separated by dots, like 1.2.43
@@ -35,6 +35,48 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   shared_preferences: ^2.5.5
+  # Hanya untuk permukaan sesi makan (docs/rancangan-ui-sesi-makan.md §12.7):
+  # sampel bisa masuk dari BLE kapan saja, dari tab mana pun. Alur auth dan
+  # profil tetap memakai pola Navigator.pop(true).
+  provider: ^6.1.2
+  drift: ^2.34.3
+  drift_flutter: ^0.3.1
+  # Dipatok ke 1.x dengan sengaja: 2.x berpindah ke lisensi yang menuntut
+  # pembelian untuk penggunaan komersial, dan AsaWatch adalah produk yang akan
+  # dijual (rencana-produksi.md §10). 1.35.x masih BSD 3-Clause.
+  flutter_blue_plus: ^1.35.5
+  # Dipatok ke 12.x: 13.x menarik permission_handler_android 14 yang menuntut
+  # compileSdk 37, sementara Android Gradle Plugin di proyek ini berhenti di 36.
+  # 12.x memberi API yang persis sama untuk keperluan IzinBle.
+  permission_handler: ^12.0.1
+  # Satu-satunya pemakainya adalah `AuthHttpService`. Dipilih ketimbang `dio`
+  # justru karena ia menyediakan `package:http/testing.dart` (`MockClient`):
+  # soketnya bisa dipalsukan tanpa memalsukan `AuthHttpService` itu sendiri,
+  # sehingga penyusunan URL, header, dan pembacaan JSON yang sungguhan tetap
+  # ikut teruji.
+  http: ^1.6.0
+  # Token membuka data kesehatan, jadi ia tidak boleh menumpang
+  # `shared_preferences`: di Android itu berkas XML polos di direktori aplikasi.
+  # `flutter_secure_storage` memakai EncryptedSharedPreferences (Keystore).
+  #
+  # Dipatok ke 9.x karena alasan yang sama persis dengan `permission_handler`:
+  # 11.x menuntut `compileSdk 37`, sementara AGP di proyek ini berhenti di 36.
+  # API yang dipakai `SesiLoginRepositoryAman` (read/write/delete) sama di
+  # keduanya.
+  flutter_secure_storage: ^9.2.4
+  # Kamera deteksi makanan. `camera` menyediakan pratinjau langsung (yang
+  # `image_picker` tidak punya — ia hanya membuka aplikasi kamera sistem), dan
+  # `image_picker` tetap ikut untuk jalur "ambil dari galeri". `path_provider`
+  # dipakai memindahkan hasil jepretan dari folder cache ke folder dokumen:
+  # jalur foto disimpan di basis data sesi dan harus tetap sahih berbulan-bulan.
+  # Minimal 0.12: versi sebelumnya menarik `camera_android_camerax` yang masih
+  # memasang Kotlin Gradle Plugin sendiri, dan Flutter sudah memperingatkan
+  # bahwa rakitan seperti itu akan gagal di versi mendatang (Built-in Kotlin).
+  camera: ^0.12.0
+  image_picker: ^1.1.2
+  path_provider: ^2.1.5
+  flutter_local_notifications: ^22.3.0
+  timezone: ^0.11.1
 
 dev_dependencies:
   flutter_test:
@@ -46,13 +88,19 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  drift_dev: ^2.34.5
+  build_runner: ^2.15.1
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
+flutter_icons:
+  android: true
+  image_path: "assets/logo/logo asawatch.png"
+
 # The following section is specific to Flutter packages.
 flutter:
-
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.

@@ -1,21 +1,94 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import 'controllers/sesi_makan_controller.dart';
 import 'informasi_pribadi_page.dart';
+import 'kalibrasi_tekanan_darah_page.dart';
+import 'menghubungkan_perangkat_page.dart';
+import 'pindai_kesehatan_page.dart';
 import 'tujuan_kesehatan_page.dart';
 
-import 'package:shared_preferences/shared_preferences.dart';
+import 'repositories/profil_repository.dart';
 
 class ProfilTab extends StatefulWidget {
-  const ProfilTab({super.key});
+  const ProfilTab({
+    super.key,
+    this.onKeluar,
+    this.profil = const ProfilRepository(),
+  });
+
+  /// Pintu ke profil; diteruskan apa adanya ke `InformasiPribadiPage`. Lihat
+  /// `InformasiPribadiPage.profil`.
+  final ProfilRepository profil;
+
+  /// Dijalankan sebelum kembali ke halaman sambutan: mencabut token di server
+  /// dan menghapus salinannya di perangkat. Dirakit `MyHomePage`, karena di
+  /// sanalah `AuthService` dan penyimpanan sesinya hidup.
+  final Future<void> Function()? onKeluar;
 
   @override
   State<ProfilTab> createState() => _ProfilTabState();
 }
 
 class _ProfilTabState extends State<ProfilTab> {
-  String _name = 'Lathifa';
-  String _email = 'lathifa@gmail.com';
-  String _phone = '+62 812-3456-7890';
+  Profil _profil = Profil.kosong;
   bool _isLoading = true;
+
+  /// Keluar selalu ditanya dulu.
+  ///
+  /// Bukan karena datanya hilang — sesi makan tersimpan di ponsel dan tetap ada
+  /// setelah masuk lagi — melainkan karena masuk kembali menuntut mengetik
+  /// email dan kata sandi, dan tombolnya duduk tepat di bawah menu yang sering
+  /// disentuh.
+  Future<void> _konfirmasiKeluar() async {
+    final navigator = Navigator.of(context);
+    final ya = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Keluar dari akun?',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF1E3A34),
+          ),
+        ),
+        content: const Text(
+          'Anda perlu memasukkan email dan kata sandi lagi untuk masuk. '
+          'Riwayat sesi yang tersimpan di ponsel ini tidak dihapus.',
+          style: TextStyle(fontSize: 13, color: Color(0xFF6B807B)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text(
+              'Batal',
+              style: TextStyle(
+                color: Color(0xFF6B807B),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(
+              'Keluar',
+              style: TextStyle(
+                color: Colors.redAccent,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (ya != true) return;
+
+    await widget.onKeluar?.call();
+    navigator.pushNamedAndRemoveUntil('/welcome', (route) => false);
+  }
 
   @override
   void initState() {
@@ -24,11 +97,14 @@ class _ProfilTabState extends State<ProfilTab> {
   }
 
   Future<void> _loadProfileData() async {
-    final prefs = await SharedPreferences.getInstance();
+    // Sengaja salinan lokal saja: tab ini dibangun bersama seluruh tab lain
+    // saat shell dipasang (IndexedStack membangun semuanya), dan menarik
+    // jaringan di situ berarti setiap pembukaan aplikasi menunggu server.
+    // Penyamaan dengan server terjadi di halaman Informasi Pribadi.
+    final profil = await widget.profil.muat();
+    if (!mounted) return;
     setState(() {
-      _name = prefs.getString('user_name') ?? 'Lathifa';
-      _email = prefs.getString('user_email') ?? 'lathifa21@email.com';
-      _phone = prefs.getString('user_phone') ?? '0812-3456-7890';
+      _profil = profil;
       _isLoading = false;
     });
   }
@@ -43,7 +119,11 @@ class _ProfilTabState extends State<ProfilTab> {
         automaticallyImplyLeading: false,
         title: const Text(
           'Profil Pengguna',
-          style: TextStyle(color: Color(0xFF1E3A34), fontWeight: FontWeight.bold, fontSize: 18),
+          style: TextStyle(
+            color: Color(0xFF1E3A34),
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
         ),
         centerTitle: true,
       ),
@@ -64,23 +144,24 @@ class _ProfilTabState extends State<ProfilTab> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
+                      border: Border.all(
+                        color: const Color(0xFFE2EBE8),
+                        width: 1.5,
+                      ),
                     ),
                     child: Row(
                       children: [
-                        CircleAvatar(
+                        // Dulu memuat foto orang asing dari Unsplash. Selain
+                        // menampilkan identitas yang bukan milik pengguna, ia
+                        // tidak pernah muncul di build rilis: aplikasi ini tidak
+                        // mendeklarasikan izin INTERNET.
+                        const CircleAvatar(
                           radius: 36,
-                          backgroundColor: const Color(0xFFE0F2F1),
-                          child: ClipOval(
-                            child: Image.network(
-                              'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=150',
-                              fit: BoxFit.cover,
-                              width: 72,
-                              height: 72,
-                              errorBuilder: (context, error, stackTrace) {
-                                return const Icon(Icons.person, color: Color(0xFF0EAD69), size: 36);
-                              },
-                            ),
+                          backgroundColor: Color(0xFFE0F2F1),
+                          child: Icon(
+                            Icons.person,
+                            color: Color(0xFF0EAD69),
+                            size: 36,
                           ),
                         ),
                         const SizedBox(width: 16),
@@ -89,29 +170,50 @@ class _ProfilTabState extends State<ProfilTab> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                _name,
-                                style: const TextStyle(
+                                _profil.nama.isEmpty
+                                    ? 'Belum ada nama'
+                                    : _profil.nama,
+                                style: TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
-                                  color: Color(0xFF1E3A34),
+                                  color: _profil.nama.isEmpty
+                                      ? const Color(0xFF8FA7A1)
+                                      : const Color(0xFF1E3A34),
                                 ),
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _email,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: Color(0xFF7E9A94),
+                              // Baris yang belum diisi dihilangkan, bukan
+                              // ditampilkan kosong: satu ajakan lebih jelas
+                              // daripada tiga baris hampa.
+                              if (_profil.belumDiisi) ...[
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Lengkapi lewat Informasi Pribadi di bawah.',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFF7E9A94),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _phone,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: Color(0xFF7E9A94),
+                              ],
+                              if (_profil.email.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  _profil.email,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFF7E9A94),
+                                  ),
                                 ),
-                              ),
+                              ],
+                              if (_profil.telepon.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  _profil.telepon,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFF7E9A94),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -127,37 +229,120 @@ class _ProfilTabState extends State<ProfilTab> {
                     onTap: () async {
                       final updated = await Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const InformasiPribadiPage()),
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              InformasiPribadiPage(profil: widget.profil),
+                        ),
                       );
                       if (updated == true) {
                         _loadProfileData();
                       }
                     },
                   ),
-            _buildProfileMenu(
-              icon: Icons.track_changes_rounded,
-              title: 'Tujuan Kesehatan',
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const TujuanKesehatanPage()),
-                );
-              },
+                  _buildProfileMenu(
+                    icon: Icons.track_changes_rounded,
+                    title: 'Tujuan Kesehatan',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const TujuanKesehatanPage(),
+                        ),
+                      );
+                    },
+                  ),
+                  _buildProfileMenu(
+                    icon: Icons.watch_rounded,
+                    title: 'Status Perangkat',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              const MenghubungkanPerangkatPage(),
+                        ),
+                      );
+                    },
+                  ),
+                  _buildProfileMenu(
+                    icon: Icons.monitor_heart_rounded,
+                    title: 'Pindai Kesehatan',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const PindaiKesehatanPage(),
+                        ),
+                      );
+                    },
+                  ),
+                  _buildProfileMenu(
+                    icon: Icons.tune_rounded,
+                    title: 'Kalibrasi Tekanan Darah',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              const KalibrasiTekananDarahPage(),
+                        ),
+                      );
+                    },
+                  ),
+                  // Hanya muncul bila memang ada yang bisa dibersihkan.
+                  // Ditanyakan ke riwayat, bukan ke `pakaiJadwalUji`: sesi uji
+                  // tetap tersimpan setelah build ujinya diganti, dan rakitan
+                  // biasalah yang kemudian memegangnya.
+                  if (context.watch<SesiMakanController>().adaSesiUji)
+                    _buildProfileMenu(
+                      icon: Icons.science_rounded,
+                      title: 'Hapus Semua Sesi Uji',
+                      onTap: _konfirmasiHapusSesiUji,
+                    ),
+                  _buildProfileMenu(
+                    icon: Icons.logout_rounded,
+                    title: 'Keluar',
+                    color: Colors.redAccent,
+                    onTap: _konfirmasiKeluar,
+                  ),
+                  const SizedBox(height: 24),
+                ],
+              ),
             ),
-            _buildProfileMenu(
-              icon: Icons.logout_rounded,
-              title: 'Keluar',
-              color: Colors.redAccent,
-              onTap: () {
-                // Logout to Welcome Page
-                Navigator.of(context).pushNamedAndRemoveUntil('/welcome', (route) => false);
-              },
-            ),
-            const SizedBox(height: 24),
-          ],
+    );
+  }
+
+  /// Selalu dikonfirmasi, walau yang dihapus "cuma" data uji: tidak ada yang
+  /// bisa mengembalikannya, dan sebuah sesi uji yang sedang dipakai memeriksa
+  /// persistensi punya nilai justru karena ia bertahan.
+  Future<void> _konfirmasiHapusSesiUji() async {
+    final controller = context.read<SesiMakanController>();
+    final jumlah = controller.riwayat.where((s) => s.sesiUji).length;
+
+    final ya = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Hapus Sesi Uji?'),
+        content: Text(
+          '$jumlah sesi dari mode jadwal uji akan dihapus permanen, berikut '
+          'seluruh pengukurannya. Sesi sungguhan tidak tersentuh.',
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Batal'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+            child: const Text('Hapus'),
+          ),
+        ],
       ),
     );
+
+    if (ya != true) return;
+    await controller.hapusSesiUji();
   }
 
   Widget _buildProfileMenu({
@@ -190,7 +375,10 @@ class _ProfilTabState extends State<ProfilTab> {
               color: color,
             ),
           ),
-          trailing: Icon(Icons.chevron_right_rounded, color: color.withValues(alpha: 0.5)),
+          trailing: Icon(
+            Icons.chevron_right_rounded,
+            color: color.withValues(alpha: 0.5),
+          ),
         ),
       ),
     );
