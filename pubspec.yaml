@@ -119,6 +119,7 @@ flutter:
 
   assets:
     - assets/fonts/OFL.txt
+    - assets/logo/logo2.jpeg
 
   # Montserrat is the family referenced by ThemeData.fontFamily in lib/main.dart.
   # Weights match the FontWeight values used across the UI (normal/w500/w600/bold).

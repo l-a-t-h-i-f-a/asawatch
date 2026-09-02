@@ -31,7 +31,11 @@ void main() {
       tester,
     ) async {
       final c = buatControllerUji(riwayatAwal: contohRiwayatSesi());
-      await pumpHalaman(tester, const Scaffold(body: BerandaTab()), controller: c);
+      await pumpHalaman(
+        tester,
+        const Scaffold(body: BerandaTab()),
+        controller: c,
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Ringkasan Hari Ini'), findsOneWidget);
@@ -48,10 +52,11 @@ void main() {
       expect(find.byType(LinearProgressIndicator), findsNothing);
     });
 
-    // Ajakan memfoto dulu hanya muncul pada instalasi yang riwayatnya kosong,
-    // jadi ia hilang selamanya setelah sesi pertama — padahal petunjuk memulai
-    // sesi dibutuhkan tiap pagi.
-    testWidgets('hari yang belum ada sesinya mengajak memotret', (tester) async {
+    // Hari yang belum ada sesinya tidak punya angka untuk dirangkum, jadi
+    // bagiannya menyingkir seluruhnya — judul dan kartunya sekaligus.
+    testWidgets('hari yang belum ada sesinya tidak merangkum apa pun', (
+      tester,
+    ) async {
       final c = buatControllerUji(
         riwayatAwal: contohRiwayatSesi(
           sekarang: DateTime.now().subtract(const Duration(days: 3)),
@@ -64,15 +69,21 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Belum ada sesi hari ini'), findsOneWidget);
-      expect(find.textContaining('tombol kamera'), findsOneWidget);
+      expect(find.text('Ringkasan Hari Ini'), findsNothing);
+      expect(find.text('Belum ada sesi hari ini'), findsNothing);
       // Riwayatnya tetap ada, jadi kartu sesi terakhir tidak ikut hilang.
       expect(find.text('Sesi Terakhir'), findsOneWidget);
     });
 
-    testWidgets('tidak lagi menampilkan kartu vital "sekarang"', (tester) async {
+    testWidgets('tidak lagi menampilkan kartu vital "sekarang"', (
+      tester,
+    ) async {
       final c = buatControllerUji(riwayatAwal: contohRiwayatSesi());
-      await pumpHalaman(tester, const Scaffold(body: BerandaTab()), controller: c);
+      await pumpHalaman(
+        tester,
+        const Scaffold(body: BerandaTab()),
+        controller: c,
+      );
       await tester.pumpAndSettle();
 
       for (final judul in [
@@ -86,16 +97,13 @@ void main() {
       }
     });
 
-    testWidgets('tanpa riwayat menawarkan memulai sesi, bukan angka kosong', (
-      tester,
-    ) async {
+    testWidgets('tanpa riwayat tidak menampilkan angka kosong', (tester) async {
       await pumpHalaman(tester, const Scaffold(body: BerandaTab()));
       await tester.pumpAndSettle();
 
-      expect(find.text('Belum ada sesi hari ini'), findsOneWidget);
-      expect(find.text('belum ada sesi'), findsOneWidget); // penghitung sesi
-      // Satu ajakan saja: kartu kosong "Sesi Terakhir" yang dulu berdiri di
-      // bawahnya mengatakan hal yang sama untuk kedua kalinya.
+      expect(find.text('Ringkasan Hari Ini'), findsNothing);
+      expect(find.text('Belum ada sesi hari ini'), findsNothing);
+      // Kartu kosong "Sesi Terakhir" pun tidak berdiri sendiri.
       expect(find.text('Sesi Terakhir'), findsNothing);
       // Satu titik bukan tren: sparkline tidak digambar.
       expect(find.text('Puncak Gula Darah'), findsNothing);
@@ -105,7 +113,11 @@ void main() {
   group('Wajah B — sesi berjalan', () {
     testWidgets('timeline empat titik menggantikan isi idle', (tester) async {
       final c = buatControllerUji(riwayatAwal: contohRiwayatSesi());
-      await pumpHalaman(tester, const Scaffold(body: BerandaTab()), controller: c);
+      await pumpHalaman(
+        tester,
+        const Scaffold(body: BerandaTab()),
+        controller: c,
+      );
 
       await c.mulaiDraft(contohFotoPath);
       await tester.pump(const Duration(milliseconds: 50));
@@ -170,33 +182,42 @@ void main() {
       await hentikanSesi(tester, c);
     });
 
-    testWidgets('draft menawarkan tombol mulai, dan jamnya yang menetapkan t0', (
-      tester,
-    ) async {
-      final c = buatControllerUji();
-      await pumpHalaman(tester, const Scaffold(body: BerandaTab()), controller: c);
+    testWidgets(
+      'draft menawarkan tombol mulai, dan jamnya yang menetapkan t0',
+      (tester) async {
+        final c = buatControllerUji();
+        await pumpHalaman(
+          tester,
+          const Scaffold(body: BerandaTab()),
+          controller: c,
+        );
 
-      await c.mulaiDraft(contohFotoPath);
-      await tester.pump(const Duration(milliseconds: 50));
+        await c.mulaiDraft(contohFotoPath);
+        await tester.pump(const Duration(milliseconds: 50));
 
-      expect(find.text('Selesai makan? Tekan tombol di jam'), findsOneWidget);
-      expect(find.text('Saya Sudah Selesai Makan'), findsOneWidget);
-      expect(c.sesiAktif!.t0, isNull);
+        expect(find.text('Selesai makan? Tekan tombol di jam'), findsOneWidget);
+        expect(find.text('Saya Sudah Selesai Makan'), findsOneWidget);
+        expect(c.sesiAktif!.t0, isNull);
 
-      await tester.tap(find.text('Saya Sudah Selesai Makan'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
+        await tester.tap(find.text('Saya Sudah Selesai Makan'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
 
-      expect(c.sesiAktif!.t0, isNotNull);
+        expect(c.sesiAktif!.t0, isNotNull);
 
-      await hentikanSesi(tester, c);
-    });
+        await hentikanSesi(tester, c);
+      },
+    );
   });
 
   group('Wajah C — sesi baru selesai', () {
     testWidgets('kartu hasil bertahan sampai dibuka user', (tester) async {
       final c = buatControllerUji(percepatan: 3600);
-      await pumpHalaman(tester, const Scaffold(body: BerandaTab()), controller: c);
+      await pumpHalaman(
+        tester,
+        const Scaffold(body: BerandaTab()),
+        controller: c,
+      );
 
       await c.mulaiDraft(contohFotoPath);
       await tester.pump(const Duration(milliseconds: 50));
@@ -207,8 +228,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Sesi baru selesai'), findsOneWidget);
-      // Ringkasan harian tetap tampil di bawah kartu hasil.
-      expect(find.text('Ringkasan Hari Ini'), findsOneWidget);
+      // Ringkasan harian tidak ikut tampil: jadwal rakitan uji menandai sesinya
+      // `sesiUji`, dan `sesiHariIni()` sengaja tidak menghitungnya — kalorinya
+      // bukan kalori siapa pun. Sebelum bagian ini disembunyikan saat kosong,
+      // judulnya tetap tergambar di sini bersama tulisan "belum ada sesi".
+      expect(find.text('Ringkasan Hari Ini'), findsNothing);
 
       await tester.tap(find.text('Sesi baru selesai'));
       await tester.pumpAndSettle();

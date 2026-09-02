@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'dart:math' as math;
 import 'login_page.dart';
 import 'register_page.dart';
@@ -58,8 +59,9 @@ class WelcomePage extends StatelessWidget {
                           // 1. Concentric elliptical ripples under the watch
                           const RipplesWidget(),
 
-                          // 2. Beautifully designed tilted Smartwatch
-                          const SmartwatchMockup(),
+                          // 2. Jam pada logo AsaWatch, menggantikan mockup
+                          //    jam yang dulu digambar tangan.
+                          const JamLogo(),
 
                           // 3. Floating Badges around the watch
                           // Top-Left Badge (Water drop, outline style)
@@ -347,259 +349,63 @@ class RipplesWidget extends StatelessWidget {
   }
 }
 
-// 3D styled smartwatch mockup
-class SmartwatchMockup extends StatelessWidget {
-  const SmartwatchMockup({super.key});
+/// Bagian jam dari logo AsaWatch.
+///
+/// Berkas logonya adalah kunci lengkap — jam, tulisan "ASAWatch", dan tagline —
+/// sedangkan halaman ini sudah menuliskan keduanya sendiri tepat di bawah
+/// ilustrasi. Karena itu yang diambil hanya jamnya, lewat `Align` dengan
+/// `widthFactor`/`heightFactor` (memotong, bukan mengecilkan), supaya tulisan
+/// yang sama tidak muncul dua kali dalam satu layar.
+class JamLogo extends StatelessWidget {
+  const JamLogo({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Transform.rotate(
-      angle: -0.22, // Tilted left, about -12 degrees
-      child: SizedBox(
-        width: 160,
-        height: 240,
-        child: Stack(
-          alignment: Alignment.center,
-          clipBehavior: Clip.none,
-          children: [
-            // Top Watch Band (silicone strap)
-            Positioned(
-              top: 0,
-              child: Container(
-                width: 62,
-                height: 110,
-                decoration: BoxDecoration(
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(24),
-                    topRight: Radius.circular(24),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.06),
-                      blurRadius: 6,
-                      offset: const Offset(0, -2),
-                    ),
-                  ],
-                  gradient: const LinearGradient(
-                    colors: [
-                      Color(0xFF86D5B4), // light curve highlights
-                      Color(0xFF5AB693), // sage green
-                      Color(0xFF3B9472), // shadow near body
-                    ],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
-                ),
-              ),
+    return const _Perkalian(
+      child: ClipRect(
+        child: Align(
+          alignment: Alignment(0, -0.85),
+          widthFactor: 0.30,
+          heightFactor: 0.62,
+          child: Image(
+            image: ResizeImage(
+              // Berkasnya 2816x1536 sementara yang tampil kurang dari 200 px:
+              // tanpa diperkecil saat dibaca, seluruh bitmap mentahnya ikut
+              // dipegang di memori.
+              AssetImage('assets/logo/logo2.jpeg'),
+              width: 620,
             ),
-            // Bottom Watch Band (silicone strap)
-            Positioned(
-              bottom: 0,
-              child: Container(
-                width: 62,
-                height: 110,
-                decoration: BoxDecoration(
-                  borderRadius: const BorderRadius.only(
-                    bottomLeft: Radius.circular(24),
-                    bottomRight: Radius.circular(24),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.06),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                  gradient: const LinearGradient(
-                    colors: [
-                      Color(0xFF3B9472), // shadow near body
-                      Color(0xFF5AB693), // sage green
-                      Color(0xFF86D5B4), // light curve highlights
-                    ],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
-                ),
-              ),
-            ),
-            // Watch Body/Bezel
-            Container(
-              width: 148,
-              height: 148,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF1B9C73).withValues(alpha: 0.2),
-                    blurRadius: 20,
-                    spreadRadius: 2,
-                    offset: const Offset(0, 8),
-                  ),
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.12),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-                gradient: const LinearGradient(
-                  colors: [
-                    Color(0xFFE2E8F0), // metallic highlight
-                    Color(0xFF94A3B8), // dark silver
-                    Color(0xFFCBD5E1), // medium silver
-                    Color(0xFFE2E8F0),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-              alignment: Alignment.center,
-              child: Container(
-                width: 136,
-                height: 136,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Color(0xFF0F1412), // glossy black screen
-                ),
-                padding: const EdgeInsets.all(8),
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    // Concentric glowing activity ring
-                    SizedBox(
-                      width: 112,
-                      height: 112,
-                      child: CircularProgressIndicator(
-                        value: 0.75,
-                        strokeWidth: 4,
-                        valueColor: const AlwaysStoppedAnimation<Color>(
-                          Color(0xFF1B9C73),
-                        ),
-                        backgroundColor: const Color(
-                          0xFF1B9C73,
-                        ).withValues(alpha: 0.12),
-                      ),
-                    ),
-                    // Inner progress indicator accent
-                    SizedBox(
-                      width: 94,
-                      height: 94,
-                      child: CircularProgressIndicator(
-                        value: 0.45,
-                        strokeWidth: 2,
-                        valueColor: const AlwaysStoppedAnimation<Color>(
-                          Color(0xFF7BE5C4),
-                        ),
-                        backgroundColor: Colors.transparent,
-                      ),
-                    ),
-                    // Heartrate indicator (left-mid)
-                    Positioned(
-                      left: 14,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.favorite_rounded,
-                            color: Color(0xFF1B9C73),
-                            size: 14,
-                          ),
-                          const SizedBox(width: 1),
-                          Text(
-                            '88',
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.9),
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Top Right metric "3"
-                    Positioned(
-                      top: 22,
-                      right: 22,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Text(
-                            '3',
-                            style: TextStyle(
-                              color: Color(0xFF1B9C73),
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              height: 1.0,
-                            ),
-                          ),
-                          Text(
-                            'SEHAT',
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.4),
-                              fontSize: 6,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Mid Right metric "9200" steps
-                    Positioned(
-                      bottom: 44,
-                      right: 14,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          const Text(
-                            '9200',
-                            style: TextStyle(
-                              color: Color(0xFF1B9C73),
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              height: 1.0,
-                            ),
-                          ),
-                          Text(
-                            'STEPS',
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.4),
-                              fontSize: 6,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Bottom metric "8"
-                    Positioned(
-                      bottom: 18,
-                      left: 46,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.bolt_rounded,
-                            color: Color(0xFF1B9C73),
-                            size: 12,
-                          ),
-                          const SizedBox(width: 1),
-                          const Text(
-                            '8',
-                            style: TextStyle(
-                              color: Color(0xFF1B9C73),
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
+            width: 620,
+          ),
         ),
       ),
     );
+  }
+}
+
+/// Menggambar anaknya dengan `BlendMode.multiply` terhadap apa yang sudah ada
+/// di belakangnya.
+///
+/// Logonya JPEG, jadi latarnya putih pekat dan tidak punya alfa. Digambar apa
+/// adanya ia menjadi kotak putih yang memotong riak elips di belakang jam.
+/// Perkalian membuat putih itu lenyap — putih x latar = latar — sementara warna
+/// jamnya sendiri hampir tidak berubah di atas latar yang memang nyaris putih.
+class _Perkalian extends SingleChildRenderObjectWidget {
+  const _Perkalian({required Widget super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderPerkalian();
+}
+
+class _RenderPerkalian extends RenderProxyBox {
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    context.canvas.saveLayer(
+      offset & size,
+      Paint()..blendMode = BlendMode.multiply,
+    );
+    super.paint(context, offset);
+    context.canvas.restore();
   }
 }
 

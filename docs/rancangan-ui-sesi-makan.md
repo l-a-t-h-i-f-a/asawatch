@@ -164,10 +164,12 @@ Dua perubahan wajib:
 Field nutrisi diperluas dari 4 makro menjadi termasuk **gula total** dan **serat**, karena
 keduanya yang menjelaskan perbedaan respons antar makanan berkarbohidrat sama.
 
-### 4.6 Tujuan Kesehatan — [lib/tujuan_kesehatan_page.dart](../lib/tujuan_kesehatan_page.dart)
+### 4.6 Tujuan Kesehatan — dihapus
 
-Halaman ini **naik nilainya**. Karena setiap makan difoto, target kalori/karbohidrat harian
-kini benar-benar bisa dilacak, bukan dekoratif. Sambungkan ke ringkasan harian di Beranda.
+Halaman ini **dihapus** (2026-09-02), beserta entri menunya di Profil. Isinya tidak pernah
+lebih dari target literal yang tidak seorang pun pernah memilih dan tidak pernah tersimpan;
+rencana menyambungkannya ke ringkasan harian tidak pernah dikerjakan. Bila target kalori
+sungguhan jadi dibuat, halamannya ditulis ulang dari nol.
 
 ### 4.7 Profil & Perangkat
 

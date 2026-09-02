@@ -6,7 +6,6 @@ import 'informasi_pribadi_page.dart';
 import 'kalibrasi_tekanan_darah_page.dart';
 import 'menghubungkan_perangkat_page.dart';
 import 'pindai_kesehatan_page.dart';
-import 'tujuan_kesehatan_page.dart';
 
 import 'repositories/profil_repository.dart';
 
@@ -237,18 +236,6 @@ class _ProfilTabState extends State<ProfilTab> {
                       if (updated == true) {
                         _loadProfileData();
                       }
-                    },
-                  ),
-                  _buildProfileMenu(
-                    icon: Icons.track_changes_rounded,
-                    title: 'Tujuan Kesehatan',
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const TujuanKesehatanPage(),
-                        ),
-                      );
                     },
                   ),
                   _buildProfileMenu(

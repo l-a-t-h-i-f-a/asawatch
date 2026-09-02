@@ -406,10 +406,13 @@ class _AreaSesi extends StatelessWidget {
           const SizedBox(height: 20),
         ],
 
-        // Wajah A — ringkasan hari ini, selalu ada datanya karena tiap makan
-        // difoto.
-        _RingkasanHariIni(controller: controller),
-        const SizedBox(height: 20),
+        // Wajah A — ringkasan hari ini. Hari yang belum ada sesinya tidak
+        // punya angka untuk dirangkum, jadi bagian ini beserta judulnya tidak
+        // digambar sama sekali; yang tersisa adalah kartu sesi terakhir.
+        if (controller.sesiHariIni().isNotEmpty) ...[
+          _RingkasanHariIni(controller: controller),
+          const SizedBox(height: 20),
+        ],
 
         if (hasilBaru == null) ...[
           _KartuSesiTerakhir(controller: controller),
@@ -813,122 +816,54 @@ class _RingkasanHariIni extends StatelessWidget {
           ikon: Icons.restaurant_menu_rounded,
           judul: 'Ringkasan Hari Ini',
           aksi: Text(
-            jumlahSesi == 0 ? 'belum ada sesi' : '$jumlahSesi sesi',
+            '$jumlahSesi sesi',
             style: const TextStyle(fontSize: 11, color: Color(0xFF7E9A94)),
           ),
         ),
-        if (jumlahSesi == 0)
-          const _AjakanFoto()
-        else
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: _dekorasiUtama,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Kalori keluar dari barisan dan menjadi angka kartu ini.
-                // Sebelumnya keempat makro adalah empat baris yang identik, jadi
-                // pertanyaan yang paling sering dibawa ke halaman ini — "hari ini
-                // sudah berapa?" — harus dijawab dengan membaca keempatnya lebih
-                // dulu untuk menemukan yang mana kalori.
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
-                  children: [
-                    Text(angka(ZatGizi.kalori).$1, style: _gayaHero),
-                    const SizedBox(width: 6),
-                    const Text(
-                      'kcal hari ini',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF6B807B),
-                      ),
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: _dekorasiUtama,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Kalori keluar dari barisan dan menjadi angka kartu ini.
+              // Sebelumnya keempat makro adalah empat baris yang identik, jadi
+              // pertanyaan yang paling sering dibawa ke halaman ini — "hari ini
+              // sudah berapa?" — harus dijawab dengan membaca keempatnya lebih
+              // dulu untuk menemukan yang mana kalori.
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Text(angka(ZatGizi.kalori).$1, style: _gayaHero),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'kcal hari ini',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF6B807B),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                const Divider(
-                  height: 1,
-                  thickness: 1,
-                  color: Color(0xFFE2EBE8),
-                ),
-                const SizedBox(height: 16),
-                const Text('MAKRO', style: _gayaLabelKecil),
-                const SizedBox(height: 12),
-                _BarisMakro(
-                  label: 'Karbohidrat',
-                  teks: angka(ZatGizi.karbohidrat).$1,
-                ),
-                const SizedBox(height: 12),
-                _BarisMakro(label: 'Protein', teks: angka(ZatGizi.protein).$1),
-                const SizedBox(height: 12),
-                _BarisMakro(label: 'Lemak', teks: angka(ZatGizi.lemak).$1),
-              ],
-            ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              const Divider(height: 1, thickness: 1, color: Color(0xFFE2EBE8)),
+              const SizedBox(height: 16),
+              const Text('MAKRO', style: _gayaLabelKecil),
+              const SizedBox(height: 12),
+              _BarisMakro(
+                label: 'Karbohidrat',
+                teks: angka(ZatGizi.karbohidrat).$1,
+              ),
+              const SizedBox(height: 12),
+              _BarisMakro(label: 'Protein', teks: angka(ZatGizi.protein).$1),
+              const SizedBox(height: 12),
+              _BarisMakro(label: 'Lemak', teks: angka(ZatGizi.lemak).$1),
+            ],
           ),
+        ),
       ],
-    );
-  }
-}
-
-/// Satu-satunya ajakan bertindak di wajah idle.
-///
-/// Tombol kamera di nav adalah satu-satunya jalan memulai sesi, dan sebelum ini
-/// tidak ada satu pun kalimat di Beranda yang menyebutnya — kecuali pada
-/// instalasi yang riwayatnya benar-benar kosong. Begitu ada satu sesi
-/// tersimpan, petunjuk itu hilang selamanya, padahal ia dibutuhkan tiap pagi.
-///
-/// Karena itu pemicunya **"belum ada sesi hari ini"**, bukan "belum pernah ada
-/// sesi": keduanya sama-sama keadaan di mana yang benar untuk dilakukan adalah
-/// memfoto makanan.
-class _AjakanFoto extends StatelessWidget {
-  const _AjakanFoto();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 26),
-      decoration: _dekorasiUtama,
-      child: Column(
-        children: const [
-          SizedBox(
-            width: 56,
-            height: 56,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: Color(0xFFE2F6F0),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.photo_camera_rounded,
-                size: 28,
-                color: Color(0xFF0EAD69),
-              ),
-            ),
-          ),
-          SizedBox(height: 14),
-          Text(
-            'Belum ada sesi hari ini',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF1E3A34),
-            ),
-          ),
-          SizedBox(height: 6),
-          Text(
-            'Foto makananmu lewat tombol kamera di bawah untuk memulai sesi.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 12,
-              height: 1.35,
-              color: Color(0xFF7E9A94),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

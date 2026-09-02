@@ -128,7 +128,7 @@ loads and then fails when the database opens.
    camera, is always offered. `FotoMakanan` gained an `Image.file` branch (a file that has since
    been deleted falls back to the placeholder, never an error screen) and with it a `dart:io`
    import, which costs nothing new: web already cannot run since sessions moved to SQLite. The
-   screens the redesign did not cover remain literal-driven: [tujuan_kesehatan_page.dart](lib/tujuan_kesehatan_page.dart) (its targets), the how-to steps in [menghubungkan_perangkat_page.dart](lib/menghubungkan_perangkat_page.dart), and the auth pages.
+   screens the redesign did not cover remain literal-driven: the how-to steps in [menghubungkan_perangkat_page.dart](lib/menghubungkan_perangkat_page.dart), and the auth pages.
    **Pairing is real BLE now**: `BleService.pindai()/sambungkan()/putuskan()` drive
    [lib/pemindaian_perangkat_page.dart](lib/pemindaian_perangkat_page.dart), which asks for
    permissions first ([lib/services/izin_ble.dart](lib/services/izin_ble.dart)) — three distinct dead
@@ -663,13 +663,16 @@ if the builder is removed.
 2000 kcal / 250 g defaults are deleted: nobody ever chose those numbers, so the progress bars
 measured a fraction that meant nothing — and the redesign made it worse by promoting one of them
 to the largest text on the page. Today's card now shows the totals it actually knows, and no
-denominator. Do not reintroduce a default: the comparison comes back only once Tujuan Kesehatan
-can hold a calorie target the user set (Tahap F in [docs/rencana-produksi.md](docs/rencana-produksi.md) §8).
-The **empty state is now keyed on "no session today", not "no session ever"** — the camera button
-in the nav is the only way to start a session and nothing else on Beranda names it, so the
-invitation has to return every morning rather than disappearing after the first meal ever
-recorded. `_KartuSesiTerakhir` lost its own empty card in exchange, since two empty cards in a row
-said the same thing twice.
+denominator. Do not reintroduce a default: the comparison comes back only once something can
+hold a calorie target the user set (Tahap F in [docs/rencana-produksi.md](docs/rencana-produksi.md) §8;
+`tujuan_kesehatan_page.dart`, which used to carry that promise, was deleted on 2026-09-02 together
+with its Profil menu entry).
+**A day with no session renders no summary at all** — heading included. `_AjakanFoto`, the
+"Belum ada sesi hari ini" card that used to fill the slot, is gone, and `_RingkasanHariIni` is
+skipped from the call site rather than returning an empty widget, so the 20 px gap after it goes
+too. `_KartuSesiTerakhir` has no empty card either, so a fresh install shows the watch status and
+nothing else. Beranda therefore names the camera button nowhere; if that turns out to strand new
+users, the invitation belongs somewhere that does not also claim to be a summary.
 
 **A curve's x-axis comes from its samples, never from a literal.** `KurvaSampelPainter` used to
 seed its range at `0..7200` — the production `+2 jam` written as a number — which silently stopped
@@ -813,3 +816,17 @@ Also: `SharedPreferences.setMockInitialValues(...)` must be called before pumpin
 ## Assets
 
 Montserrat (weights 400/500/600/700) is bundled under `assets/fonts/` and declared in `pubspec.yaml`; `main()` registers `assets/fonts/OFL.txt` with `LicenseRegistry` to satisfy the SIL Open Font License. Adding a new weight means adding the `.ttf`, the `pubspec.yaml` entry, and the path in the test's `loadMontserrat()`.
+
+`assets/logo/` holds two images and only one of them is bundled. `logo asawatch.png` is read by
+`flutter_launcher_icons` at build time (`image_path` in `pubspec.yaml`) and is **not** in the
+`assets:` list — the launcher icon is generated, not loaded at runtime. `logo2.jpeg` is bundled, and
+`JamLogo` in [welcome_page.dart](lib/welcome_page.dart) shows the watch out of it in place of the
+hand-drawn `SmartwatchMockup` that used to sit there. Two things ride along, both because it is a
+**JPEG**: it has no alpha, so its white ground would cut a rectangle out of the ripples behind the
+watch — `_Perkalian` paints it into a `saveLayer` with `BlendMode.multiply`, which makes white take
+the colour of whatever is behind it. And it is a full lockup (watch + "ASAWatch" + tagline) at
+2816x1536, so `JamLogo` crops to the watch with `Align`'s `widthFactor`/`heightFactor` rather than
+scaling the whole thing: the page writes the same wordmark and tagline itself a few pixels below.
+`ResizeImage` caps the decode at 620 px wide — without it the raw bitmap is held in memory at full
+size for something drawn under 200 px. **An `Image.asset` does not render in a widget test unless it
+is precached inside `tester.runAsync`**, which is why no golden pins this.

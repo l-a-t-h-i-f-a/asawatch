@@ -26,7 +26,8 @@ class _RepoGagalMenyimpan implements SesiRepository {
   Future<List<SesiMakan>> muatSemua() async => const [];
 
   @override
-  Future<DateTime> simpan(SesiMakan sesi) async => throw StateError('disk penuh');
+  Future<DateTime> simpan(SesiMakan sesi) async =>
+      throw StateError('disk penuh');
 
   @override
   Future<void> hapusSemua() async {}
@@ -51,14 +52,14 @@ void main() {
   });
 
   group('Tanpa satu pun sesi', () {
-    testWidgets('Beranda mengajak memotret, bukan menampilkan kartu kosong', (
-      tester,
-    ) async {
+    testWidgets('Beranda tidak menampilkan kartu kosong', (tester) async {
       await pumpHalaman(tester, const Scaffold(body: BerandaTab()));
       await tester.pump();
 
-      expect(find.text('Belum ada sesi hari ini'), findsOneWidget);
-      expect(find.textContaining('tombol kamera'), findsOneWidget);
+      // Hari tanpa sesi tidak punya angka untuk dirangkum, jadi bagian
+      // "Ringkasan Hari Ini" tidak digambar sama sekali.
+      expect(find.text('Ringkasan Hari Ini'), findsNothing);
+      expect(find.text('Belum ada sesi hari ini'), findsNothing);
     });
 
     testWidgets('Beranda menyapa tanpa nama', (tester) async {
