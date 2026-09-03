@@ -67,7 +67,10 @@ Future<void> pumpApp(
 }
 
 /// Walks welcome -> login and fills in valid credentials -> home.
-Future<void> pumpHome(WidgetTester tester, {SesiMakanController? controller}) async {
+Future<void> pumpHome(
+  WidgetTester tester, {
+  SesiMakanController? controller,
+}) async {
   await pumpApp(tester, controller: controller);
 
   await tester.tap(find.text('Masuk ke Akun'));
@@ -94,11 +97,16 @@ void main() {
   });
 
   group('WelcomePage', () {
-    testWidgets('is the initial route and offers both entry points', (tester) async {
+    testWidgets('is the initial route and offers both entry points', (
+      tester,
+    ) async {
       await pumpApp(tester);
 
       expect(find.byType(WelcomePage), findsOneWidget);
-      expect(find.text('Pantau Kesehatanmu, Hidup Lebih Sehat'), findsOneWidget);
+      expect(
+        find.text('Pantau Kesehatanmu, Hidup Lebih Sehat'),
+        findsOneWidget,
+      );
       expect(find.text('Mulai Sekarang'), findsOneWidget);
       expect(find.text('Masuk ke Akun'), findsOneWidget);
     });
@@ -126,7 +134,9 @@ void main() {
   });
 
   group('LoginPage', () {
-    testWidgets('empty fields fail validation and block navigation', (tester) async {
+    testWidgets('empty fields fail validation and block navigation', (
+      tester,
+    ) async {
       await pumpApp(tester);
       await tester.tap(find.text('Masuk ke Akun'));
       await tester.pumpAndSettle();
@@ -137,11 +147,13 @@ void main() {
       expect(find.byType(LoginPage), findsOneWidget);
       expect(find.byType(MyHomePage), findsNothing);
       // Error text duplicates the hint text, so both copies are on screen.
-      expect(find.text('Masukkan email atau nomor HP'), findsNWidgets(2));
+      expect(find.text('Masukkan email'), findsNWidgets(2));
       expect(find.text('Masukkan kata sandi'), findsNWidgets(2));
     });
 
-    testWidgets('a valid form replaces login with the home shell', (tester) async {
+    testWidgets('a valid form replaces login with the home shell', (
+      tester,
+    ) async {
       await pumpHome(tester);
 
       expect(find.byType(MyHomePage), findsOneWidget);
@@ -155,7 +167,11 @@ void main() {
       await pumpHome(tester);
 
       for (final label in ['Beranda', 'Riwayat', 'Analisis', 'Profil']) {
-        expect(find.text(label), findsOneWidget, reason: 'missing nav item $label');
+        expect(
+          find.text(label),
+          findsOneWidget,
+          reason: 'missing nav item $label',
+        );
       }
     });
 
@@ -170,7 +186,9 @@ void main() {
       expect(find.text('Riwayat Sesi'), findsOneWidget);
     });
 
-    testWidgets('the centre camera button pushes food detection, not a tab', (tester) async {
+    testWidgets('the centre camera button pushes food detection, not a tab', (
+      tester,
+    ) async {
       await pumpHome(tester);
 
       await tester.tap(find.byIcon(Icons.photo_camera_rounded));
@@ -208,7 +226,9 @@ void main() {
       expect(SystemChrome.latestStyle, gayaSistemTerang);
     });
 
-    testWidgets('makna tombol tengah berubah mengikuti status sesi', (tester) async {
+    testWidgets('makna tombol tengah berubah mengikuti status sesi', (
+      tester,
+    ) async {
       final c = buatControllerUji(riwayatAwal: contohRiwayatSesi());
       await pumpHome(tester, controller: c);
 
@@ -257,7 +277,9 @@ void main() {
       await hentikanSesi(tester, c);
     });
 
-    testWidgets('index 2 tetap mendorong halaman, tidak pernah pindah tab', (tester) async {
+    testWidgets('index 2 tetap mendorong halaman, tidak pernah pindah tab', (
+      tester,
+    ) async {
       await pumpHome(tester);
 
       await tester.tap(find.text('Analisis'));
@@ -275,7 +297,9 @@ void main() {
   });
 
   group('Profile persistence', () {
-    testWidgets('Beranda greets the name stored in SharedPreferences', (tester) async {
+    testWidgets('Beranda greets the name stored in SharedPreferences', (
+      tester,
+    ) async {
       SharedPreferences.setMockInitialValues({'user_name': 'Rara'});
 
       await pumpHome(tester);
@@ -283,7 +307,9 @@ void main() {
       expect(find.text('Halo, Rara'), findsOneWidget);
     });
 
-    testWidgets('Beranda greets without a name when nothing is stored', (tester) async {
+    testWidgets('Beranda greets without a name when nothing is stored', (
+      tester,
+    ) async {
       // Tidak ada lagi identitas bawaan: menyapa pengguna baru dengan nama
       // orang lain adalah kebohongan kecil yang tidak dibayar apa pun.
       await pumpHome(tester);

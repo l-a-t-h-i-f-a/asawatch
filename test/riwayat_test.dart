@@ -20,10 +20,7 @@ Future<void> pilihFilter(WidgetTester tester, String label) async {
   await tester.tap(find.byIcon(Icons.filter_list_rounded));
   await tester.pumpAndSettle();
   await tester.tap(
-    find.descendant(
-      of: find.byType(BottomSheet),
-      matching: find.text(label),
-    ),
+    find.descendant(of: find.byType(BottomSheet), matching: find.text(label)),
   );
   await tester.pumpAndSettle();
 }
@@ -34,20 +31,21 @@ void main() {
   setUpAll(loadMontserrat);
 
   group('Daftar sesi', () {
-    testWidgets('entri memuat nama, waktu makan, kalori, dan indikator respons', (
-      tester,
-    ) async {
-      final c = buatControllerUji(riwayatAwal: contohRiwayatSesi());
-      await pumpHalaman(tester, const RiwayatTab(), controller: c);
-      await tester.pumpAndSettle();
+    testWidgets(
+      'entri memuat nama, waktu makan, kalori, dan indikator respons',
+      (tester) async {
+        final c = buatControllerUji(riwayatAwal: contohRiwayatSesi());
+        await pumpHalaman(tester, const RiwayatTab(), controller: c);
+        await tester.pumpAndSettle();
 
-      expect(find.text('Riwayat Sesi'), findsOneWidget);
-      expect(find.text('6 sesi'), findsOneWidget);
-      expect(find.textContaining('430 kcal'), findsOneWidget);
-      // Dua sesi berkarbohidrat tinggi, dua sesi yang responsnya landai.
-      expect(find.text('Lonjakan'), findsNWidgets(2));
-      expect(find.text('Landai'), findsNWidgets(2));
-    });
+        expect(find.text('Riwayat Sesi'), findsOneWidget);
+        expect(find.text('6 sesi'), findsOneWidget);
+        expect(find.textContaining('430 kcal'), findsOneWidget);
+        // Dua sesi berkarbohidrat tinggi, dua sesi yang responsnya landai.
+        expect(find.text('Lonjakan'), findsNWidgets(2));
+        expect(find.text('Landai'), findsNWidgets(2));
+      },
+    );
 
     testWidgets('filter per metrik lama sudah tidak ada', (tester) async {
       final c = buatControllerUji(riwayatAwal: contohRiwayatSesi());

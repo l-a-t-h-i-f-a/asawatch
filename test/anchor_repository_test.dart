@@ -80,19 +80,29 @@ void main() {
       expect(kembali.epoch, anchor.epoch);
     });
 
-    test('terbaru dipilih berdasarkan uptime, bukan urutan penyimpanan',
-        () async {
-      // Jam HP bisa mundur (koreksi NTP, user mengubah waktu) tanpa uptime ikut
-      // mundur, jadi uptime-lah yang menentukan mana yang terbaru.
-      await repo.simpan(
-        AnchorWaktu(bootId: 7, uptimeS: 7200, epoch: DateTime(2026, 8, 10, 9)),
-      );
-      await repo.simpan(
-        AnchorWaktu(bootId: 7, uptimeS: 3600, epoch: DateTime(2026, 8, 10, 8)),
-      );
+    test(
+      'terbaru dipilih berdasarkan uptime, bukan urutan penyimpanan',
+      () async {
+        // Jam HP bisa mundur (koreksi NTP, user mengubah waktu) tanpa uptime ikut
+        // mundur, jadi uptime-lah yang menentukan mana yang terbaru.
+        await repo.simpan(
+          AnchorWaktu(
+            bootId: 7,
+            uptimeS: 7200,
+            epoch: DateTime(2026, 8, 10, 9),
+          ),
+        );
+        await repo.simpan(
+          AnchorWaktu(
+            bootId: 7,
+            uptimeS: 3600,
+            epoch: DateTime(2026, 8, 10, 8),
+          ),
+        );
 
-      expect((await repo.terbaruUntuk(7))!.uptimeS, 7200);
-    });
+        expect((await repo.terbaruUntuk(7))!.uptimeS, 7200);
+      },
+    );
 
     test('anchor tiap boot terpisah', () async {
       await repo.simpan(
@@ -224,7 +234,9 @@ void main() {
       }
       if (versi < 4) {
         await db.customStatement('DROP TABLE tabel_putaran_kalibrasi');
-        await db.customStatement('ALTER TABLE tabel_kalibrasi DROP COLUMN sisi');
+        await db.customStatement(
+          'ALTER TABLE tabel_kalibrasi DROP COLUMN sisi',
+        );
         // Skema v3 menyimpan angkanya langsung di baris kalibrasi.
         await db.customStatement(
           'ALTER TABLE tabel_kalibrasi ADD COLUMN sistolik_referensi INTEGER NOT NULL DEFAULT 0',
@@ -344,9 +356,7 @@ void main() {
       addTearDown(db.close);
 
       final repo = SesiRepositoryDrift(db);
-      await repo.simpan(
-        sesi.salin(status: StatusSesi.selesai, sesiUji: true),
-      );
+      await repo.simpan(sesi.salin(status: StatusSesi.selesai, sesiUji: true));
 
       final riwayat = await repo.muatSemua();
       expect(riwayat.single.sesiUji, isTrue);

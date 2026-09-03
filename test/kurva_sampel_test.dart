@@ -124,10 +124,7 @@ void main() {
     testWidgets('menampilkan puncak, delta, dan nilai tiap titik', (
       tester,
     ) async {
-      await pumpHalaman(
-        tester,
-        GulaDarahDetailPage(sesi: contohSesiSelesai()),
-      );
+      await pumpHalaman(tester, GulaDarahDetailPage(sesi: contohSesiSelesai()));
       await tester.pumpAndSettle();
 
       // Dua kemunculan: angka besar di kepala halaman dan baris titik +1 jam.

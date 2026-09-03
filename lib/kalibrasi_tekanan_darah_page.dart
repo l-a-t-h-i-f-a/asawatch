@@ -464,7 +464,9 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
     // Diperiksa sebelum tombolnya bisa ditekan, bukan sesudah: prosedur ini
     // tiga putaran berjeda 60 detik, dan gagal di putaran terakhir karena
     // baterai berarti seluruhnya diulang dari awal.
-    final halangan = context.watch<SesiMakanController>().alasanJamTidakBisaUkur;
+    final halangan = context
+        .watch<SesiMakanController>()
+        .alasanJamTidakBisaUkur;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

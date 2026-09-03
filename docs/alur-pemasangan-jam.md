@@ -89,7 +89,7 @@ sendiri** dan bukan tersembunyi di dalam "tunggu sampai selesai":
 | 1 | Pastikan Bluetooth ponsel aktif |
 | 2 | Nyalakan jam AsaWatch Anda |
 | 3 | Dekatkan jam ke ponsel, dalam jarak satu meter |
-| 4 | Ketuk "Pindai & Sambungkan", lalu pilih AsaWatch X1 |
+| 4 | Ketuk "Pindai & Sambungkan", lalu pilih perangkat yang namanya diawali "AsaWatch" |
 | 5 | Saat diminta, ketuk **Sandingkan**. Tidak ada kode atau PIN yang perlu dimasukkan |
 | 6 | Tunggu sampai muncul "Jam Tersambung" |
 

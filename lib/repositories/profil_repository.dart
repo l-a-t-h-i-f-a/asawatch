@@ -27,7 +27,6 @@ class Profil {
     required this.berat,
     required this.golonganDarah,
     required this.email,
-    required this.telepon,
   });
 
   /// Profil yang belum diisi sama sekali.
@@ -44,12 +43,11 @@ class Profil {
     berat: '',
     golonganDarah: '',
     email: '',
-    telepon: '',
   );
 
   /// Apakah profilnya sama sekali belum diisi — dipakai layar untuk memutuskan
   /// antara menampilkan data dan mengajak melengkapi.
-  bool get belumDiisi => nama.isEmpty && email.isEmpty && telepon.isEmpty;
+  bool get belumDiisi => nama.isEmpty && email.isEmpty;
 
   final String nama;
   final String tanggalLahir;
@@ -58,7 +56,6 @@ class Profil {
   final String berat;
   final String golonganDarah;
   final String email;
-  final String telepon;
 
   Profil salin({
     String? nama,
@@ -68,7 +65,6 @@ class Profil {
     String? berat,
     String? golonganDarah,
     String? email,
-    String? telepon,
   }) => Profil(
     nama: nama ?? this.nama,
     tanggalLahir: tanggalLahir ?? this.tanggalLahir,
@@ -77,7 +73,6 @@ class Profil {
     berat: berat ?? this.berat,
     golonganDarah: golonganDarah ?? this.golonganDarah,
     email: email ?? this.email,
-    telepon: telepon ?? this.telepon,
   );
 }
 
@@ -115,7 +110,6 @@ class ProfilRepository {
   static const _kBerat = 'user_weight';
   static const _kGolonganDarah = 'user_blood_type';
   static const _kEmail = 'user_email';
-  static const _kTelepon = 'user_phone';
 
   /// Kapan salinan lokal terakhir diubah. Kunci baru — profil lama tidak
   /// memilikinya, dan ketiadaannya dibaca sebagai "belum pernah disunting di
@@ -144,7 +138,6 @@ class ProfilRepository {
       berat: ambil(_kBerat),
       golonganDarah: ambil(_kGolonganDarah),
       email: ambil(_kEmail),
-      telepon: ambil(_kTelepon),
     );
   }
 
@@ -175,13 +168,9 @@ class ProfilRepository {
       return lokal;
     }
 
-    // Email dan nomor HP tidak ada di §5.1, jadi jawaban server tidak pernah
-    // menimpanya — kalau tidak, keduanya akan terhapus setiap kali profil
-    // ditarik dari server.
-    final gabungan = dariServer.profil.salin(
-      email: lokal.email,
-      telepon: lokal.telepon,
-    );
+    // Email tidak ada di §5.1, jadi jawaban server tidak pernah menimpanya —
+    // kalau tidak, ia akan terhapus setiap kali profil ditarik dari server.
+    final gabungan = dariServer.profil.salin(email: lokal.email);
     await _simpanLokal(gabungan, stempel: stempelServer);
     return gabungan;
   }
@@ -198,9 +187,9 @@ class ProfilRepository {
   ///
   /// Yang kedua: satu ponsel bisa dipakai dua orang. Kalau [emailAkun] berbeda
   /// dari yang tersimpan, seluruh profil lokal **dibuang** lebih dulu — kalau
-  /// tidak, field yang tidak ada di server (email dan nomor HP, §5.1) akan
-  /// tetap menampilkan milik pengguna sebelumnya, dan penyamaan dengan server
-  /// tidak akan pernah membersihkannya.
+  /// tidak, field yang tidak ada di server (email, §5.1) akan tetap
+  /// menampilkan milik pengguna sebelumnya, dan penyamaan dengan server tidak
+  /// akan pernah membersihkannya.
   ///
   /// **`gantiAkun` dikembalikan, bukan disimpan sendiri**, karena profil bukan
   /// satu-satunya yang melekat pada satu orang: riwayat sesi, kalibrasi tekanan
@@ -244,7 +233,6 @@ class ProfilRepository {
       _kBerat,
       _kGolonganDarah,
       _kEmail,
-      _kTelepon,
       _kDiperbarui,
     ]) {
       await prefs.remove(kunci);
@@ -283,7 +271,6 @@ class ProfilRepository {
     await prefs.setString(_kBerat, profil.berat);
     await prefs.setString(_kGolonganDarah, profil.golonganDarah);
     await prefs.setString(_kEmail, profil.email);
-    await prefs.setString(_kTelepon, profil.telepon);
     if (stempel != null) {
       await prefs.setString(_kDiperbarui, stempel.toIso8601String());
     }

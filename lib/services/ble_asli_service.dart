@@ -978,10 +978,7 @@ class BleAsliService implements BleService {
       // sendiri, v1.3 dijawab pembacaan tiap delapan detik. Menyerah tanpa
       // bertanya lebih dulu adalah kesalahan yang sama dengan tenggat 60 detik
       // yang digantikan seluruh bagian ini.
-      penanti.aturJagaPeriksa(
-        ProtokolJam.denyutUkurBasi,
-        _periksaDenyutHilang,
-      );
+      penanti.aturJagaPeriksa(ProtokolJam.denyutUkurBasi, _periksaDenyutHilang);
       return;
     }
 

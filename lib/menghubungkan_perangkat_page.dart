@@ -202,9 +202,19 @@ class MenghubungkanPerangkatPage extends StatelessWidget {
                   stepNumber: '3',
                   text: 'Dekatkan jam ke ponsel, dalam jarak satu meter',
                 ),
+                // Namanya **tidak** boleh ditulis lengkap di sini. Firmware
+                // mengiklankan "AsaWatch <4 hex>" yang diambil dari dua byte
+                // terakhir MAC (aw_ble.cpp, `snprintf(s_nama, ..., "AsaWatch
+                // %02X%02X", s_serial[4], s_serial[5])`), jadi tiap unit
+                // bernama lain: "AsaWatch 3F1A", "AsaWatch AD8E". Kalimat lama
+                // menyuruh mencari "AsaWatch X1" — nama yang hanya ada di
+                // `FakeBleService` dan tidak akan pernah muncul di daftar
+                // pindai, sehingga pengguna menyimpulkan jamnya tidak terbaca.
                 _buildInstructionStep(
                   stepNumber: '4',
-                  text: 'Ketuk "Pindai & Sambungkan", lalu pilih AsaWatch X1',
+                  text:
+                      'Ketuk "Pindai & Sambungkan", lalu pilih perangkat yang '
+                      'namanya diawali "AsaWatch"',
                 ),
                 // Kata "Sandingkan" harus sama persis dengan tombol di dialog
                 // sistem (§2): pengguna yang membaca kata lain di sini akan

@@ -18,7 +18,6 @@ void main() {
 
     expect(profil.nama, isEmpty);
     expect(profil.email, isEmpty);
-    expect(profil.telepon, isEmpty);
     expect(profil.belumDiisi, isTrue);
   });
 
@@ -33,7 +32,6 @@ void main() {
       berat: '70 kg',
       golonganDarah: 'O',
       email: 'rara@contoh.id',
-      telepon: '0899-0000-1111',
     );
     await repo.simpan(baru);
     final kembali = await repo.muat();
@@ -45,7 +43,6 @@ void main() {
     expect(kembali.berat, baru.berat);
     expect(kembali.golonganDarah, baru.golonganDarah);
     expect(kembali.email, baru.email);
-    expect(kembali.telepon, baru.telepon);
   });
 
   test('kunci lama di perangkat tetap terbaca', () async {
@@ -75,5 +72,4 @@ void main() {
     expect(profil.nama, isEmpty);
     expect(profil.email, isEmpty);
   });
-
 }

@@ -45,6 +45,16 @@ class _DeteksiMakananPageState extends State<DeteksiMakananPage>
   bool _menyiapkan = true;
   bool _sibuk = false;
 
+  /// Nomor urut percobaan penyiapan kamera.
+  ///
+  /// Penyiapan bisa tumpang-tindih: dialog izin membuat aplikasi berpindah ke
+  /// `inactive` (kamera dilepas) lalu `resumed` (kamera disiapkan lagi) selagi
+  /// percobaan pertama masih menggantung. Tanpa nomor ini, kegagalan percobaan
+  /// pertama — yang gagal justru **karena** dilepas — tiba belakangan dan
+  /// menimpa keberhasilan percobaan kedua, sehingga layar menampilkan "kamera
+  /// tidak bisa dibuka" pada kamera yang sedang hidup.
+  int _generasi = 0;
+
   @override
   void initState() {
     super.initState();
@@ -67,6 +77,10 @@ class _DeteksiMakananPageState extends State<DeteksiMakananPage>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
+      // Menaikkan generasi sekaligus membatalkan penyiapan yang masih berjalan:
+      // ia memang akan gagal karena kameranya dilepas di baris berikutnya, dan
+      // kegagalan itu bukan sesuatu yang perlu dilihat pengguna.
+      _generasi++;
       _kamera.lepas();
     } else if (state == AppLifecycleState.resumed) {
       _siapkanKamera();
@@ -79,18 +93,23 @@ class _DeteksiMakananPageState extends State<DeteksiMakananPage>
   /// langsung — belum ada frame yang menampilkannya. Yang dari tombol "Coba
   /// Lagi" lewat [_cobaLagi], yang memang perlu memicu gambar ulang.
   Future<void> _siapkanKamera() async {
+    final generasi = ++_generasi;
     _menyiapkan = true;
     _galat = null;
     try {
       await _kamera.siapkan();
     } on GalatKamera catch (e) {
-      if (mounted) setState(() => _galat = e);
+      if (mounted && generasi == _generasi) setState(() => _galat = e);
     } catch (e) {
-      if (mounted) {
+      if (mounted && generasi == _generasi) {
         setState(() => _galat = GalatKamera('Kamera tidak bisa dibuka ($e).'));
       }
     } finally {
-      if (mounted) setState(() => _menyiapkan = false);
+      // Hasil percobaan yang sudah disusul percobaan lain tidak boleh
+      // menyentuh layar sama sekali — sukses maupun gagal.
+      if (mounted && generasi == _generasi) {
+        setState(() => _menyiapkan = false);
+      }
     }
   }
 

@@ -133,26 +133,13 @@ void main() {
       expect(find.text('Format email belum benar'), findsOneWidget);
     });
 
-    testWidgets('nomor HP terlalu pendek ditolak', (tester) async {
-      SharedPreferences.setMockInitialValues({'user_phone': '0812'});
-
-      await pumpHalamanDidorong(tester);
-      await tapSimpan(tester);
-
-      expect(find.text('Nomor HP terlihat tidak lengkap'), findsOneWidget);
-    });
-
-    testWidgets('email dan nomor yang benar lolos', (tester) async {
-      SharedPreferences.setMockInitialValues({
-        'user_email': 'rara@contoh.id',
-        'user_phone': '0812-3456-7890',
-      });
+    testWidgets('email yang benar lolos', (tester) async {
+      SharedPreferences.setMockInitialValues({'user_email': 'rara@contoh.id'});
 
       await pumpHalamanDidorong(tester);
       await tapSimpan(tester);
 
       expect(find.textContaining('belum benar'), findsNothing);
-      expect(find.textContaining('tidak lengkap'), findsNothing);
     });
   });
 

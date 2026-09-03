@@ -80,21 +80,24 @@ void main() {
     await c.batalkan();
   });
 
-  test('jadwal dihitung ulang dari t0 absolut, bukan dari sisa waktu', () async {
-    // Aplikasi mati 40 menit; titik +1 jam tetap jatuh 20 menit lagi, bukan
-    // satu jam lagi.
-    final sesi = sesiBerjalan(menitLalu: 40);
-    final c = buatController(riwayatAwal: [sesi]);
-    addTearDown(c.dispose);
+  test(
+    'jadwal dihitung ulang dari t0 absolut, bukan dari sisa waktu',
+    () async {
+      // Aplikasi mati 40 menit; titik +1 jam tetap jatuh 20 menit lagi, bukan
+      // satu jam lagi.
+      final sesi = sesiBerjalan(menitLalu: 40);
+      final c = buatController(riwayatAwal: [sesi]);
+      addTearDown(c.dispose);
 
-    final berikutnya = c.sesiAktif!.jadwalBerikutnya!;
-    final sisa = berikutnya.difference(DateTime.now());
+      final berikutnya = c.sesiAktif!.jadwalBerikutnya!;
+      final sisa = berikutnya.difference(DateTime.now());
 
-    expect(c.sesiAktif!.sampelBerikutnya!.index, 2);
-    expect(sisa.inMinutes, closeTo(20, 1));
+      expect(c.sesiAktif!.sampelBerikutnya!.index, 2);
+      expect(sisa.inMinutes, closeTo(20, 1));
 
-    await c.batalkan();
-  });
+      await c.batalkan();
+    },
+  );
 
   test('sampel yang sudah masuk tidak ditulis ulang oleh duplikat', () async {
     // Jam mengirim at-least-once, dan setelah restart ia tidak tahu apa yang
@@ -119,24 +122,26 @@ void main() {
     await c.batalkan();
   });
 
-  test('sesi yang sudah lewat tenggat ditutup, bukan menunggu selamanya',
-      () async {
-    // Jam mati atau tidak pernah tersambung lagi: dua jam plus tenggatnya lewat,
-    // dan tidak ada seorang pun yang akan datang menutup sesinya.
-    final sesi = sesiBerjalan(menitLalu: 60 * 5);
-    final c = buatController(riwayatAwal: [sesi]);
-    addTearDown(c.dispose);
+  test(
+    'sesi yang sudah lewat tenggat ditutup, bukan menunggu selamanya',
+    () async {
+      // Jam mati atau tidak pernah tersambung lagi: dua jam plus tenggatnya lewat,
+      // dan tidak ada seorang pun yang akan datang menutup sesinya.
+      final sesi = sesiBerjalan(menitLalu: 60 * 5);
+      final c = buatController(riwayatAwal: [sesi]);
+      addTearDown(c.dispose);
 
-    await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
 
-    expect(c.sesiAktif, isNull);
-    final ditutup = c.sesiTerakhir!;
-    expect(ditutup.id, sesi.id);
-    expect(ditutup.status, StatusSesi.tidakLengkap);
-    // Sampel yang sudah masuk tetap utuh — sesinya tidak lengkap, bukan gagal.
-    expect(ditutup.sampel[1].gulaDarah, 98);
-    expect(ditutup.sampel[2].status, StatusSampel.terlewat);
-  });
+      expect(c.sesiAktif, isNull);
+      final ditutup = c.sesiTerakhir!;
+      expect(ditutup.id, sesi.id);
+      expect(ditutup.status, StatusSesi.tidakLengkap);
+      // Sampel yang sudah masuk tetap utuh — sesinya tidak lengkap, bukan gagal.
+      expect(ditutup.sampel[1].gulaDarah, 98);
+      expect(ditutup.sampel[2].status, StatusSampel.terlewat);
+    },
+  );
 
   test('lebih dari satu sesi aktif tersimpan menyisakan tepat satu', () async {
     // Tidak seharusnya terjadi, tetapi basis data bisa berakhir seperti ini
@@ -154,24 +159,26 @@ void main() {
     await c.batalkan();
   });
 
-  test('draft yang dipulihkan tetap ditulis, sesi yang dibatalkan dihapus',
-      () async {
-    final repo = SesiRepositoryMemori();
-    final c = buatController(repo: repo);
-    addTearDown(c.dispose);
+  test(
+    'draft yang dipulihkan tetap ditulis, sesi yang dibatalkan dihapus',
+    () async {
+      final repo = SesiRepositoryMemori();
+      final c = buatController(repo: repo);
+      addTearDown(c.dispose);
 
-    await c.mulaiDraft(contohFotoPath);
-    await Future<void>.delayed(Duration.zero);
+      await c.mulaiDraft(contohFotoPath);
+      await Future<void>.delayed(Duration.zero);
 
-    // Draft sudah durabel sejak shutter ditekan: aplikasi yang ditutup sekarang
-    // tetap menemukan sesinya.
-    final tersimpan = await repo.muatSemua();
-    expect(tersimpan.single.status.sedangAktif, isTrue);
+      // Draft sudah durabel sejak shutter ditekan: aplikasi yang ditutup sekarang
+      // tetap menemukan sesinya.
+      final tersimpan = await repo.muatSemua();
+      expect(tersimpan.single.status.sedangAktif, isTrue);
 
-    await c.batalkan();
-    await Future<void>.delayed(Duration.zero);
+      await c.batalkan();
+      await Future<void>.delayed(Duration.zero);
 
-    // Dan sesi yang dibatalkan tidak hidup kembali sebagai sesi aktif.
-    expect(await repo.muatSemua(), isEmpty);
-  });
+      // Dan sesi yang dibatalkan tidak hidup kembali sebagai sesi aktif.
+      expect(await repo.muatSemua(), isEmpty);
+    },
+  );
 }

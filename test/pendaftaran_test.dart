@@ -57,13 +57,8 @@ Future<void> _isiFormulir(WidgetTester tester) async {
   final kolom = find.byType(TextFormField);
   await tester.enterText(kolom.at(0), 'Rara Baru');
   await tester.enterText(kolom.at(1), 'rara.baru@email.com');
-  await tester.enterText(kolom.at(2), '081234567890');
+  await tester.enterText(kolom.at(2), 'rahasia123');
   await tester.enterText(kolom.at(3), 'rahasia123');
-  await tester.enterText(kolom.at(4), 'rahasia123');
-  await tester.pumpAndSettle();
-
-  // Kotak persetujuan syarat & ketentuan.
-  await tester.tap(find.byType(Checkbox));
   await tester.pumpAndSettle();
 }
 
@@ -109,28 +104,6 @@ void main() {
       // Tidak ada tombol "Coba Lagi" untuk ini: mengulang hal yang sama persis
       // tidak akan pernah berhasil.
       expect(const EmailSudahDipakai().bisaDiulang, isFalse);
-    });
-
-    testWidgets('tanpa menyetujui syarat, tidak ada yang dikirim', (
-      tester,
-    ) async {
-      final auth = FakeAuthService();
-      addTearDown(auth.dispose);
-      await _pumpDaftar(tester, auth: auth);
-
-      final kolom = find.byType(TextFormField);
-      await tester.enterText(kolom.at(0), 'Rara Baru');
-      await tester.enterText(kolom.at(1), 'rara.baru@email.com');
-      await tester.enterText(kolom.at(2), '081234567890');
-      await tester.enterText(kolom.at(3), 'rahasia123');
-      await tester.enterText(kolom.at(4), 'rahasia123');
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.widgetWithText(ElevatedButton, 'Daftar'));
-      await tester.pumpAndSettle();
-
-      expect(auth.jumlahPanggilan, 0);
-      expect(find.textContaining('Syarat & Ketentuan'), findsWidgets);
     });
   });
 

@@ -441,10 +441,7 @@ class SesiMakanController extends ChangeNotifier {
           '($_tundaTenggat/$_maksTundaTenggat).',
         );
         _tenggat?.cancel();
-        _tenggat = Timer(
-          _jedaTenggatUkur,
-          () => unawaited(_lewatTenggat()),
-        );
+        _tenggat = Timer(_jedaTenggatUkur, () => unawaited(_lewatTenggat()));
         return;
       }
     }

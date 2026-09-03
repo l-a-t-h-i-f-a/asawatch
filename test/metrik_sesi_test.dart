@@ -26,35 +26,36 @@ void main() {
   setUpAll(loadMontserrat);
 
   group('Metrik selama sesi berjalan', () {
-    testWidgets('titik yang sudah terisi menampilkan detak, tekanan, dan SpO₂', (
-      tester,
-    ) async {
-      // Sebelum ini timeline hanya menampilkan gula darah, sehingga ketiga
-      // metrik lain — yang sudah diukur di setiap titik sejak awal — baru
-      // terlihat setelah seluruh sesi selesai.
-      final c = buatControllerUji();
-      await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
+    testWidgets(
+      'titik yang sudah terisi menampilkan detak, tekanan, dan SpO₂',
+      (tester) async {
+        // Sebelum ini timeline hanya menampilkan gula darah, sehingga ketiga
+        // metrik lain — yang sudah diukur di setiap titik sejak awal — baru
+        // terlihat setelah seluruh sesi selesai.
+        final c = buatControllerUji();
+        await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
 
-      await c.mulaiDraft(contohFotoPath);
-      await tester.pump(const Duration(milliseconds: 50));
-      await tekanTombolJam(tester, c);
-      await tester.pump(const Duration(milliseconds: 50));
+        await c.mulaiDraft(contohFotoPath);
+        await tester.pump(const Duration(milliseconds: 50));
+        await tekanTombolJam(tester, c);
+        await tester.pump(const Duration(milliseconds: 50));
 
-      final baseline = c.sesiAktif!.sampel[0];
-      expect(baseline.terisi, isTrue, reason: 'baseline harus sudah masuk');
+        final baseline = c.sesiAktif!.sampel[0];
+        expect(baseline.terisi, isTrue, reason: 'baseline harus sudah masuk');
 
-      expect(
-        find.textContaining('${baseline.detakJantung} bpm'),
-        findsWidgets,
-      );
-      expect(find.textContaining('SpO₂ ${baseline.spo2}%'), findsWidgets);
-      expect(
-        find.textContaining('${baseline.tekananDarah} mmHg'),
-        findsWidgets,
-      );
+        expect(
+          find.textContaining('${baseline.detakJantung} bpm'),
+          findsWidgets,
+        );
+        expect(find.textContaining('SpO₂ ${baseline.spo2}%'), findsWidgets);
+        expect(
+          find.textContaining('${baseline.tekananDarah} mmHg'),
+          findsWidgets,
+        );
 
-      await hentikanSesi(tester, c);
-    });
+        await hentikanSesi(tester, c);
+      },
+    );
 
     testWidgets('barisnya milik sampel yang terisi, bukan seluruh timeline', (
       tester,
@@ -243,14 +244,16 @@ void main() {
       expect(seriSpo2.rentangMinimum, lessThan(seriGulaDarah.rentangMinimum));
     });
 
-    test('kemampuan yang belum diketahui berarti semua metrik boleh tampil',
-        () {
-      // Menyembunyikan angka yang sudah ada di basis data karena kita belum
-      // sempat bertanya ke jam adalah kerugian yang pasti.
-      const belumTahu = StatusPerangkat(tersambung: false);
-      expect(belumTahu.kemampuan, isNull);
-      expect(belumTahu.metrikTampil, KemampuanPerangkat.semua);
-    });
+    test(
+      'kemampuan yang belum diketahui berarti semua metrik boleh tampil',
+      () {
+        // Menyembunyikan angka yang sudah ada di basis data karena kita belum
+        // sempat bertanya ke jam adalah kerugian yang pasti.
+        const belumTahu = StatusPerangkat(tersambung: false);
+        expect(belumTahu.kemampuan, isNull);
+        expect(belumTahu.metrikTampil, KemampuanPerangkat.semua);
+      },
+    );
 
     test('kemampuan tidak hilang saat jam terputus, tidak seperti baterai', () {
       // Baterai menua tiap menit; jam tidak menumbuhkan sensor SpO₂ selagi di

@@ -35,7 +35,8 @@ String teksDi(WidgetTester tester, Finder induk) {
 /// saat offline.
 class _NutrisiTertunda implements NutrisiService {
   @override
-  Future<HasilDeteksi> analisis(String fotoPath) => Completer<HasilDeteksi>().future;
+  Future<HasilDeteksi> analisis(String fotoPath) =>
+      Completer<HasilDeteksi>().future;
 }
 
 /// Membawa controller sampai sesi berjalan: draft dibuat, baseline masuk,
@@ -340,7 +341,9 @@ void main() {
 
       await pumpHalaman(
         tester,
-        Scaffold(body: HitungMundur(target: target, sekarang: () => jam)),
+        Scaffold(
+          body: HitungMundur(target: target, sekarang: () => jam),
+        ),
       );
 
       final mundur = find.byType(HitungMundur);
@@ -382,10 +385,7 @@ void main() {
       // Verdict-nya berbunyi "puncak +48 mg/dL · normal dalam 2 jam": persis
       // angka besar di atasnya ditambah persis isi kotak Pemulihan di bawahnya.
       // Sesi yang sudah punya hasil tidak mendapatkannya lagi.
-      expect(
-        find.text('puncak +48 mg/dL · normal dalam 2 jam'),
-        findsNothing,
-      );
+      expect(find.text('puncak +48 mg/dL · normal dalam 2 jam'), findsNothing);
       // Detail tiap titik masih terlipat, jadi puncak baru muncul sekali.
       expect(find.text('140'), findsOneWidget);
       expect(find.text('+48'), findsOneWidget);

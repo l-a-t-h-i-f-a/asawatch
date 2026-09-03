@@ -107,7 +107,11 @@ void main() {
         otomatisSelesaiMakan: null,
       );
       final jam = JamPalsu();
-      final c = buatControllerUji(ble: ble, jadwal: jadwalUjiTitik, jam: jam.call);
+      final c = buatControllerUji(
+        ble: ble,
+        jadwal: jadwalUjiTitik,
+        jam: jam.call,
+      );
       await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
       await jalankan(tester, c);
 
@@ -137,7 +141,11 @@ void main() {
         otomatisSelesaiMakan: null,
       );
       final jam = JamPalsu();
-      final c = buatControllerUji(ble: ble, jadwal: jadwalUjiTitik, jam: jam.call);
+      final c = buatControllerUji(
+        ble: ble,
+        jadwal: jadwalUjiTitik,
+        jam: jam.call,
+      );
       await pumpHalaman(
         tester,
         const Scaffold(body: BerandaTab()),
@@ -173,7 +181,11 @@ void main() {
         otomatisSelesaiMakan: null,
       );
       final jam = JamPalsu();
-      final c = buatControllerUji(ble: ble, jadwal: jadwalUjiTitik, jam: jam.call);
+      final c = buatControllerUji(
+        ble: ble,
+        jadwal: jadwalUjiTitik,
+        jam: jam.call,
+      );
       await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
       await jalankan(tester, c);
       await majuBersama(tester, jam, const Duration(seconds: 56));
@@ -259,7 +271,10 @@ void main() {
       expect(c.kemajuanUkur, isNotNull);
       // Persennya ada di label tombolnya sendiri — halaman ini penuh angka
       // ber-% lain (baterai, SpO2), jadi yang dicari adalah label itu.
-      expect(find.textContaining(RegExp(r'Jam mengukur… \d+%')), findsOneWidget);
+      expect(
+        find.textContaining(RegExp(r'Jam mengukur… \d+%')),
+        findsOneWidget,
+      );
       expect(find.textContaining('Perkiraan sisa'), findsWidgets);
 
       // Tombolnya tetap mati selama jam bekerja — bukan menyala kembali
@@ -329,16 +344,18 @@ void main() {
   });
 
   group('Tombol ukur di jam (ARM_TITIK)', () {
-    testWidgets('belum di-ARM selama jendelanya belum terbuka', (
-      tester,
-    ) async {
+    testWidgets('belum di-ARM selama jendelanya belum terbuka', (tester) async {
       final ble = FakeBleService(
         percepatan: 3600,
         lewatkan: {2, 3},
         otomatisSelesaiMakan: null,
       );
       final jam = JamPalsu();
-      final c = buatControllerUji(ble: ble, jadwal: jadwalUjiTitik, jam: jam.call);
+      final c = buatControllerUji(
+        ble: ble,
+        jadwal: jadwalUjiTitik,
+        jam: jam.call,
+      );
       await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
       await jalankan(tester, c);
 
@@ -347,7 +364,6 @@ void main() {
       // sekali, jadi tidak ada yang bisa salah di jam.
       expect(ble.titikDiarm, isNull);
       expect(ble.tombolUkurMenyala, isFalse);
-
 
       await hentikanSesi(tester, c);
     });
@@ -359,7 +375,11 @@ void main() {
         otomatisSelesaiMakan: null,
       );
       final jam = JamPalsu();
-      final c = buatControllerUji(ble: ble, jadwal: jadwalUjiTitik, jam: jam.call);
+      final c = buatControllerUji(
+        ble: ble,
+        jadwal: jadwalUjiTitik,
+        jam: jam.call,
+      );
       await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
       await jalankan(tester, c);
 
@@ -386,7 +406,11 @@ void main() {
         otomatisSelesaiMakan: null,
       );
       final jam = JamPalsu();
-      final c = buatControllerUji(ble: ble, jadwal: jadwalUjiTitik, jam: jam.call);
+      final c = buatControllerUji(
+        ble: ble,
+        jadwal: jadwalUjiTitik,
+        jam: jam.call,
+      );
       await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
       await jalankan(tester, c);
       await majuBersama(tester, jam, const Duration(seconds: 56));
@@ -413,7 +437,11 @@ void main() {
         otomatisSelesaiMakan: null,
       );
       final jam = JamPalsu();
-      final c = buatControllerUji(ble: ble, jadwal: jadwalUjiTitik, jam: jam.call);
+      final c = buatControllerUji(
+        ble: ble,
+        jadwal: jadwalUjiTitik,
+        jam: jam.call,
+      );
       await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
       await jalankan(tester, c);
       await majuBersama(tester, jam, const Duration(seconds: 56));
@@ -433,7 +461,11 @@ void main() {
         otomatisSelesaiMakan: null,
       );
       final jam = JamPalsu();
-      final c = buatControllerUji(ble: ble, jadwal: jadwalUjiTitik, jam: jam.call);
+      final c = buatControllerUji(
+        ble: ble,
+        jadwal: jadwalUjiTitik,
+        jam: jam.call,
+      );
       await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
       await jalankan(tester, c);
       await majuBersama(tester, jam, const Duration(seconds: 56));
@@ -477,7 +509,9 @@ void main() {
       await hentikanSesi(tester, c);
     });
 
-    testWidgets('titik yang sudah terisi tidak diingatkan lagi', (tester) async {
+    testWidgets('titik yang sudah terisi tidak diingatkan lagi', (
+      tester,
+    ) async {
       final pengingat = PengingatPencatat();
       final ble = FakeBleService(
         percepatan: 3600,
@@ -536,7 +570,11 @@ void main() {
       otomatisSelesaiMakan: null,
     );
     final jam = JamPalsu();
-    final c = buatControllerUji(ble: ble, jadwal: jadwalUjiTitik, jam: jam.call);
+    final c = buatControllerUji(
+      ble: ble,
+      jadwal: jadwalUjiTitik,
+      jam: jam.call,
+    );
     await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
     await jalankan(tester, c);
     await majuBersama(tester, jam, const Duration(seconds: 56));

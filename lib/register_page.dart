@@ -43,7 +43,6 @@ class _RegisterPageState extends State<RegisterPage> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
-  final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
@@ -57,7 +56,6 @@ class _RegisterPageState extends State<RegisterPage> {
 
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
-  bool _agreeToTerms = false;
 
   // Validation states
   bool _isPasswordLengthValid = false;
@@ -89,18 +87,6 @@ class _RegisterPageState extends State<RegisterPage> {
   Future<void> _daftar() async {
     if (_sedangDaftar) return;
     if (!_formKey.currentState!.validate()) return;
-    if (!_agreeToTerms) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Anda harus menyetujui Syarat & Ketentuan terlebih dahulu.',
-          ),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-      return;
-    }
-
     setState(() {
       _sedangDaftar = true;
       _galat = null;
@@ -168,7 +154,6 @@ class _RegisterPageState extends State<RegisterPage> {
     _passwordController.removeListener(_validatePassword);
     _nameController.dispose();
     _emailController.dispose();
-    _phoneController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
@@ -338,78 +323,6 @@ class _RegisterPageState extends State<RegisterPage> {
                           ),
                           prefixIcon: const Icon(
                             Icons.email_outlined,
-                            color: Color(0xFF6B807B),
-                          ),
-                          filled: true,
-                          fillColor: Colors.white,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 16,
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(
-                              color: Color(0xFF0EAD69),
-                              width: 1.5,
-                            ),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(
-                              color: Color(0xFFE2EBE8),
-                              width: 1.5,
-                            ),
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          errorBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(
-                              color: Colors.redAccent,
-                              width: 1.5,
-                            ),
-                          ),
-                          focusedErrorBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(
-                              color: Colors.redAccent,
-                              width: 1.5,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-
-                      // Nomor HP Label
-                      const Text(
-                        'Nomor HP',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF1E3A34),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      // Nomor HP field
-                      TextFormField(
-                        controller: _phoneController,
-                        keyboardType: TextInputType.phone,
-                        style: const TextStyle(color: Color(0xFF1E3A34)),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Masukkan nomor HP';
-                          }
-                          return null;
-                        },
-                        decoration: InputDecoration(
-                          hintText: 'Masukkan nomor HP',
-                          hintStyle: const TextStyle(
-                            color: Color(0xFF9CB1AC),
-                            fontWeight: FontWeight.normal,
-                          ),
-                          prefixIcon: const Icon(
-                            Icons.phone_outlined,
                             color: Color(0xFF6B807B),
                           ),
                           filled: true,
@@ -665,64 +578,6 @@ class _RegisterPageState extends State<RegisterPage> {
                             ),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 20),
-
-                      // Terms and conditions checkbox
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: Checkbox(
-                              value: _agreeToTerms,
-                              activeColor: const Color(0xFF0EAD69),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              side: const BorderSide(
-                                color: Color(0xFFD4E2DE),
-                                width: 1.5,
-                              ),
-                              onChanged: (val) {
-                                setState(() {
-                                  _agreeToTerms = val ?? false;
-                                });
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: RichText(
-                              text: const TextSpan(
-                                text: 'Saya setuju dengan ',
-                                style: TextStyle(
-                                  color: Color(0xFF6B807B),
-                                  fontSize: 13,
-                                  height: 1.4,
-                                ),
-                                children: [
-                                  TextSpan(
-                                    text: 'Syarat & Ketentuan',
-                                    style: TextStyle(
-                                      color: Color(0xFF0EAD69),
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  TextSpan(text: ' and '),
-                                  TextSpan(
-                                    text: 'Kebijakan Privasi',
-                                    style: TextStyle(
-                                      color: Color(0xFF0EAD69),
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
                       ),
                       const SizedBox(height: 32),
 

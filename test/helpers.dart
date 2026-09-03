@@ -65,11 +65,7 @@ class JamPalsu {
 
 /// Memajukan jam palsu **dan** timer sekaligus, supaya keduanya tidak pernah
 /// berselisih di tengah test.
-Future<void> majuBersama(
-  WidgetTester tester,
-  JamPalsu jam,
-  Duration d,
-) async {
+Future<void> majuBersama(WidgetTester tester, JamPalsu jam, Duration d) async {
   jam.maju(d);
   await tester.pump(d);
 }

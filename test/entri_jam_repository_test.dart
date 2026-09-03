@@ -147,16 +147,18 @@ void main() {
     expect(tersisa.sesiId, lain);
   });
 
-  test('sesi yang dibatalkan tidak meninggalkan entri yang diputar selamanya',
-      () async {
-    await repo.simpan(_sampel());
-    await sesiRepo.simpan(sesiUji(status: StatusSesi.draft));
-    await repo.simpan(_sampel(seq: 5, index: 3));
+  test(
+    'sesi yang dibatalkan tidak meninggalkan entri yang diputar selamanya',
+    () async {
+      await repo.simpan(_sampel());
+      await sesiRepo.simpan(sesiUji(status: StatusSesi.draft));
+      await repo.simpan(_sampel(seq: 5, index: 3));
 
-    await sesiRepo.hapus(_sesiId);
+      await sesiRepo.hapus(_sesiId);
 
-    expect(await repo.belumDiproses(), isEmpty);
-  });
+      expect(await repo.belumDiproses(), isEmpty);
+    },
+  );
 
   test('sampel jawaban UKUR_SEKARANG tidak diputar ulang selamanya', () async {
     // Jawaban `UKUR_SEKARANG` (§5.1) datang sebagai paket Sampel dengan sesiId
@@ -189,19 +191,23 @@ void main() {
     expect(t0[_sesiId]!.uptimeS, 4321);
   });
 
-  test('pangkas menyisakan yang terbaru dan tidak menyentuh yang tertunda',
-      () async {
-    for (var i = 1; i <= 5; i++) {
-      await repo.simpan(_peristiwa(seq: i, jenis: JenisPeristiwa.boot, sesiId: null));
-    }
-    await repo.simpan(_sampel(seq: 6)); // masih menunggu sesinya
+  test(
+    'pangkas menyisakan yang terbaru dan tidak menyentuh yang tertunda',
+    () async {
+      for (var i = 1; i <= 5; i++) {
+        await repo.simpan(
+          _peristiwa(seq: i, jenis: JenisPeristiwa.boot, sesiId: null),
+        );
+      }
+      await repo.simpan(_sampel(seq: 6)); // masih menunggu sesinya
 
-    await repo.pangkas(simpanTerakhir: 2);
+      await repo.pangkas(simpanTerakhir: 2);
 
-    final tersisa = await db.select(db.tabelEntriJam).get();
-    expect(tersisa.where((b) => b.diproses).length, 2);
-    // Yang belum diproses tetap ada: satu-satunya salinannya ada di sini, karena
-    // jam sudah menghapus miliknya begitu di-ack.
-    expect(tersisa.where((b) => !b.diproses).length, 1);
-  });
+      final tersisa = await db.select(db.tabelEntriJam).get();
+      expect(tersisa.where((b) => b.diproses).length, 2);
+      // Yang belum diproses tetap ada: satu-satunya salinannya ada di sini, karena
+      // jam sudah menghapus miliknya begitu di-ack.
+      expect(tersisa.where((b) => !b.diproses).length, 1);
+    },
+  );
 }

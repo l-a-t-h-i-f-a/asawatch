@@ -25,7 +25,6 @@ class _InformasiPribadiPageState extends State<InformasiPribadiPage> {
   final _heightController = TextEditingController();
   final _weightController = TextEditingController();
   final _emailController = TextEditingController();
-  final _phoneController = TextEditingController();
 
   // null berarti belum dipilih; string kosong tidak bisa dipakai karena
   // DropdownButtonFormField menuntut nilainya ada di dalam daftar itemnya.
@@ -65,7 +64,6 @@ class _InformasiPribadiPageState extends State<InformasiPribadiPage> {
           ? null
           : profil.golonganDarah;
       _emailController.text = profil.email;
-      _phoneController.text = profil.telepon;
       _isLoading = false;
     });
   }
@@ -96,7 +94,6 @@ class _InformasiPribadiPageState extends State<InformasiPribadiPage> {
         berat: _weightController.text.trim(),
         golonganDarah: _selectedBloodType ?? '',
         email: _emailController.text.trim(),
-        telepon: _phoneController.text.trim(),
       ),
     );
   }
@@ -107,7 +104,6 @@ class _InformasiPribadiPageState extends State<InformasiPribadiPage> {
     _heightController.dispose();
     _weightController.dispose();
     _emailController.dispose();
-    _phoneController.dispose();
     super.dispose();
   }
 
@@ -333,16 +329,6 @@ class _InformasiPribadiPageState extends State<InformasiPribadiPage> {
                           capitalization: TextCapitalization.none,
                           validator: _validasiEmail,
                         ),
-                        const SizedBox(height: 16),
-
-                        _buildTextField(
-                          label: 'Nomor HP',
-                          controller: _phoneController,
-                          icon: Icons.phone_outlined,
-                          keyboardType: TextInputType.phone,
-                          formatters: [_formatterTelepon],
-                          validator: _validasiTelepon,
-                        ),
                         const SizedBox(height: 24),
 
                         // Personalize Info Card Banner
@@ -396,12 +382,6 @@ class _InformasiPribadiPageState extends State<InformasiPribadiPage> {
     RegExp(r'^\d*\.?\d*'),
   );
 
-  /// Angka, spasi, tanda hubung, kurung, dan satu `+` di depan — cukup untuk
-  /// menulis 0812-3456-7890 maupun +62 812 3456 7890.
-  static final _formatterTelepon = FilteringTextInputFormatter.allow(
-    RegExp(r'[0-9+\-() ]'),
-  );
-
   /// Semua field boleh dikosongkan.
   ///
   /// Sebelum A4 setiap field wajib diisi, dan itu tidak pernah terasa karena
@@ -427,17 +407,6 @@ class _InformasiPribadiPageState extends State<InformasiPribadiPage> {
     // alamatnya sah hanyalah mengirim surat ke sana (Tahap D).
     if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(teks)) {
       return 'Format email belum benar';
-    }
-    return null;
-  }
-
-  String? _validasiTelepon(String? nilai) {
-    final teks = nilai?.trim() ?? '';
-    if (teks.isEmpty) return null;
-
-    final digit = teks.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digit.length < 8 || digit.length > 15) {
-      return 'Nomor HP terlihat tidak lengkap';
     }
     return null;
   }

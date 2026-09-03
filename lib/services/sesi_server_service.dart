@@ -371,10 +371,7 @@ class SesiHttpService implements SesiServerService {
   Future<bool> unduhFoto(String token, String url, String tujuan) async {
     try {
       final jawaban = await _klien
-          .get(
-            Uri.parse(url),
-            headers: {'authorization': 'Bearer $token'},
-          )
+          .get(Uri.parse(url), headers: {'authorization': 'Bearer $token'})
           .timeout(batasUnggahFoto);
       if (jawaban.statusCode != 200) return false;
       if (jawaban.bodyBytes.isEmpty) return false;

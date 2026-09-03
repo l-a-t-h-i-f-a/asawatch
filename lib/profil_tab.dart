@@ -203,16 +203,6 @@ class _ProfilTabState extends State<ProfilTab> {
                                   ),
                                 ),
                               ],
-                              if (_profil.telepon.isNotEmpty) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  _profil.telepon,
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    color: Color(0xFF7E9A94),
-                                  ),
-                                ),
-                              ],
                             ],
                           ),
                         ),

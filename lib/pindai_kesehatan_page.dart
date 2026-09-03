@@ -671,11 +671,7 @@ class _PindaiKesehatanPageState extends State<PindaiKesehatanPage>
 /// kebohongan yang persis paling terasa. Yang dijanjikan cincin ini hanya satu
 /// hal yang memang benar — sesuatu sedang berjalan.
 class _CincinDenyut extends StatelessWidget {
-  const _CincinDenyut({
-    required this.denyut,
-    required this.detik,
-    this.persen,
-  });
+  const _CincinDenyut({required this.denyut, required this.detik, this.persen});
 
   final Animation<double> denyut;
   final int detik;

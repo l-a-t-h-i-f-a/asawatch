@@ -443,7 +443,10 @@ Bagian ini tidak memblokir rilis, tapi setiap itemnya adalah janji yang belum di
 
 ### 9.1 Build
 
-- [ ] Ganti `applicationId` / bundle ID dari `com.example.*`.
+- [x] Ganti `applicationId` Android dari `com.example.asawatch` menjadi **`com.asawatch.app`**
+      (2026-09-03). Bundle ID iOS/macOS masih `com.example.*` — targetnya belum pernah
+      dibangun, dan mengubah `project.pbxproj` tanpa bisa membuktikannya lebih berisiko
+      daripada nilainya.
 - [ ] Keystore Android + `key.properties` (di luar git), provisioning profile iOS.
 - [ ] Ikon aplikasi dan splash screen.
 - [ ] `flutter build appbundle --release`; verifikasi R8/ProGuard tidak merusak refleksi plugin.
@@ -482,6 +485,18 @@ smartwatch non-invasif.
 - [ ] Disclaimer eksplisit di dalam aplikasi: bukan alat diagnosis, jangan dipakai untuk keputusan
       pengobatan, temui dokter. Tempatkan di onboarding **dan** di halaman detail metrik.
 - [ ] Kebijakan privasi dan persetujuan pemrosesan data kesehatan (UU PDP).
+      **Centang "Syarat & Ketentuan" di halaman pendaftaran dihapus pada 2026-09-03**, dan itu
+      disengaja: kedua tautannya tidak pernah membuka apa pun (tidak ada `TapGestureRecognizer`,
+      dan dokumennya belum ditulis), nilainya tidak pernah dikirim ke server, dan pengguna tahap
+      ini adalah kohort uji yang direkrut langsung. Meminta persetujuan atas dokumen yang tidak
+      ada bukan persetujuan, dan tidak akan dianggap begitu oleh siapa pun yang memeriksanya.
+      Untuk kohort uji, instrumennya adalah **informed consent tertulis di luar aplikasi** —
+      bukti yang lebih kuat daripada centang yang tidak disimpan. Yang harus ada sebelum
+      distribusi publik: dokumen S&K + kebijakan privasi sungguhan, layar persetujuan yang
+      benar-benar bisa dibuka, dan persetujuan yang **dicatat di server** (versi dokumen +
+      waktu) — UU PDP menuntut pengendali bisa membuktikannya, bukan sekadar pernah
+      menampilkannya. Perhatikan juga bahwa login Google melewati `RegisterPage` sepenuhnya,
+      jadi persetujuan tidak boleh dipasang kembali hanya di halaman itu.
 - [ ] Enkripsi data at-rest (`sqlcipher`/`drift` terenkripsi) dan TLS untuk seluruh trafik.
 - [ ] Ekspor data dan hapus akun + data.
 - [ ] Data Safety form (Play Store) dan Privacy Nutrition Label (App Store) — keduanya menuntut

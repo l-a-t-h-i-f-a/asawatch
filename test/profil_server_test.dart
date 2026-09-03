@@ -28,7 +28,6 @@ Profil _profil({String nama = 'Rara', String tinggi = '162'}) => Profil(
   berat: '54.5',
   golonganDarah: 'O',
   email: 'rara@email.com',
-  telepon: '08123',
 );
 
 SesiLoginRepositoryMemori _sesiMasuk() => SesiLoginRepositoryMemori(
@@ -61,14 +60,14 @@ void main() {
       expect((await const ProfilRepository().muat()).nama, 'Rara Server');
     });
 
-    test('email dan nomor HP lokal tidak pernah ditimpa server', () async {
+    test('email lokal tidak pernah ditimpa server', () async {
       SharedPreferences.setMockInitialValues({});
       await const ProfilRepository().simpan(_profil());
 
-      // §5.1 tidak punya kedua field ini sama sekali, jadi jawaban server
-      // selalu membawanya kosong.
+      // §5.1 tidak punya field ini sama sekali, jadi jawaban server selalu
+      // membawanya kosong.
       final server = ProfilServerPalsu(
-        tersimpan: _profil(nama: 'Rara Server').salin(email: '', telepon: ''),
+        tersimpan: _profil(nama: 'Rara Server').salin(email: ''),
         diperbaruiPada: DateTime.now().add(const Duration(seconds: 5)),
       );
       final repo = ProfilRepository(server: server, sesiLogin: _sesiMasuk());
@@ -77,7 +76,6 @@ void main() {
 
       expect(hasil.nama, 'Rara Server');
       expect(hasil.email, 'rara@email.com');
-      expect(hasil.telepon, '08123');
     });
 
     test('lokal yang lebih baru justru didorong ke server', () async {
@@ -128,7 +126,7 @@ void main() {
       final repo = ProfilRepository(server: server, sesiLogin: _sesiMasuk());
 
       await repo.sinkronSetelahMasuk('rara@email.com');
-      await repo.simpan(_profil()); // Rara mengisi nomor HP-nya
+      await repo.simpan(_profil()); // Rara mengisi profilnya
 
       // Akun lain, isi server lain.
       server.tersimpan = Profil.kosong.salin(nama: 'Budi');
@@ -136,11 +134,12 @@ void main() {
 
       final sesudah = await repo.sinkronSetelahMasuk('budi@email.com');
 
-      // Nomor HP dan email tidak ada di §5.1, jadi penyamaan dengan server
-      // tidak akan pernah membersihkannya sendiri — kalau tidak dibuang di
-      // sini, Budi melihat nomor HP Rara.
+      // Email tidak ada di §5.1, jadi penyamaan dengan server tidak akan
+      // pernah membersihkannya sendiri — kalau tidak dibuang di sini, Budi
+      // melihat alamat Rara. Nilainya di bawah justru buktinya: email akun
+      // hanya diisikan bila yang tersimpan kosong, jadi 'budi@email.com'
+      // hanya mungkin muncul kalau penghapusan lokal benar-benar berjalan.
       expect(sesudah.profil.nama, 'Budi');
-      expect(sesudah.profil.telepon, isEmpty);
       expect(sesudah.profil.email, 'budi@email.com');
       // Dilaporkan ke pemanggil, bukan berhenti di sini: riwayat sesi dan
       // kalibrasi juga milik satu orang, dan hanya alur masuk yang bisa
@@ -161,7 +160,7 @@ void main() {
 
       final sesudah = await repo.sinkronSetelahMasuk('rara@email.com');
 
-      expect(sesudah.profil.telepon, '08123');
+      expect(sesudah.profil.email, 'rara@email.com');
       expect(sesudah.profil.tinggi, '162');
       expect(sesudah.gantiAkun, isFalse);
     });
@@ -270,10 +269,7 @@ void main() {
       );
 
       await layanan.kirim('t', _profil());
-      expect(
-        (jsonDecode(terkirim.body) as Map)['jenis_kelamin'],
-        'perempuan',
-      );
+      expect((jsonDecode(terkirim.body) as Map)['jenis_kelamin'], 'perempuan');
 
       final dariServer = await layanan.ambil('t');
       // Label tampilan, bukan nilai enum: nilai yang tidak ada di `items`

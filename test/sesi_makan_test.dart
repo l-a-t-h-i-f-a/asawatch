@@ -134,7 +134,10 @@ void main() {
       final sesi = contohSesiSelesai();
       final t0 = sesi.t0!;
 
-      expect(sesi.sampel[0].waktuUkur(t0), t0.subtract(const Duration(seconds: 1500)));
+      expect(
+        sesi.sampel[0].waktuUkur(t0),
+        t0.subtract(const Duration(seconds: 1500)),
+      );
       expect(sesi.sampel[3].waktuUkur(t0), t0.add(const Duration(hours: 2)));
     });
 

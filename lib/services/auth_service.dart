@@ -155,8 +155,16 @@ abstract class AuthService {
   /// hanya terbaca sebagai tombol yang berputar selamanya.
   static const Duration batasWaktu = Duration(seconds: 15);
 
-  /// [identifier] adalah email **atau** nomor HP — halaman login menerima
-  /// keduanya di satu isian, dan yang membedakannya adalah server.
+  /// [identifier] adalah **email**, dan hanya email.
+  ///
+  /// Halaman masuk dulu menuliskan "Email atau Nomor HP", padahal
+  /// `MasukRequest` di backend memvalidasi `'email' => ['required','email']`
+  /// lalu mencari `where('email', ...)`. Nomor HP karena itu dijawab 422
+  /// `validasi_gagal`, yang dipetakan ke [KredensialSalah] — sehingga orang
+  /// yang menuruti label itu diberi tahu bahwa kredensialnya salah, bukan
+  /// bahwa cara masuknya memang tidak pernah ada. Namanya dibiarkan
+  /// `identifier` supaya seam-nya tetap terbuka bila suatu saat backend
+  /// menerima lebih dari satu bentuk.
   Future<HasilMasuk> masuk({
     required String identifier,
     required String kataSandi,

@@ -115,7 +115,11 @@ loads and then fails when the database opens.
    `MyApp` → `WelcomePage` → `LoginPage` → `MyHomePage`, the same forwarding-only pattern as `auth:`
    and `izin:` — `LoginPage` pushes `MyHomePage` directly rather than through the named route, so
    the chain has to pass through it. Three things ride along. `_siapkanKamera()` **must not open
-   with `setState`**: it is first called from `initState`, which runs inside a build. The camera is
+   with `setState`**: it is first called from `initState`, which runs inside a build. **Camera permission is requested before `initialize()`, not left to it**, and each
+   setup attempt carries a generation number: the system dialog pushes the app to `inactive`, which
+   releases the camera and makes the in-flight `initialize()` fail — *after* the user has tapped
+   Allow — so the late failure used to overwrite the successful retry and leave "Kamera tidak bisa
+   dibuka" on a phone whose camera had just been granted. The camera is
    **released on `AppLifecycleState.inactive/paused` and set up again on `resumed`**, because
    Android takes it away from an invisible app and an unreleased preview comes back as a black
    screen with no error at all. The preview is drawn inside an `AspectRatio` fed by `rasioPratinjau()`, because

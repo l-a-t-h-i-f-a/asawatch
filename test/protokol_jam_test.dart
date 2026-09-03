@@ -175,13 +175,19 @@ void main() {
     });
 
     test('versi minor berbeda tetap lanjut', () {
-      expect(() => bacaInfo(paketInfo(versiMinor: 9)).periksaVersi(), returnsNormally);
+      expect(
+        () => bacaInfo(paketInfo(versiMinor: 9)).periksaVersi(),
+        returnsNormally,
+      );
     });
 
-    test('byte tambahan dari versi minor lebih muda diabaikan, bukan ditolak', () {
-      final panjang = Uint8List.fromList([...paketInfo(), 0xAA, 0xBB, 0xCC]);
-      expect(bacaInfo(panjang).bootId, 7);
-    });
+    test(
+      'byte tambahan dari versi minor lebih muda diabaikan, bukan ditolak',
+      () {
+        final panjang = Uint8List.fromList([...paketInfo(), 0xAA, 0xBB, 0xCC]);
+        expect(bacaInfo(panjang).bootId, 7);
+      },
+    );
 
     test('paket kependekan melempar GalatProtokol', () {
       expect(
@@ -227,11 +233,14 @@ void main() {
       expect(s.spo2, isNull);
     });
 
-    test('metrik yang gagal tidak menjatuhkan metrik lain di paket yang sama', () {
-      final s = bacaSampel(paketSampel(sistolik: 0, diastolik: 0));
-      expect(s.sistolik, isNull);
-      expect(s.gulaDarah, 142);
-    });
+    test(
+      'metrik yang gagal tidak menjatuhkan metrik lain di paket yang sama',
+      () {
+        final s = bacaSampel(paketSampel(sistolik: 0, diastolik: 0));
+        expect(s.sistolik, isNull);
+        expect(s.gulaDarah, 142);
+      },
+    );
 
     test('flag bit0 dariBuffer dan bit1 waktu_tidak_pasti', () {
       expect(bacaSampel(paketSampel(flag: 0x01)).dariBuffer, isTrue);
@@ -325,9 +334,7 @@ void main() {
     });
 
     test('kemajuan pengukuran terbaca dari byte 8 dan 9 (v1.4)', () {
-      final s = bacaStatus(
-        paketStatus(flag: 0x01, persen: 45, sisaDetik: 20),
-      );
+      final s = bacaStatus(paketStatus(flag: 0x01, persen: 45, sisaDetik: 20));
 
       expect(s.sedangMengukur, isTrue);
       expect(s.ukurPersen, 45);
@@ -365,7 +372,10 @@ void main() {
     const sesiId = '00112233-4455-6677-8899-aabbccddeeff';
 
     test('ANCHOR_WAKTU: epoch detik LE + boot_id', () {
-      final epoch = DateTime.fromMillisecondsSinceEpoch(1700000000000, isUtc: true);
+      final epoch = DateTime.fromMillisecondsSinceEpoch(
+        1700000000000,
+        isUtc: true,
+      );
       final data = tulisAnchorWaktu(epoch: epoch, bootId: 258);
 
       expect(data.length, 7);
@@ -475,14 +485,17 @@ void main() {
   });
 
   group('Id sesi', () {
-    test('buatIdSesi menghasilkan UUID v4 yang bolak-balik utuh ke 16 byte', () {
-      final id = buatIdSesi();
+    test(
+      'buatIdSesi menghasilkan UUID v4 yang bolak-balik utuh ke 16 byte',
+      () {
+        final id = buatIdSesi();
 
-      expect(id.length, 36);
-      expect(id[14], '4'); // versi
-      expect('89ab'.contains(id[19]), isTrue); // varian
-      expect(binerKeUuid(uuidKeBiner(id)), id);
-    });
+        expect(id.length, 36);
+        expect(id[14], '4'); // versi
+        expect('89ab'.contains(id[19]), isTrue); // varian
+        expect(binerKeUuid(uuidKeBiner(id)), id);
+      },
+    );
 
     test('dua id berturut-turut tidak pernah sama', () {
       final id = {for (var i = 0; i < 200; i++) buatIdSesi()};
@@ -528,7 +541,12 @@ void main() {
 
   group('Iklan (§2.2)', () {
     test('versi mayor dibaca dari manufacturer data', () {
-      expect(versiMayorDariIklan({0xFFFF: [1, 2, 3]}), 1);
+      expect(
+        versiMayorDariIklan({
+          0xFFFF: [1, 2, 3],
+        }),
+        1,
+      );
     });
 
     test('iklan tanpa manufacturer data tidak menolak perangkat di sini', () {

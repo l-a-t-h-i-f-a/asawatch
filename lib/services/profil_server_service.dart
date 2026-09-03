@@ -118,8 +118,8 @@ class ProfilHttpService implements ProfilServerService {
     }
   }
 
-  /// JSON → [Profil]. `email` dan `telepon` tidak ada di §5.1, jadi keduanya
-  /// **tidak pernah ditimpa** oleh jawaban server — lihat `ProfilRepository`.
+  /// JSON → [Profil]. `email` tidak ada di §5.1, jadi ia **tidak pernah
+  /// ditimpa** oleh jawaban server — lihat `ProfilRepository`.
   static Profil _keProfil(Map data) => Profil(
     nama: data['nama'] as String? ?? '',
     tanggalLahir: data['tanggal_lahir'] as String? ?? '',
@@ -128,7 +128,6 @@ class ProfilHttpService implements ProfilServerService {
     berat: _angkaKeTeks(data['berat_kg']),
     golonganDarah: data['golongan_darah'] as String? ?? '',
     email: '',
-    telepon: '',
   );
 
   static Map<String, dynamic> _keJson(Profil p) => {

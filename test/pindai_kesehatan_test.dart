@@ -13,8 +13,7 @@ import 'package:asawatch/models/sesi_makan.dart';
 import 'package:asawatch/pindai_kesehatan_page.dart';
 import 'package:asawatch/services/ble_service.dart';
 import 'package:asawatch/services/izin_ble.dart';
-import 'package:asawatch/services/protokol_jam.dart'
-    show GalatJam, ProtokolJam;
+import 'package:asawatch/services/protokol_jam.dart' show GalatJam, ProtokolJam;
 
 import 'helpers.dart';
 
@@ -45,8 +44,10 @@ void main() {
 
       expect(find.text('Mulai Pindai'), findsOneWidget);
       expect(find.textContaining('Duduk tenang dulu 5 menit'), findsOneWidget);
-      expect(find.textContaining('Jangan bicara selama pengukuran'),
-          findsOneWidget);
+      expect(
+        find.textContaining('Jangan bicara selama pengukuran'),
+        findsOneWidget,
+      );
       // Peringatan "bukan alat diagnosis" tidak boleh hilang dari layar ini.
       expect(find.textContaining('bukan alat diagnosis'), findsOneWidget);
     });
@@ -258,10 +259,7 @@ void main() {
       // akan mencemari setiap hitungan di AnalisisSesi.
       expect(c.riwayat, isEmpty);
       expect(c.sesiAktif, isNull);
-      expect(
-        find.textContaining('tidak disimpan ke Riwayat'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('tidak disimpan ke Riwayat'), findsOneWidget);
     });
 
     testWidgets('metrik yang gagal ditulis "Tidak terbaca", bukan angka', (
@@ -284,8 +282,10 @@ void main() {
       await tester.pump(_selesaiMengukur);
 
       expect(find.text('Tidak terbaca'), findsNWidgets(2));
-      expect(find.textContaining('Sebagian metrik tidak terbaca'),
-          findsOneWidget);
+      expect(
+        find.textContaining('Sebagian metrik tidak terbaca'),
+        findsOneWidget,
+      );
       // Sentinel 0 milik kawat dan tidak pernah boleh sampai ke layar (§5.2).
       expect(find.text('0'), findsNothing);
     });
@@ -343,24 +343,26 @@ void main() {
   });
 
   group('Kalibrasi tekanan darah', () {
-    testWidgets('angka tekanan darah tanpa kalibrasi dikatakan belum dikoreksi',
-        (tester) async {
-      final c = buatControllerUji();
+    testWidgets(
+      'angka tekanan darah tanpa kalibrasi dikatakan belum dikoreksi',
+      (tester) async {
+        final c = buatControllerUji();
 
-      await pumpHalaman(
-        tester,
-        const PindaiKesehatanPage(izin: IzinBleSelaluBoleh()),
-        controller: c,
-      );
+        await pumpHalaman(
+          tester,
+          const PindaiKesehatanPage(izin: IzinBleSelaluBoleh()),
+          controller: c,
+        );
 
-      await tester.tap(find.text('Mulai Pindai'));
-      await tester.pump(_selesaiMengukur);
+        await tester.tap(find.text('Mulai Pindai'));
+        await tester.pump(_selesaiMengukur);
 
-      expect(
-        find.textContaining('belum pernah dikalibrasi dengan tensimeter'),
-        findsOneWidget,
-      );
-    });
+        expect(
+          find.textContaining('belum pernah dikalibrasi dengan tensimeter'),
+          findsOneWidget,
+        );
+      },
+    );
   });
 
   group('Guard di controller', () {
@@ -385,22 +387,24 @@ void main() {
       );
     });
 
-    test('jam yang belum dipasangkan minta dipasangkan, bukan didekatkan',
-        () async {
-      final c = buatControllerUji(status: StatusPerangkat.kosong);
-      addTearDown(c.dispose);
+    test(
+      'jam yang belum dipasangkan minta dipasangkan, bukan didekatkan',
+      () async {
+        final c = buatControllerUji(status: StatusPerangkat.kosong);
+        addTearDown(c.dispose);
 
-      await expectLater(
-        c.pindaiKesehatan(),
-        throwsA(
-          isA<GalatJam>().having(
-            (e) => e.pesanPengguna,
-            'pesanPengguna',
-            contains('Pasangkan jam'),
+        await expectLater(
+          c.pindaiKesehatan(),
+          throwsA(
+            isA<GalatJam>().having(
+              (e) => e.pesanPengguna,
+              'pesanPengguna',
+              contains('Pasangkan jam'),
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
 
     test('hanya satu pindai berjalan pada satu waktu', () async {
       final c = buatControllerUji();

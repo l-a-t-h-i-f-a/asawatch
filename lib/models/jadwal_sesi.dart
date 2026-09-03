@@ -83,9 +83,7 @@ class TitikJadwal {
   /// pengukuran yang tepat waktu tercatat telat.
   TitikJadwal dibagi(int faktor) => TitikJadwal(
     index: index,
-    detikNominal: detikNominal == 0
-        ? 0
-        : _minimal(detikNominal ~/ faktor, 1),
+    detikNominal: detikNominal == 0 ? 0 : _minimal(detikNominal ~/ faktor, 1),
     label: label,
     jendelaAwal: jendelaAwal == null ? null : jendelaAwal! ~/ faktor,
     jendelaAkhir: jendelaAkhir == null ? null : jendelaAkhir! ~/ faktor,

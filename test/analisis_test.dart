@@ -34,10 +34,7 @@ void main() {
     });
 
     test('sesi yang masih berjalan tidak ikut dianalisis', () {
-      final a = AnalisisSesi([
-        ...contohRiwayatSesi(),
-        contohSesiBerjalan(),
-      ]);
+      final a = AnalisisSesi([...contohRiwayatSesi(), contohSesiBerjalan()]);
 
       expect(a.sesi.length, 6);
     });
@@ -229,7 +226,11 @@ void main() {
         status: StatusSesi.tidakLengkap,
         hasil: contohHasilMenu(0),
         sampel: const [
-          Sampel(index: 0, detikRelatifT0: -1500, status: StatusSampel.terlewat),
+          Sampel(
+            index: 0,
+            detikRelatifT0: -1500,
+            status: StatusSampel.terlewat,
+          ),
           Sampel(
             index: 1,
             detikRelatifT0: 0,

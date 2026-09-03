@@ -142,11 +142,10 @@ void main() {
       addTearDown(() {
         if (folder.existsSync()) folder.deleteSync(recursive: true);
       });
-      final foto = File('${folder.path}/makan.jpg')..writeAsBytesSync([1, 2, 3]);
+      final foto = File('${folder.path}/makan.jpg')
+        ..writeAsBytesSync([1, 2, 3]);
 
-      final repo = SesiRepositoryMemori(
-        awal: [_sesiLama(fotoPath: foto.path)],
-      );
+      final repo = SesiRepositoryMemori(awal: [_sesiLama(fotoPath: foto.path)]);
       final c = buatControllerUji(
         riwayatAwal: await repo.muatSemua(),
         repo: repo,

@@ -19,10 +19,7 @@ void main() {
   group('Jadwal normal', () {
     test('empat titik, tidak berubah dari sebelum v1.3', () {
       expect(jadwalNormal.jumlahTitik, 4);
-      expect(
-        jadwalNormal.titik.map((t) => t.detikNominal),
-        [0, 0, 3600, 7200],
-      );
+      expect(jadwalNormal.titik.map((t) => t.detikNominal), [0, 0, 3600, 7200]);
       expect(jadwalNormal.detikTitikTerakhir, 7200);
       expect(jadwalNormal.tenggatSetelahAkhir, const Duration(minutes: 30));
     });
@@ -102,7 +99,10 @@ void main() {
         final u = jadwalUji.titik[i];
         expect(u.index, n.index);
         expect(u.detikNominal, n.detikNominal ~/ faktorJadwalUji);
-        expect(u.jendelaAwal, n.jendelaAwal == null ? null : n.jendelaAwal! ~/ 60);
+        expect(
+          u.jendelaAwal,
+          n.jendelaAwal == null ? null : n.jendelaAwal! ~/ 60,
+        );
         expect(
           u.jendelaAkhir,
           n.jendelaAkhir == null ? null : n.jendelaAkhir! ~/ 60,
@@ -122,25 +122,35 @@ void main() {
     // sedang diuji adalah titik +1 jam.
     test('label tidak ikut dikecilkan', () {
       expect(jadwalUji.label, jadwalNormal.label);
-      expect(labelTitikSampel, ['Baseline', 'Selesai makan', '+1 jam', '+2 jam']);
+      expect(labelTitikSampel, [
+        'Baseline',
+        'Selesai makan',
+        '+1 jam',
+        '+2 jam',
+      ]);
     });
   });
 
   group('Controller memakai jadwal yang disuntikkan', () {
-    test('sesi baru mengambil titiknya dari jadwal, bukan dari literal', () async {
-      final c = buatControllerUji(jadwal: jadwalUji);
-      addTearDown(c.dispose);
+    test(
+      'sesi baru mengambil titiknya dari jadwal, bukan dari literal',
+      () async {
+        final c = buatControllerUji(jadwal: jadwalUji);
+        addTearDown(c.dispose);
 
-      await c.mulaiDraft('x.jpg');
+        await c.mulaiDraft('x.jpg');
 
-      expect(
-        c.sesiAktif!.sampel.map((s) => s.detikRelatifT0),
-        [0, 0, 60, 120],
-      );
-      expect(c.tenggatSampelTerakhir, const Duration(seconds: 30));
+        expect(c.sesiAktif!.sampel.map((s) => s.detikRelatifT0), [
+          0,
+          0,
+          60,
+          120,
+        ]);
+        expect(c.tenggatSampelTerakhir, const Duration(seconds: 30));
 
-      await c.batalkan();
-    });
+        await c.batalkan();
+      },
+    );
 
     // Lewat konstruktor sungguhan, bukan `buatControllerUji`: helper itu
     // memampatkan jadwal agar cocok dengan `percepatan` jam palsunya, jadi ia
@@ -154,10 +164,12 @@ void main() {
 
       await c.mulaiDraft('x.jpg');
 
-      expect(
-        c.sesiAktif!.sampel.map((s) => s.detikRelatifT0),
-        [0, 0, 3600, 7200],
-      );
+      expect(c.sesiAktif!.sampel.map((s) => s.detikRelatifT0), [
+        0,
+        0,
+        3600,
+        7200,
+      ]);
 
       await c.batalkan();
     });

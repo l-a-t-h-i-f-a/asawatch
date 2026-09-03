@@ -150,8 +150,7 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
     // tulisan di kartu ini yang berubah sampai sampelnya tiba.
     final kemajuan = c.kemajuanUkur;
     final sedangUkur = kemajuan != null;
-    final siap =
-        !belumWaktunya && tersambung && !bateraiKritis && !sedangUkur;
+    final siap = !belumWaktunya && tersambung && !bateraiKritis && !sedangUkur;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

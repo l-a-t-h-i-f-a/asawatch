@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.asawatch"
+    namespace = "com.asawatch.app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -22,8 +22,17 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.asawatch"
+        // Diganti dari `com.example.asawatch` pada 2026-09-03. Nilai ini
+        // adalah identitas aplikasi di perangkat: menggantinya membuat
+        // Android memperlakukannya sebagai aplikasi lain, jadi APK lama
+        // harus dicopot dan seluruh data lokal penguji (sesi, foto, token)
+        // ikut hilang. Jangan diubah lagi setelah ada pengguna.
+        //
+        // Ia juga separuh dari kunci pendaftaran Google Sign-In (package
+        // name + sidik jari SHA-1): mengubahnya berarti mendaftar ulang di
+        // Google Cloud Console, kalau tidak sign-in gagal dengan
+        // `ApiException: 10` yang tidak menyebut sertifikat sama sekali.
+        applicationId = "com.asawatch.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // Dibiarkan mengikuti Flutter, yang saat ini memberi **24** — sudah di

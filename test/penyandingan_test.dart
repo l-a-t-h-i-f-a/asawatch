@@ -125,19 +125,20 @@ void main() {
       expect(find.text('Sandingkan ulang jam ini'), findsNothing);
     });
 
-    testWidgets('yang tidak dijawab menunjuk ke permintaannya, bukan menyerah', (
-      tester,
-    ) async {
-      await _sampaiMenyandingkan(tester, PenyandinganPalsu.tidakDijawab);
-      await tester.pump(const Duration(seconds: 130));
+    testWidgets(
+      'yang tidak dijawab menunjuk ke permintaannya, bukan menyerah',
+      (tester) async {
+        await _sampaiMenyandingkan(tester, PenyandinganPalsu.tidakDijawab);
+        await tester.pump(const Duration(seconds: 130));
 
-      expect(
-        find.textContaining('belum dijawab'),
-        findsOneWidget,
-        reason: 'sebabnya berbeda dari ditolak, jadi kalimatnya juga berbeda',
-      );
-      expect(find.text('Coba Lagi'), findsOneWidget);
-    });
+        expect(
+          find.textContaining('belum dijawab'),
+          findsOneWidget,
+          reason: 'sebabnya berbeda dari ditolak, jadi kalimatnya juga berbeda',
+        );
+        expect(find.text('Coba Lagi'), findsOneWidget);
+      },
+    );
 
     testWidgets('kunci basi menawarkan sanding ulang sebagai jalan kedua', (
       tester,
@@ -145,7 +146,10 @@ void main() {
       await _sampaiMenyandingkan(tester, PenyandinganPalsu.bondBasi);
       await tester.pump(const Duration(seconds: 6));
 
-      expect(find.textContaining('tidak lagi saling mengenali'), findsOneWidget);
+      expect(
+        find.textContaining('tidak lagi saling mengenali'),
+        findsOneWidget,
+      );
       // Urutannya penting: dugaan kunci basi bisa salah, jadi tindakan yang
       // tidak merusak apa pun tetap yang utama.
       expect(find.text('Coba Lagi'), findsOneWidget);
@@ -203,7 +207,10 @@ void main() {
       // Angkanya disebut apa adanya: "beberapa data akan hilang" tidak cukup
       // untuk memutuskan.
       expect(find.textContaining('3 data'), findsOneWidget);
-      expect(find.textContaining('Riwayat yang sudah tersimpan'), findsOneWidget);
+      expect(
+        find.textContaining('Riwayat yang sudah tersimpan'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('batal tidak melepas apa pun', (tester) async {
@@ -237,36 +244,37 @@ void main() {
   });
 
   group('Penyandingan yang hilang di luar aplikasi', () {
-    testWidgets('dikatakan sebabnya, dan mengajak menyandingkan bukan menyambung', (
-      tester,
-    ) async {
-      final c = buatControllerUji(
-        ble: FakeBleService(
-          percepatan: 1,
-          otomatisSelesaiMakan: null,
-          // Keadaan yang dilaporkan `BleAsliService` saat jam masih dicatat
-          // aplikasi tetapi ponsel sudah tidak menyandingkannya.
-          status: const StatusPerangkat(
-            tersambung: false,
-            namaPerangkat: 'AsaWatch X1',
-            penyandinganHilang: true,
+    testWidgets(
+      'dikatakan sebabnya, dan mengajak menyandingkan bukan menyambung',
+      (tester) async {
+        final c = buatControllerUji(
+          ble: FakeBleService(
+            percepatan: 1,
+            otomatisSelesaiMakan: null,
+            // Keadaan yang dilaporkan `BleAsliService` saat jam masih dicatat
+            // aplikasi tetapi ponsel sudah tidak menyandingkannya.
+            status: const StatusPerangkat(
+              tersambung: false,
+              namaPerangkat: 'AsaWatch X1',
+              penyandinganHilang: true,
+            ),
           ),
-        ),
-      );
-      await pumpHalaman(
-        tester,
-        const MenghubungkanPerangkatPage(izin: IzinBleSelaluBoleh()),
-        controller: c,
-      );
-      await tester.pump();
+        );
+        await pumpHalaman(
+          tester,
+          const MenghubungkanPerangkatPage(izin: IzinBleSelaluBoleh()),
+          controller: c,
+        );
+        await tester.pump();
 
-      expect(find.text('Jam Tidak Tersandingkan'), findsOneWidget);
-      expect(find.text('Dihapus dari Bluetooth ponsel'), findsOneWidget);
-      // "Sambungkan Ulang" akan berbohong: menyambung saja tidak akan pernah
-      // berhasil sampai jamnya disandingkan lagi.
-      expect(find.text('Sandingkan Ulang'), findsOneWidget);
-      expect(find.text('Sambungkan Ulang'), findsNothing);
-    });
+        expect(find.text('Jam Tidak Tersandingkan'), findsOneWidget);
+        expect(find.text('Dihapus dari Bluetooth ponsel'), findsOneWidget);
+        // "Sambungkan Ulang" akan berbohong: menyambung saja tidak akan pernah
+        // berhasil sampai jamnya disandingkan lagi.
+        expect(find.text('Sandingkan Ulang'), findsOneWidget);
+        expect(find.text('Sambungkan Ulang'), findsNothing);
+      },
+    );
   });
 
   group('Langkah pemasangan', () {

@@ -72,23 +72,28 @@ void main() {
       expect(find.byType(WelcomePage), findsNothing);
     });
 
-    testWidgets('tanpa token tetap mulai dari halaman sambutan', (tester) async {
+    testWidgets('tanpa token tetap mulai dari halaman sambutan', (
+      tester,
+    ) async {
       await _pump(tester);
 
       expect(find.byType(WelcomePage), findsOneWidget);
       expect(find.byType(BerandaTab), findsNothing);
     });
 
-    test('sesi kedaluwarsa dibuang saat dimuat, bukan dipakai sekali lagi', () async {
-      final penyimpanan = SesiLoginRepositoryMemori(
-        _sesi(sisa: const Duration(seconds: -1)),
-      );
+    test(
+      'sesi kedaluwarsa dibuang saat dimuat, bukan dipakai sekali lagi',
+      () async {
+        final penyimpanan = SesiLoginRepositoryMemori(
+          _sesi(sisa: const Duration(seconds: -1)),
+        );
 
-      // Token mati yang dikembalikan apa adanya hanya akan dipakai sekali,
-      // ditolak server, lalu menyisakan pengguna menebak apa yang salah.
-      expect(await penyimpanan.muat(), isNull);
-      expect(penyimpanan.jumlahHapus, 1);
-    });
+        // Token mati yang dikembalikan apa adanya hanya akan dipakai sekali,
+        // ditolak server, lalu menyisakan pengguna menebak apa yang salah.
+        expect(await penyimpanan.muat(), isNull);
+        expect(penyimpanan.jumlahHapus, 1);
+      },
+    );
   });
 
   group('Masuk dan keluar', () {

@@ -273,7 +273,7 @@ class _LoginPageState extends State<LoginPage> {
 
                             // Identifier Label
                             const Text(
-                              'Email atau Nomor HP',
+                              'Email',
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,
@@ -289,12 +289,12 @@ class _LoginPageState extends State<LoginPage> {
                               onChanged: (_) => _bersihkanGalat(),
                               validator: (value) {
                                 if (value == null || value.trim().isEmpty) {
-                                  return 'Masukkan email atau nomor HP';
+                                  return 'Masukkan email';
                                 }
                                 return null;
                               },
                               decoration: InputDecoration(
-                                hintText: 'Masukkan email atau nomor HP',
+                                hintText: 'Masukkan email',
                                 hintStyle: const TextStyle(
                                   color: Color(0xFF9CB1AC),
                                   fontWeight: FontWeight.normal,

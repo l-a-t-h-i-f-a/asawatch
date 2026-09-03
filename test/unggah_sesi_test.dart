@@ -470,8 +470,7 @@ void main() {
       addTearDown(() {
         if (folder.existsSync()) folder.deleteSync(recursive: true);
       });
-      final berkas = File('${folder.path}/p.jpg')
-        ..writeAsBytesSync([9, 9, 9]);
+      final berkas = File('${folder.path}/p.jpg')..writeAsBytesSync([9, 9, 9]);
 
       final sesi = _sesiTanpaHasil('a1').salin(
         fotoPath: berkas.path,
@@ -497,32 +496,35 @@ void main() {
       expect(server.analisisDiminta, isEmpty);
     });
 
-    test('sesi yang fotonya sudah ada di server tidak dikirim dua kali', () async {
-      final folder = Directory.systemTemp.createTempSync('foto_ada');
-      addTearDown(() {
-        if (folder.existsSync()) folder.deleteSync(recursive: true);
-      });
-      final berkas = File('${folder.path}/p.jpg')
-        ..writeAsBytesSync([9, 9, 9]);
+    test(
+      'sesi yang fotonya sudah ada di server tidak dikirim dua kali',
+      () async {
+        final folder = Directory.systemTemp.createTempSync('foto_ada');
+        addTearDown(() {
+          if (folder.existsSync()) folder.deleteSync(recursive: true);
+        });
+        final berkas = File('${folder.path}/p.jpg')
+          ..writeAsBytesSync([9, 9, 9]);
 
-      final sesi = _sesiTanpaHasil('a1').salin(fotoPath: berkas.path);
-      final server = SesiServerPalsu();
-      server.tersedia = [sesi];
-      server.urlFoto[sesi.id] = 'https://server/foto/a1';
+        final sesi = _sesiTanpaHasil('a1').salin(fotoPath: berkas.path);
+        final server = SesiServerPalsu();
+        server.tersedia = [sesi];
+        server.urlFoto[sesi.id] = 'https://server/foto/a1';
 
-      final c = buatControllerUji(
-        riwayatAwal: [sesi],
-        serverSesi: server,
-        sesiLogin: _masuk(),
-      );
-      addTearDown(c.dispose);
+        final c = buatControllerUji(
+          riwayatAwal: [sesi],
+          serverSesi: server,
+          sesiLogin: _masuk(),
+        );
+        addTearDown(c.dispose);
 
-      await c.kirimRiwayatKeServer();
+        await c.kirimRiwayatKeServer();
 
-      // Foto berukuran ratusan kilobyte; mengirimnya ulang tiap pembukaan
-      // aplikasi adalah biaya yang tidak dibayar apa pun.
-      expect(server.fotoDiunggah, isEmpty);
-    });
+        // Foto berukuran ratusan kilobyte; mengirimnya ulang tiap pembukaan
+        // aplikasi adalah biaya yang tidak dibayar apa pun.
+        expect(server.fotoDiunggah, isEmpty);
+      },
+    );
   });
 
   group('Stempel diperbarui_pada', () {
@@ -652,10 +654,7 @@ void main() {
       // memampatkan ketiga titik lain ke ujung kanan kartu — grafik yang
       // "gepeng di belakang".
       final sesi = sesiDariJson(
-        jsonSesi(
-          detikBaseline: -1500,
-          t0: '2026-08-20T08:02:00.000000Z',
-        ),
+        jsonSesi(detikBaseline: -1500, t0: '2026-08-20T08:02:00.000000Z'),
       )!;
       expect(sesi.sampel.first.detikRelatifT0, -120);
     });

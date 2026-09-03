@@ -5,6 +5,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/contoh_sesi.dart';
@@ -75,6 +76,33 @@ class KameraAsliService implements KameraService {
   final _pemilih = ImagePicker();
   bool _lampu = false;
 
+  /// Antrean satu jalur untuk **semua** operasi yang menyentuh kamera.
+  ///
+  /// Pada pemasangan baru urutannya seperti ini: halaman membuka kamera →
+  /// dialog izin muncul → halaman berpindah ke latar dan melepas kamera →
+  /// pengguna menekan "Izinkan" → halaman kembali dan membuka kamera lagi.
+  /// Ketiga operasi itu berangkat sebelum yang sebelumnya selesai.
+  ///
+  /// Yang terjadi tanpa antrean ini, dan ketiganya sudah terlihat di perangkat:
+  /// dua `CameraController` berebut satu kamera; dua permintaan izin
+  /// berbarengan, yang oleh `permission_handler` dijawab "ditolak" untuk yang
+  /// belakangan; dan pelepasan yang menyelesaikan tugasnya **sesudah**
+  /// pembukaan berikutnya, sehingga yang tersisa di layar adalah pratinjau dari
+  /// kamera yang sudah ditutup. Semuanya berakhir sama: "Kamera tidak bisa
+  /// dibuka" pada perangkat yang izinnya baru saja diberikan.
+  ///
+  /// Antrean menjamin urutannya persis seperti yang diminta halaman, satu per
+  /// satu, tanpa halaman perlu tahu apa pun tentang itu.
+  Future<void> _antrean = Future<void>.value();
+
+  Future<void> _giliran(Future<void> Function() aksi) {
+    // Galat satu operasi tidak boleh menghentikan antreannya: kamera yang gagal
+    // dibuka sekali harus tetap bisa dilepas dan dibuka lagi.
+    final berikutnya = _antrean.then((_) => aksi(), onError: (_) => aksi());
+    _antrean = berikutnya.catchError((_) {});
+    return berikutnya;
+  }
+
   @override
   bool get siap => _kendali?.value.isInitialized ?? false;
 
@@ -86,8 +114,36 @@ class KameraAsliService implements KameraService {
   bool get lampuMenyala => _lampu;
 
   @override
-  Future<void> siapkan() async {
+  Future<void> siapkan() => _giliran(_siapkanSekali);
+
+  Future<void> _siapkanSekali() async {
+    // Diperiksa **di dalam** antrean, bukan sebelum masuk: keadaan kamera bisa
+    // berubah selagi menunggu giliran.
     if (siap) return;
+
+    // **Izin diminta di sini, bukan dibiarkan dipicu oleh `initialize()`.**
+    //
+    // Kalau dibiarkan, dialog sistem muncul di tengah-tengah inisialisasi:
+    // aplikasi berpindah ke `inactive`, kamera dilepas oleh penanganan daur
+    // hidup, dan `initialize()` yang masih menggantung itu gagal — sesudah
+    // pengguna menekan "Izinkan". Yang tersisa di layar adalah pesan "kamera
+    // tidak bisa dibuka" pada perangkat yang izinnya baru saja diberikan.
+    //
+    // Dengan urutan ini, saat `initialize()` dipanggil izinnya sudah pasti ada,
+    // dan tidak ada dialog yang bisa menyela.
+    final izin = await Permission.camera.request();
+    if (!izin.isGranted) {
+      throw GalatKamera(
+        izin.isPermanentlyDenied
+            ? 'AsaWatch belum diizinkan memakai kamera. Buka Pengaturan '
+                  'aplikasi, lalu nyalakan izin Kamera.'
+            : 'AsaWatch perlu izin kamera untuk memotret makanan Anda.',
+        // Hanya yang permanen yang butuh Pengaturan; yang baru ditolak sekali
+        // masih bisa ditanya lagi oleh tombol "Coba Lagi".
+        izinDitolak: izin.isPermanentlyDenied,
+      );
+    }
+
     try {
       final daftar = await availableCameras();
       if (daftar.isEmpty) {
@@ -117,11 +173,12 @@ class KameraAsliService implements KameraService {
   }
 
   @override
-  Future<void> lepas() async {
+  Future<void> lepas() => _giliran(() async {
     final kendali = _kendali;
     _kendali = null;
+    _lampu = false;
     await kendali?.dispose();
-  }
+  });
 
   @override
   Widget pratinjau() {

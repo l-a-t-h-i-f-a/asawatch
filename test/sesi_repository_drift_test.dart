@@ -137,38 +137,40 @@ void main() {
       samaPersis((await repo.muatSemua()).single, tanpa);
     });
 
-    test('metrik yang gagal diukur tetap null, tidak berubah jadi nol',
-        () async {
-      // Sentinel 0 milik protokol BLE; di sini nol berarti "terukur nol".
-      final contoh = contohRiwayatSesi().first;
-      final sesi = contoh.salin(
-        sampel: [
-          const Sampel(
-            index: 0,
-            detikRelatifT0: -600,
-            status: StatusSampel.terisi,
-            gulaDarah: 95,
-            // detakJantung, sistolik, diastolik, spo2 sengaja tidak diisi
-          ),
-          contoh.sampel[1],
-          contoh.sampel[2],
-          const Sampel(
-            index: 3,
-            detikRelatifT0: 7200,
-            status: StatusSampel.terlewat,
-          ),
-        ],
-      );
+    test(
+      'metrik yang gagal diukur tetap null, tidak berubah jadi nol',
+      () async {
+        // Sentinel 0 milik protokol BLE; di sini nol berarti "terukur nol".
+        final contoh = contohRiwayatSesi().first;
+        final sesi = contoh.salin(
+          sampel: [
+            const Sampel(
+              index: 0,
+              detikRelatifT0: -600,
+              status: StatusSampel.terisi,
+              gulaDarah: 95,
+              // detakJantung, sistolik, diastolik, spo2 sengaja tidak diisi
+            ),
+            contoh.sampel[1],
+            contoh.sampel[2],
+            const Sampel(
+              index: 3,
+              detikRelatifT0: 7200,
+              status: StatusSampel.terlewat,
+            ),
+          ],
+        );
 
-      await repo.simpan(sesi);
-      final kembali = (await repo.muatSemua()).single;
+        await repo.simpan(sesi);
+        final kembali = (await repo.muatSemua()).single;
 
-      expect(kembali.sampel[0].gulaDarah, 95);
-      expect(kembali.sampel[0].detakJantung, isNull);
-      expect(kembali.sampel[0].spo2, isNull);
-      expect(kembali.sampel[3].status, StatusSampel.terlewat);
-      expect(kembali.sampel[3].gulaDarah, isNull);
-    });
+        expect(kembali.sampel[0].gulaDarah, 95);
+        expect(kembali.sampel[0].detakJantung, isNull);
+        expect(kembali.sampel[0].spo2, isNull);
+        expect(kembali.sampel[3].status, StatusSampel.terlewat);
+        expect(kembali.sampel[3].gulaDarah, isNull);
+      },
+    );
 
     test('urutan item makanan bertahan', () async {
       // ringkasanNama merangkai nama sesuai urutan; judul kartu yang berubah
@@ -228,8 +230,7 @@ void main() {
       expect(hasil.single.status, StatusSesi.tidakLengkap);
     });
 
-    test('menimpa tidak meninggalkan item makanan yang sudah dihapus',
-        () async {
+    test('menimpa tidak meninggalkan item makanan yang sudah dihapus', () async {
       // Koreksi user bisa menghapus item; menambal alih-alih menulis ulang akan
       // menyisakan makanan hantu yang ikut dijumlahkan.
       final asli = sesiTigaMakanan();
@@ -269,30 +270,28 @@ void main() {
   });
 
   group('Ketahanan skema', () {
-    test('sampel yang hilang dari basis data diisi kembali sebagai menunggu',
-        () async {
-      // Hanya mungkin bila basis datanya rusak atau disunting tangan. Yang
-      // penting: aplikasi tidak boleh jatuh saat start karena sampel[2] hilang.
-      final asli = contohRiwayatSesi().first;
-      await repo.simpan(asli);
-      await (db.delete(
-        db.tabelSampel,
-      )..where((t) => t.index.equals(2))).go();
+    test(
+      'sampel yang hilang dari basis data diisi kembali sebagai menunggu',
+      () async {
+        // Hanya mungkin bila basis datanya rusak atau disunting tangan. Yang
+        // penting: aplikasi tidak boleh jatuh saat start karena sampel[2] hilang.
+        final asli = contohRiwayatSesi().first;
+        await repo.simpan(asli);
+        await (db.delete(db.tabelSampel)..where((t) => t.index.equals(2))).go();
 
-      final kembali = (await repo.muatSemua()).single;
+        final kembali = (await repo.muatSemua()).single;
 
-      expect(kembali.sampel.length, 4);
-      expect(kembali.sampel[2].status, StatusSampel.menunggu);
-      expect(kembali.sampel[2].detikRelatifT0, 3600);
-    });
+        expect(kembali.sampel.length, 4);
+        expect(kembali.sampel[2].status, StatusSampel.menunggu);
+        expect(kembali.sampel[2].detikRelatifT0, 3600);
+      },
+    );
 
     test('menghapus sesi ikut menghapus anak-anaknya', () async {
       final asli = contohRiwayatSesi().first;
       await repo.simpan(asli);
 
-      await (db.delete(
-        db.tabelSesi,
-      )..where((t) => t.id.equals(asli.id))).go();
+      await (db.delete(db.tabelSesi)..where((t) => t.id.equals(asli.id))).go();
 
       expect(await db.select(db.tabelSampel).get(), isEmpty);
       expect(await db.select(db.tabelItemMakanan).get(), isEmpty);

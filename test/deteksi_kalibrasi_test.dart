@@ -92,7 +92,10 @@ void main() {
     test('ukuran yang belum diketahui jatuh ke 3:4, bukan ke nol', () {
       // Nol akan membuat AspectRatio melempar, dan itu terjadi tepat pada
       // beberapa frame pertama sebelum kamera selesai disiapkan.
-      expect(rasioPratinjau(null, Orientation.portrait), closeTo(3 / 4, 0.0001));
+      expect(
+        rasioPratinjau(null, Orientation.portrait),
+        closeTo(3 / 4, 0.0001),
+      );
       expect(
         rasioPratinjau(Size.zero, Orientation.portrait),
         closeTo(3 / 4, 0.0001),
