@@ -19,6 +19,7 @@ class LoginPage extends StatefulWidget {
     this.kamera,
     this.sesiLogin,
     this.profil,
+    this.tampilkanGoogle,
   });
 
   /// Auth yang dipakai halaman ini. null berarti rakit yang bawaan.
@@ -38,6 +39,18 @@ class LoginPage extends StatefulWidget {
   /// Profil ditarik sekali di sini, sebelum shell dibuka — lihat
   /// `MyApp.profil`.
   final ProfilRepository? profil;
+
+  /// Apakah tombol "Masuk dengan Google" digambar. null berarti ikut
+  /// [pakaiGoogle], yaitu keadaan rakitan yang sebenarnya.
+  ///
+  /// Ada **hanya** sebagai seam test. [pakaiGoogle] berasal dari
+  /// `String.fromEnvironment`, jadi nilainya ditentukan saat kompilasi dan
+  /// selalu mati di bawah `flutter test` — tanpa parameter ini, tombolnya tidak
+  /// pernah ada untuk ditekan, dan satu-satunya yang bisa diuji adalah lapisan
+  /// di bawahnya. Yang paling ingin dibuktikan justru ada di sini: bahwa
+  /// menekan tombolnya benar-benar menempuh jalur yang sama dengan tombol
+  /// Masuk, termasuk penghapusan data pemilik lama sebelum riwayat diunggah.
+  final bool? tampilkanGoogle;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -89,7 +102,34 @@ class _LoginPageState extends State<LoginPage> {
       identifier: _identifierController.text,
       kataSandi: _passwordController.text,
     );
+    await _selesaikanMasuk(hasil);
+  }
 
+  /// Masuk lewat akun Google.
+  ///
+  /// Tidak memvalidasi formulir — tidak ada yang diketik — dan memakai kunci
+  /// [_sedangMasuk] yang sama, supaya kedua tombol tidak bisa berjalan
+  /// bersamaan. Dua permintaan masuk yang tumpang tindih menghasilkan dua token
+  /// untuk satu orang, dan yang kedua menimpa yang pertama di penyimpanan
+  /// tanpa mencabutnya di server.
+  Future<void> _masukGoogle() async {
+    if (_sedangMasuk) return;
+
+    setState(() {
+      _sedangMasuk = true;
+      _galat = null;
+    });
+
+    await _selesaikanMasuk(await _auth.masukDenganGoogle());
+  }
+
+  /// Langkah-langkah sesudah masuk, **satu untuk semua jalur**.
+  ///
+  /// Bukan kerapian: urutan di dalamnya menentukan kebenaran (token disimpan
+  /// sebelum berpindah, data pemilik lama dibuang sebelum riwayat diunggah),
+  /// dan menyalinnya ke tombol kedua berarti dua urutan yang harus dijaga
+  /// sebanding selamanya. Yang kedua pasti akan tertinggal.
+  Future<void> _selesaikanMasuk(HasilMasuk hasil) async {
     // Permintaan bisa lebih lama daripada halamannya: pengguna boleh menekan
     // tombol kembali selagi menunggu.
     if (!mounted) return;
@@ -152,7 +192,11 @@ class _LoginPageState extends State<LoginPage> {
 
     setState(() {
       _sedangMasuk = false;
-      _galat = hasil;
+      // Pembatalan tidak disimpan sebagai galat: pesannya kosong, dan
+      // [_buildGalat] akan menggambar kotak merah tanpa kalimat apa pun.
+      // Orang yang menutup pemilih akun Google harus menemukan layar persis
+      // seperti sebelum ia menekan tombol.
+      _galat = hasil is DibatalkanPengguna ? null : hasil;
     });
   }
 
@@ -505,6 +549,69 @@ class _LoginPageState extends State<LoginPage> {
                                       ),
                               ),
                             ),
+
+                            // Tombol Google hanya ada bila rakitannya memang
+                            // punya client ID (`konfigurasi.dart`). Tombol yang
+                            // pasti gagal lebih buruk daripada tombol yang
+                            // tidak ada: yang pertama membuat orang mengira
+                            // akunnya bermasalah.
+                            if (widget.tampilkanGoogle ?? pakaiGoogle) ...[
+                              const SizedBox(height: 20),
+                              Row(
+                                children: [
+                                  const Expanded(
+                                    child: Divider(color: Color(0xFFE2EBE8)),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                    ),
+                                    child: Text(
+                                      'atau',
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        color: Color(0xFF9CB1AC),
+                                      ),
+                                    ),
+                                  ),
+                                  const Expanded(
+                                    child: Divider(color: Color(0xFFE2EBE8)),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 20),
+                              SizedBox(
+                                width: double.infinity,
+                                height: 54,
+                                child: OutlinedButton.icon(
+                                  // Terkunci oleh keadaan yang sama dengan
+                                  // tombol Masuk — lihat [_masukGoogle].
+                                  onPressed: _sedangMasuk ? null : _masukGoogle,
+                                  icon: const _LogoGoogle(),
+                                  label: const Text(
+                                    'Masuk dengan Google',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFF1E3A34),
+                                    disabledForegroundColor: const Color(
+                                      0xFF9CB1AC,
+                                    ),
+                                    backgroundColor: Colors.white,
+                                    side: const BorderSide(
+                                      color: Color(0xFFE2EBE8),
+                                      width: 1.5,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(28),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                             const SizedBox(height: 32),
                             // Sisa ruang layar jatuh ke sini, jadi tautan daftar
                             // duduk di dasar halaman alih-alih menggantung di
@@ -622,6 +729,24 @@ class _LoginPageState extends State<LoginPage> {
       ),
     );
   }
+}
+
+/// Mark "G" resmi Google di tombol masuk.
+///
+/// Asetnya **bukan gambar buatan sendiri**: ia dipotong dari kit branding resmi
+/// Google tepat pada kotak tempat SVG-nya menaruh logo itu, sehingga logonya
+/// sendiri tidak pernah disentuh — panduan merek melarang menggambar ulang atau
+/// mengubahnya. Lihat catatan di `pubspec.yaml` untuk alasan tombol jadinya
+/// tidak dipakai.
+///
+/// Latarnya putih, sama dengan latar tombolnya, jadi ia terbaca seperti mark
+/// telanjang tanpa perlu mengubah transparansi aset aslinya.
+class _LogoGoogle extends StatelessWidget {
+  const _LogoGoogle();
+
+  @override
+  Widget build(BuildContext context) =>
+      Image.asset('assets/logo/google_g.png', width: 20, height: 20);
 }
 
 class PulseLinePainter extends CustomPainter {

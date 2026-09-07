@@ -24,15 +24,18 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show SocketException;
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'auth_service.dart';
+import 'google_masuk_service.dart';
 
 class AuthHttpService implements AuthService {
   AuthHttpService({
     required this.basisUrl,
     this.namaPerangkat = 'AsaWatch Android',
     http.Client? klien,
+    this.google,
   }) : _klien = klien ?? http.Client(),
        _klienMilikSendiri = klien == null;
 
@@ -54,8 +57,87 @@ class AuthHttpService implements AuthService {
   /// mungkin masih dipakai test berikutnya.
   final bool _klienMilikSendiri;
 
+  /// Seam ke `google_sign_in`, disuntikkan dengan alasan yang sama seperti
+  /// [_klien]: ia satu-satunya bagian yang menuntut Play Services dan akun
+  /// sungguhan, sehingga tanpa penyuntikan ini seluruh alur Google hanya bisa
+  /// diuji di perangkat.
+  ///
+  /// Boleh null — aplikasi harus tetap utuh tanpa Google, dan rakitan yang
+  /// belum punya client ID tidak boleh gagal dirakit.
+  final GoogleMasukService? google;
+
   /// Email dari permintaan terakhir — lihat [_bacaSukses].
   String _emailTerakhir = '';
+
+  @override
+  Future<HasilMasuk> masukDenganGoogle() async {
+    final google = this.google;
+    if (google == null) {
+      debugPrint(
+        'AuthHttpService: masuk Google diminta tanpa GoogleMasukService.',
+      );
+      return const ServerBermasalah();
+    }
+
+    final dariGoogle = await google.masuk();
+    switch (dariGoogle) {
+      case GoogleDibatalkan():
+        return const DibatalkanPengguna();
+      case GoogleGagal(:final catatan):
+        // Sebuah log, bukan sebuah layar. Kalimat di [catatan] menyebut SHA-1
+        // dan client ID — kata-kata yang tidak berarti apa pun bagi pengguna,
+        // sementara yang perlu ia tahu hanyalah bahwa ini bukan salahnya.
+        debugPrint('Masuk Google gagal: $catatan');
+        return const ServerBermasalah();
+      case GoogleBerhasil(:final idToken, :final email):
+        _emailTerakhir = email;
+        return _tukarIdToken(idToken);
+    }
+  }
+
+  /// Menukar ID token Google menjadi token Sanctum (§4 `google`).
+  ///
+  /// Yang dikirim adalah **ID token**, dan server wajib memverifikasinya ke
+  /// Google — tanda tangan, `aud`, dan `exp`. Aplikasi tidak memeriksa apa pun
+  /// dari isinya: apa pun yang dikirim ponsel bisa dikarang, jadi satu-satunya
+  /// pemeriksaan yang berarti terjadi di sisi server.
+  Future<HasilMasuk> _tukarIdToken(String idToken) async {
+    try {
+      final jawaban = await _klien
+          .post(
+            Uri.parse('$basisUrl/api/v1/auth/google'),
+            headers: const {
+              'content-type': 'application/json; charset=utf-8',
+              'accept': 'application/json',
+            },
+            body: jsonEncode({
+              'id_token': idToken,
+              'nama_perangkat': namaPerangkat,
+            }),
+          )
+          .timeout(AuthService.batasWaktu);
+
+      // 201 saat akunnya baru dibuat, 200 saat sudah ada — yang menentukan
+      // kelas 2xx-nya, sama seperti pada `daftar`.
+      if (jawaban.statusCode >= 200 && jawaban.statusCode < 300) {
+        return _bacaSukses(jawaban.body);
+      }
+      // Sengaja **tidak** lewat [_bacaGagal]: di sini 401 berarti ID token
+      // ditolak Google, bukan kata sandi yang salah, dan menyuruh pengguna
+      // memeriksa kredensial yang tidak pernah ia ketik adalah jalan buntu.
+      debugPrint(
+        'Masuk Google ditolak server: ${jawaban.statusCode} '
+        '${jawaban.body.substring(0, jawaban.body.length.clamp(0, 200))}',
+      );
+      return const ServerBermasalah();
+    } on TimeoutException {
+      return const WaktuHabis();
+    } on SocketException {
+      return const TidakAdaJaringan();
+    } on http.ClientException {
+      return const TidakAdaJaringan();
+    }
+  }
 
   @override
   Future<HasilMasuk> masuk({
@@ -268,6 +350,11 @@ class AuthHttpService implements AuthService {
       // yang sudah tidak sah di server sudah tercabut dengan sendirinya, dan
       // keluar tanpa sinyal tetap harus berhasil di sisi ponsel.
     }
+    // Melepas akun Google juga, dan **setelah** pencabutan token, bukan
+    // sebagai gantinya: tanpa ini ketukan "Masuk dengan Google" berikutnya
+    // langsung masuk kembali ke akun yang sama tanpa memunculkan pemilih akun,
+    // yang di ponsel bersama terbaca sebagai keluar yang tidak bekerja.
+    await google?.keluar();
   }
 
   @override

@@ -16,6 +16,7 @@ library;
 import 'models/jadwal_sesi.dart';
 import 'services/auth_http_service.dart';
 import 'services/auth_service.dart';
+import 'services/google_masuk_service.dart';
 import 'services/izin_ble.dart';
 import 'services/kamera_service.dart';
 
@@ -115,6 +116,34 @@ const int faktorJadwalUjiTerpakai = int.fromEnvironment(
   defaultValue: faktorJadwalUji,
 );
 
+/// **Client ID Web** dari Google Cloud Console — bukan yang Android.
+///
+/// ```bash
+/// flutter run --dart-define=ID_KLIEN_GOOGLE=1234-abcd.apps.googleusercontent.com
+/// ```
+///
+/// Nilai ini **bukan rahasia**: ia ikut ke dalam setiap APK dan memang
+/// dirancang untuk terbaca. Yang menjaga akun bukan kerahasiaannya melainkan
+/// pasangan package name + SHA-1 di sisi Google, dan verifikasi `aud` di sisi
+/// Laravel. Karena itu ia boleh berada di sini dan boleh ikut git.
+///
+/// Yang **tidak** boleh: mengisinya dengan client ID Android. Google tidak
+/// menganggapnya galat — pemilih akun tetap muncul — tetapi ID token-nya datang
+/// kosong, sehingga tidak ada apa pun untuk dikirim ke server dan layarnya
+/// hanya diam. Lihat `GoogleGagal.idTokenKosong`.
+///
+/// Kosong berarti tombol Google tidak ditawarkan sama sekali. Itu bawaannya,
+/// dan disengaja: tombol yang pasti gagal lebih buruk daripada tombol yang
+/// tidak ada.
+const String idKlienGoogle = String.fromEnvironment(
+  'ID_KLIEN_GOOGLE',
+  defaultValue:
+      '409100365490-jg0nbsk5dch08upih5opav80jgcf16kt.apps.googleusercontent.com',
+);
+
+/// Apakah alur masuk Google ditawarkan pada rakitan ini.
+bool get pakaiGoogle => idKlienGoogle.isNotEmpty || pakaiAuthPalsu;
+
 /// Auth yang dipakai alur masuk.
 ///
 /// Padanan [izinBleBawaan] di bawah: satu titik yang menentukan implementasi
@@ -125,7 +154,12 @@ AuthService buatAuthBawaan() => pakaiAuthPalsu
         // frame dan tombol terkuncinya tidak pernah sempat terlihat saat demo.
         jeda: const Duration(milliseconds: 900),
       )
-    : AuthHttpService(basisUrl: basisUrlApi);
+    : AuthHttpService(
+        basisUrl: basisUrlApi,
+        google: idKlienGoogle.isEmpty
+            ? null
+            : GoogleMasukAsli(idKlienWeb: idKlienGoogle),
+      );
 
 /// Sakelar keempat: kamera palsu.
 ///

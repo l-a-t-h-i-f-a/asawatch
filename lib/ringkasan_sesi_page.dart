@@ -205,6 +205,8 @@ class RingkasanSesiPage extends StatelessWidget {
                       fotoPath: sesi.fotoPath,
                       lebar: double.infinity,
                       tinggi: 150,
+                      bisaDibuka: true,
+                      judulPratinjau: sesi.hasil?.ringkasanNama,
                     ),
                     const SizedBox(height: 14),
                     RingkasanNutrisi(hasil: sesi.hasil),

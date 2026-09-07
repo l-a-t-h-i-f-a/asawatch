@@ -519,7 +519,14 @@ class _KartuSesiBerjalan extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  FotoMakanan(fotoPath: sesi.fotoPath, lebar: 56, tinggi: 56),
+                  FotoMakanan(
+                    fotoPath: sesi.fotoPath,
+                    lebar: 56,
+                    tinggi: 56,
+                    bisaDibuka: true,
+                    tandaPerbesar: false,
+                    judulPratinjau: sesi.hasil?.ringkasanNama,
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(

@@ -89,6 +89,17 @@ class EmailSudahDipakai extends HasilMasuk {
   const EmailSudahDipakai();
 }
 
+/// Pemilih akun Google dibuka lalu ditutup lagi.
+///
+/// **Bukan kegagalan**, dan karena itu satu-satunya [HasilMasuk] yang
+/// [PesanHasilMasuk.pesan]-nya kosong selain [MasukBerhasil]: layar harus
+/// kembali diam persis seperti sebelum tombol ditekan. Tanpa varian ini, batal
+/// jatuh ke [ServerBermasalah] dan menuduh server rusak karena pengguna berubah
+/// pikiran.
+class DibatalkanPengguna extends HasilMasuk {
+  const DibatalkanPengguna();
+}
+
 /// Permintaan tidak pernah sampai: tidak ada sinyal, WiFi tanpa jalan keluar,
 /// atau alamat server yang tidak bisa dihubungi sama sekali.
 class TidakAdaJaringan extends HasilMasuk {
@@ -118,7 +129,7 @@ extension PesanHasilMasuk on HasilMasuk {
   /// istilah jaringan: yang perlu diketahui pengguna adalah **langkah
   /// berikutnya**, bukan lapisan mana yang gagal.
   String get pesan => switch (this) {
-    MasukBerhasil() => '',
+    MasukBerhasil() || DibatalkanPengguna() => '',
     KredensialSalah() =>
       'Email atau kata sandi tidak cocok. Periksa kembali, lalu coba lagi.',
     EmailSudahDipakai() =>
@@ -142,7 +153,10 @@ extension PesanHasilMasuk on HasilMasuk {
     // Ketiganya tidak akan berubah hasilnya tanpa isian yang berubah — dan
     // tombol yang mengulang hal yang sama persis menyiratkan bahwa yang
     // diketik pengguna sudah benar.
-    MasukBerhasil() || KredensialSalah() || EmailSudahDipakai() => false,
+    MasukBerhasil() ||
+    KredensialSalah() ||
+    EmailSudahDipakai() ||
+    DibatalkanPengguna() => false,
     _ => true,
   };
 }
@@ -182,6 +196,26 @@ abstract class AuthService {
     required String email,
     required String kataSandi,
   });
+
+  /// Masuk lewat akun Google (§4 `google`).
+  ///
+  /// Mengembalikan [HasilMasuk] yang sama dengan [masuk] dan [daftar], dan itu
+  /// bukan sekadar kerapian: ujungnya sama — sebuah [SesiLogin] — sehingga
+  /// seluruh langkah sesudahnya (menyimpan token, menyamakan profil, menghapus
+  /// data pemilik lama) berjalan lewat satu jalur, bukan dua yang harus dijaga
+  /// sebanding.
+  ///
+  /// **Tidak ada langkah "daftar" yang terpisah.** Google sudah memverifikasi
+  /// alamat emailnya, jadi server membuat akun bila belum ada dan menerbitkan
+  /// token pada permintaan yang sama. Karena itu [EmailSudahDipakai] tidak
+  /// pernah muncul di sini: email yang sudah punya akun justru **disambungkan**
+  /// ke akun itu. Menjawab "sudah terdaftar" akan memecah riwayat kesehatan
+  /// satu orang menjadi dua akun yang tidak pernah bertemu.
+  ///
+  /// [KredensialSalah] juga tidak pernah muncul — tidak ada yang diketik.
+  /// Yang bisa terjadi hanyalah [DibatalkanPengguna], atau kegagalan jaringan
+  /// yang sama seperti dua jalur lainnya.
+  Future<HasilMasuk> masukDenganGoogle();
 
   /// Mencabut [token] di server (§4 `keluar`).
   ///
@@ -316,6 +350,38 @@ class FakeAuthService implements AuthService {
         kedaluwarsa: DateTime.now().add(SesiLogin.masaBerlakuToken),
         nama: nama.trim(),
         email: email.trim(),
+      ),
+    );
+  }
+
+  /// Padanan palsu dari alur Google.
+  ///
+  /// Tidak memeriksa apa pun — tidak ada yang diketik untuk diperiksa — jadi
+  /// satu-satunya cara melihat jalur selain sukses adalah memesannya lewat
+  /// [paksa], termasuk [DibatalkanPengguna] yang pada Google sungguhan hanya
+  /// terjadi bila seseorang menutup pemilih akun dengan tangannya sendiri.
+  @override
+  Future<HasilMasuk> masukDenganGoogle() async {
+    jumlahPanggilan++;
+    if (jeda > Duration.zero) await Future<void>.delayed(jeda);
+    if (_dibuang) return const ServerBermasalah();
+
+    final dipesan = paksa;
+    if (dipesan != null) return dipesan;
+
+    // Akun Google yang belum pernah dipakai tetap masuk — server membuatkannya
+    // pada permintaan yang sama, jadi tiruan yang menolaknya akan memodelkan
+    // sesuatu yang tidak pernah terjadi.
+    const email = 'test@email.com';
+    if (![...akun, ...akunBaru].any((a) => a.identifier == email)) {
+      akunBaru.add((identifier: email, kataSandi: ''));
+    }
+    return MasukBerhasil(
+      SesiLogin(
+        token: 'token-palsu-google',
+        kedaluwarsa: DateTime.now().add(SesiLogin.masaBerlakuToken),
+        nama: 'Rara',
+        email: email,
       ),
     );
   }

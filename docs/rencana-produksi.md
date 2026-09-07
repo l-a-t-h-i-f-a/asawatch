@@ -447,7 +447,12 @@ Bagian ini tidak memblokir rilis, tapi setiap itemnya adalah janji yang belum di
       (2026-09-03). Bundle ID iOS/macOS masih `com.example.*` — targetnya belum pernah
       dibangun, dan mengubah `project.pbxproj` tanpa bisa membuktikannya lebih berisiko
       daripada nilainya.
-- [ ] Keystore Android + `key.properties` (di luar git), provisioning profile iOS.
+- [x] Keystore rilis Android (`asawatch-rilis.jks`, alias `asawatch`) + `android/key.properties`
+      di luar git, disambungkan di `build.gradle.kts` (2026-09-04). Tanpa `key.properties`
+      rilis jatuh kembali ke kunci debug supaya kloning baru tetap bisa dibangun — APK dari
+      build seperti itu **tidak boleh dibagikan**, karena kunci debug per-mesin dan APK-nya
+      tidak bisa di-update dari laptop lain. Provisioning profile iOS belum, targetnya belum
+      pernah dibangun.
 - [ ] Ikon aplikasi dan splash screen.
 - [ ] `flutter build appbundle --release`; verifikasi R8/ProGuard tidak merusak refleksi plugin.
 - [ ] Skema versi dan proses build number.

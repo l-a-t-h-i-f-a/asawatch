@@ -1,8 +1,24 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// Rahasia penandatanganan rilis, dari `android/key.properties` yang sengaja
+// tidak ikut git. Berkasnya boleh tidak ada — mesin yang hanya membangun debug,
+// atau kloning baru sebelum keystore-nya disalin, tetap harus bisa membangun.
+// Yang tidak boleh adalah membangun rilis **seolah-olah** tertandatangani
+// dengan kunci rilis padahal memakai kunci debug: itu menghasilkan APK yang
+// tidak bisa dipasang di atas rilis sebelumnya, tanpa satu pun pesan yang
+// menyebut kunci.
+val berkasKunci = rootProject.file("key.properties")
+val kunciRilis = Properties().apply {
+    if (berkasKunci.exists()) FileInputStream(berkasKunci).use { load(it) }
+}
+val adaKunciRilis = berkasKunci.exists()
 
 android {
     namespace = "com.asawatch.app"
@@ -49,11 +65,29 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (adaKunciRilis) {
+            create("release") {
+                storeFile = file(kunciRilis.getProperty("storeFile"))
+                storePassword = kunciRilis.getProperty("storePassword")
+                keyAlias = kunciRilis.getProperty("keyAlias")
+                keyPassword = kunciRilis.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Tanpa key.properties, rilis tetap ditandatangani kunci debug —
+            // `flutter run --release` di mesin mana pun tetap jalan. Yang keluar
+            // dari situ **tidak boleh dibagikan**: kunci debug bersifat
+            // per-mesin, jadi APK-nya tidak bisa di-update oleh build dari
+            // laptop lain.
+            signingConfig = if (adaKunciRilis) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

@@ -717,7 +717,15 @@ at all (§3). The food photo lives **in the nutrition card, not the page header*
 that card is an estimate from that photo, and the line under them says how confident the detector
 was; "82% confident" is unjudgeable without seeing what the detector saw, and a portion that is
 clearly wrong only looks wrong with the plate on the same screen. In the header it merely
-identified the session, which the meal name beside it already did, so it is not shown twice. The
+identified the session, which the meal name beside it already did, so it is not shown twice. **The
+plate can be opened full-screen** (`FotoMakanan(bisaDibuka: true)` →
+[lib/widgets/pratinjau_foto_page.dart](lib/widgets/pratinjau_foto_page.dart)), because every number
+in that card is an estimate from a picture that is otherwise only ever shown at 52-150 px and cropped
+`cover` — half the plate is not on screen at all. Two rules: the placeholder is **never** openable (a
+black screen is no answer to a tap, and a deleted file will not come back), and it is switched on
+only where the photo does **not** sit inside a card that is itself tappable — in Riwayat, "Sesi
+Terakhir" and "Sesi baru selesai" the most tap-inviting part of the card must do what the rest of the
+card does, which is open the session. The
 detail section is `_TabelTitik`, one table rather than four stacked cards: metric name and unit
 live in the column head, time on the row, so `mg/dL` is written once instead of four times and
 comparing one metric across points is a straight glance down. Its §3 rule is unchanged —

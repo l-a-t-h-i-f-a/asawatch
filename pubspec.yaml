@@ -77,6 +77,7 @@ dependencies:
   path_provider: ^2.1.5
   flutter_local_notifications: ^22.3.0
   timezone: ^0.11.1
+  google_sign_in: ^7.2.0
 
 dev_dependencies:
   flutter_test:
@@ -120,6 +121,22 @@ flutter:
   assets:
     - assets/fonts/OFL.txt
     - assets/logo/logo2.jpeg
+    # Mark "G" resmi Google, dipotong dari aset branding resminya (folder
+    # Android+Web, "Show text=No, Shape=Square") tepat pada kotak 20x20 tempat
+    # SVG-nya menaruh logo itu — bingkai tombolnya dibuang, logonya sendiri
+    # tidak disentuh. Panduan merek Google melarang menggambar ulang atau
+    # mengubah mark-nya, tetapi memang menyediakan jalur "bangun tombol
+    # sendiri" untuk UI yang tidak memakai tombol jadinya.
+    #
+    # Tombol jadi tidak dipakai karena teksnya tercetak "Sign in with Google"
+    # dalam bahasa Inggris, rasionya tetap 180x40 sementara tombol Masuk di
+    # atasnya selebar layar, dan teks gambar tidak ikut membesar saat pengguna
+    # memperbesar ukuran huruf sistem — hal terakhir itu penting karena
+    # penggunanya lansia.
+    #
+    # Varian kepadatannya (2.0x/3.0x/4.0x) tidak perlu didaftarkan satu per
+    # satu: Flutter menemukannya sendiri dari subfolder di sebelah berkas ini.
+    - assets/logo/google_g.png
 
   # Montserrat is the family referenced by ThemeData.fontFamily in lib/main.dart.
   # Weights match the FontWeight values used across the UI (normal/w500/w600/bold).

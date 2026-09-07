@@ -158,7 +158,14 @@ class _IsiSesi extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    FotoMakanan(fotoPath: sesi.fotoPath, lebar: 64, tinggi: 64),
+                    FotoMakanan(
+                      fotoPath: sesi.fotoPath,
+                      lebar: 64,
+                      tinggi: 64,
+                      bisaDibuka: true,
+                      tandaPerbesar: false,
+                      judulPratinjau: sesi.hasil?.ringkasanNama,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
