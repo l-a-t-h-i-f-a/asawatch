@@ -73,16 +73,37 @@ class _DeteksiMakananPageState extends State<DeteksiMakananPage>
   /// Android mencabut kamera dari aplikasi yang tidak terlihat. Pratinjau yang
   /// tidak dilepas saat aplikasi ke latar belakang kembali sebagai layar hitam
   /// tanpa satu pun pesan galat, jadi ia dilepas dan disiapkan lagi.
+  ///
+  /// **Dialog izin bukan masuk latar belakang**, meskipun peristiwanya sama
+  /// persis (`inactive` lalu `resumed`). Memperlakukannya sama adalah putaran
+  /// yang terlihat pengguna sebagai layar berputar tanpa henti: percobaan yang
+  /// sedang menunggu jawaban dialog dibatalkan oleh `inactive`, sehingga
+  /// jawaban "Tolak" tiba sebagai kegagalan yang sudah kedaluwarsa dan dibuang
+  /// — layar tidak pernah tahu izinnya ditolak — lalu `resumed` memulai
+  /// percobaan baru yang memunculkan dialog yang sama sekali lagi.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
+      if (_kamera.sedangMintaIzin) return;
       // Menaikkan generasi sekaligus membatalkan penyiapan yang masih berjalan:
       // ia memang akan gagal karena kameranya dilepas di baris berikutnya, dan
       // kegagalan itu bukan sesuatu yang perlu dilihat pengguna.
       _generasi++;
+      // Percobaan itu tidak akan pernah lagi boleh menyentuh layar, jadi
+      // penandanya harus dicabut di sini juga: yang tersisa kalau tidak adalah
+      // pemintal yang berputar selamanya, karena `finally` percobaan tadi ikut
+      // dijaga nomor generasi dan tidak akan mematikannya.
+      if (mounted) setState(() => _menyiapkan = false);
       _kamera.lepas();
     } else if (state == AppLifecycleState.resumed) {
+      // Percobaan yang masih berjalan akan menjawab sendiri — termasuk yang
+      // sedang menunggu dialog izin.
+      if (_menyiapkan || _kamera.sedangMintaIzin) return;
+      // Izin yang baru saja ditolak tidak ditanyakan ulang dengan sendirinya.
+      // Yang bertanya lagi hanya tombol "Coba Lagi", karena dialog yang muncul
+      // setiap kali layar kembali tidak bisa dihentikan pengguna.
+      if (_galat?.karenaIzin ?? false) return;
       _siapkanKamera();
     }
   }

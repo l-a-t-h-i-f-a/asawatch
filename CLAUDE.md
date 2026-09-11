@@ -122,7 +122,18 @@ loads and then fails when the database opens.
    dibuka" on a phone whose camera had just been granted. The camera is
    **released on `AppLifecycleState.inactive/paused` and set up again on `resumed`**, because
    Android takes it away from an invisible app and an unreleased preview comes back as a black
-   screen with no error at all. The preview is drawn inside an `AspectRatio` fed by `rasioPratinjau()`, because
+   screen with no error at all — **but a permission dialog is not a backgrounding**, even though it
+   raises exactly the same two events. `KameraService.sedangMintaIzin` is what tells them apart, and
+   without it a denial can never reach the screen: the attempt waiting on the dialog is invalidated
+   by `inactive`, so the user's "Tolak" arrives as a stale failure and is dropped — leaving the
+   spinner up, since the discarded attempt's `finally` is generation-guarded too — and `resumed`
+   then starts a fresh attempt that raises the same dialog again. That is the spinning-forever
+   symptom. Three rules follow: an invalidated attempt clears `_menyiapkan` at the moment it is
+   invalidated rather than in its own `finally`; `resumed` starts nothing while an attempt is still
+   running; and after a failure whose `GalatKamera.karenaIzin` is true, only the *Coba Lagi* button
+   asks again — a dialog that reappears every time the app returns to the screen cannot be
+   dismissed by the person facing it. `karenaIzin` is wider than `izinDitolak` on purpose: the
+   latter means "only Settings will fix this", the former covers a plain first denial too. The preview is drawn inside an `AspectRatio` fed by `rasioPratinjau()`, because
    `previewSize` is **always reported landscape-first** whatever way the phone is held: stretched to
    fill a 9:19.5 screen it comes out visibly squashed, and only while aiming — the captured file
    comes from the sensor, so it looks fine afterwards and the defect is easy to dismiss as a fluke.
@@ -251,7 +262,15 @@ loads and then fails when the database opens.
 3. **Finished sessions are uploaded to the server, one way only.**
    `SesiServerService` ([lib/services/sesi_server_service.dart](lib/services/sesi_server_service.dart))
    `PUT`s a session to §5.2 when it ends, and `SesiMakanController.kirimRiwayatKeServer()` re-sends
-   the whole history at app start, on resume, and right after login. **There is no "sent" column,
+   the whole history at app start, on resume, and right after login. **A running session is uploaded
+   again every time a measurement point fills** (`_simpanAktifLaluKirim`, on the `_terimaSampel`
+   path), so a session can be followed from the server while it runs. Before that, the server saw
+   nothing between the draft uploaded at shutter time and the finished session two and a half hours
+   later — the sweep does not cover it, since it walks `_riwayat` only and the active session is not
+   there. It is safe to repeat: §5.2 is an upsert and the server never overwrites a sample that is
+   already `terisi`, so each point is written by the first upload that carries it. What is uploaded
+   must be the session the local write returned, not the caller's copy — the same 409
+   `konflik_versi` rule as `_simpanLaluKirim`, which is why both share it. **There is no "sent" column,
    deliberately**: the id is an app-made UUID and the endpoint is an upsert (§2 rule 2), so
    re-sending is free of consequence — while a "sent" flag that is ever wrong would hide a session
    forever. Upload failure is silent (`debugPrint` only), unlike `galatPenyimpanan`: nothing is lost,
@@ -318,7 +337,7 @@ loads and then fails when the database opens.
    wipes pending tombstones on an account switch (they could only be sent with the previous account's
    token, which is gone), and a reinstall before the sweep loses them the same way. The §7 cursor
    sync is still unwritten.
-3. **Everything about a session is persisted, including while it is running.** History lives in SQLite via drift — `SesiRepository` ([lib/repositories/sesi_repository.dart](lib/repositories/sesi_repository.dart)) is the seam, `SesiRepositoryDrift` + the schema in [lib/repositories/basis_data.dart](lib/repositories/basis_data.dart) are the real implementation, and `SesiRepositoryMemori` remains as the in-memory one for tests (the same role `FakeBleService` plays). Editing the schema means re-running `build_runner`; `basis_data.g.dart` is generated and committed. Three things are load-bearing there: enums are stored via `textEnum` so **renaming a `StatusSesi`/`StatusSampel` member is a schema change**, derived values (verdict, kualitas respons) have no columns and are recomputed on load, and `onUpgrade` walks one version at a time with a `default` branch that throws, so a bumped `schemaVersion` cannot ship without a written migration (`test/anchor_repository_test.dart` actually drives v1→v4, v2→v4, and v3→v4). **The controller's constructor stays synchronous on purpose** — `main()` loads history and passes it as `riwayatAwal`, so no session surface needs a loading state. The constructor also **splits the active session out of `riwayatAwal`**: a session that was still running when the app closed comes back as `sesiAktif`, with its schedule recomputed from absolute `t0` (never from remaining time), and its `(sesiId, index)` dedup keys restored. Cancelling turns the row into a tombstone (`SesiRepository.nisankan`, or `hapus` outright when there is no account) — a draft that was abandoned must not come back as an active session. A fresh install starts genuinely empty — `contoh_sesi.dart` is test-only fixture data. Two failure paths are handled: the database failing to open shows `AplikasiGagalMulai` instead of a blank screen, and a session that fails to save sets `SesiMakanController.galatPenyimpanan`, which Beranda shows as a persistent warning card (not a SnackBar — the consequence outlives a toast). The schema is at **v7**: v2 added `tabel_anchor_waktu` ([lib/repositories/anchor_repository.dart](lib/repositories/anchor_repository.dart), [lib/models/anchor_waktu.dart](lib/models/anchor_waktu.dart)); v3 added `tabel_kalibrasi`, `tabel_entri_jam`, and `tabel_sesi.waktu_tidak_pasti` — all three explained in the BLE section below; v4 reshaped calibration into three rounds (`tabel_putaran_kalibrasi` + `tabel_kalibrasi.sisi`, see the calibration section); v5 added `tabel_sesi.sesi_uji`; v6 made the nutrition columns nullable and added `tabel_sesi.diperbarui_pada`; **v7 added `tabel_sesi.dihapus_pada`**, the cancellation tombstone described above. That v3→v4 step is the one to read before writing another migration: it has to ask SQLite (`PRAGMA table_info`) whether the old columns are actually there, because `m.createTable()` in an *earlier* step creates today's shape, not that version's — a device coming from v2 arrives at the v4 step with a table that is already v4-shaped and empty. **The profile is synced with the server, and `SharedPreferences` is its offline half.**
+3. **Everything about a session is persisted, including while it is running.** History lives in SQLite via drift — `SesiRepository` ([lib/repositories/sesi_repository.dart](lib/repositories/sesi_repository.dart)) is the seam, `SesiRepositoryDrift` + the schema in [lib/repositories/basis_data.dart](lib/repositories/basis_data.dart) are the real implementation, and `SesiRepositoryMemori` remains as the in-memory one for tests (the same role `FakeBleService` plays). Editing the schema means re-running `build_runner`; `basis_data.g.dart` is generated and committed. Three things are load-bearing there: enums are stored via `textEnum` so **renaming a `StatusSesi`/`StatusSampel` member is a schema change**, derived values (verdict, kualitas respons) have no columns and are recomputed on load, and `onUpgrade` walks one version at a time with a `default` branch that throws, so a bumped `schemaVersion` cannot ship without a written migration (`test/anchor_repository_test.dart` actually drives v1→v4, v2→v4, and v3→v4). **The controller's constructor stays synchronous on purpose** — `main()` loads history and passes it as `riwayatAwal`, so no session surface needs a loading state. The constructor also **splits the active session out of `riwayatAwal`**: a session that was still running when the app closed comes back as `sesiAktif`, with its schedule recomputed from absolute `t0` (never from remaining time), and its `(sesiId, index)` dedup keys restored. Cancelling turns the row into a tombstone (`SesiRepository.nisankan`, or `hapus` outright when there is no account) — a draft that was abandoned must not come back as an active session. A fresh install starts genuinely empty — `contoh_sesi.dart` is test-only fixture data. Two failure paths are handled: the database failing to open shows `AplikasiGagalMulai` instead of a blank screen, and a session that fails to save sets `SesiMakanController.galatPenyimpanan`, which Beranda shows as a persistent warning card (not a SnackBar — the consequence outlives a toast). The schema is at **v7**: v2 added `tabel_anchor_waktu` ([lib/repositories/anchor_repository.dart](lib/repositories/anchor_repository.dart), [lib/models/anchor_waktu.dart](lib/models/anchor_waktu.dart)); v3 added `tabel_kalibrasi`, `tabel_entri_jam`, and `tabel_sesi.waktu_tidak_pasti` — all three explained in the BLE section below; v4 reshaped calibration into rounds (`tabel_putaran_kalibrasi` + `tabel_kalibrasi.sisi`, see the calibration section — the table never assumed how many, which is why dropping to one round was not a schema change); v5 added `tabel_sesi.sesi_uji`; v6 made the nutrition columns nullable and added `tabel_sesi.diperbarui_pada`; **v7 added `tabel_sesi.dihapus_pada`**, the cancellation tombstone described above. That v3→v4 step is the one to read before writing another migration: it has to ask SQLite (`PRAGMA table_info`) whether the old columns are actually there, because `m.createTable()` in an *earlier* step creates today's shape, not that version's — a device coming from v2 arrives at the v4 step with a table that is already v4-shaped and empty. **The profile is synced with the server, and `SharedPreferences` is its offline half.**
    `ProfilRepository` gained an optional `server:`
    ([lib/services/profil_server_service.dart](lib/services/profil_server_service.dart), §5.1
    `GET`/`PUT /api/v1/profil`) and `sesiLogin:` for the token; with neither it behaves exactly as
@@ -483,22 +502,39 @@ in Dart is a second place that must change in step. And the copy names the *cons
 number alone — "jam menolak mengukur di bawah 10%" — because 8% and 12% look equally low while only
 one of them stops the watch working.
 
-**Blood-pressure calibration follows the repeated-cuff method** used by comparable products
-(Samsung Health Monitor), and [lib/kalibrasi_tekanan_darah_page.dart](lib/kalibrasi_tekanan_darah_page.dart)
-is a staged procedure — preparation → three rounds → summary — not a form, because the procedure
+**Blood-pressure calibration follows the paired-cuff method** used by comparable products
+(Samsung Health Monitor) — **but one round, not three**, and
+[lib/kalibrasi_tekanan_darah_page.dart](lib/kalibrasi_tekanan_darah_page.dart)
+is a staged procedure — preparation → measurement → summary — not a form, because the procedure
 *is* the method. **The cuff goes on the arm opposite the watch, and both measure at the same time**:
 a cuff inflating on the same arm cuts off the blood flow to the wrist below it, so the watch would be
 blind during exactly the seconds being measured, and two readings taken minutes apart compare two
 different states. Simultaneity has a consequence the page has to carry: the cuff numbers can only be
 typed *after* the watch has finished, so **the watch reading stays hidden until they are entered** —
 seeing it first makes people "correct" what they type. What used to be protected by locking the
-order is now protected by a curtain. Four further rules live on `Kalibrasi` in
-[lib/models/sesi_makan.dart](lib/models/sesi_makan.dart), not in the page: **three rounds and the
-correction is the median** (one loose cuff reading would otherwise become a permanent offset, and a
-mean would be dragged by it); **a 60-second enforced pause between rounds** (`jedaAntarPutaran` — a
-cuff re-inflated immediately reads high); **rounds that disagree by more than `sebaranMaksimum` are
-refused**, offering only "Ulangi Kalibrasi", since a median of contradictory numbers means nothing;
-and **calibration expires after `masaBerlaku` (4 weeks)** and is bound to one wrist (`sisi`). The
+order is now protected by a curtain. The rules live on `Kalibrasi` in
+[lib/models/sesi_makan.dart](lib/models/sesi_makan.dart), not in the page. **`jumlahPutaran` is 1,
+and the guard is the size of the correction, not the spread between rounds.** Three rounds are more
+robust to one bad cuff reading, but that robustness cost more than it bought: the watch is slow to
+find a pulse, home cuffs are noisy, and three rounds that disagree end in `konsisten == false`,
+which stores **nothing at all**. The outcome was not a better calibration but no calibration — the
+watch keeps using its raw numbers, which are off by far more than one noisy cuff reading. The
+comparison is not "right vs. slightly wrong" but "slightly wrong vs. very wrong". What replaces the
+spread check is **`masukAkal`**: a correction beyond `offsetMaksimum` (30 mmHg) is a failed
+measurement, not high blood pressure. It is deliberately loose — a tight threshold brings back
+exactly the treadmill that was removed — and it also closes a hole that was always in the
+three-round path, where three readings wrong in the same direction have a small spread and so pass
+`konsisten` while being wrong together. **A single round is always `konsisten`** (the spread of one
+number is zero by definition, not by leniency), so `bisaDipakai` is what the page checks. The two
+guards are separate because the repair differs: an impossible offset says check the cuff and the
+watch, a wide spread says measure again once you are rested — and a wide spread is offered **another
+round** first, not a restart, since a third reading is what decides between two that disagree.
+**Extra rounds are offered, never required**: the summary's "Ukur sekali lagi untuk lebih yakin"
+adds one, the median then applies, and `jedaAntarPutaran` (60 s — a cuff re-inflated immediately
+reads high) is still enforced before it. The summary also states the correction **in words**
+(`kalimatOffset`), because `+3/+5 mmHg` cannot be judged by the person who just measured, and with
+one round there is no second reading to contradict it. **Calibration still expires after
+`masaBerlaku` (4 weeks)** and is bound to one wrist (`sisi`). The
 watch knows none of this — it still receives only the two offsets (`SET_KALIBRASI`, protocol §5.1),
 and it has no clock, so **expiry is the app's judgement, not a change in the watch's behaviour**: an
 expired calibration is still being applied, which is exactly why the UI says so instead of going

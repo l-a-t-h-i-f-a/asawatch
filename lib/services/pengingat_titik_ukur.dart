@@ -26,6 +26,19 @@ import '../models/jadwal_sesi.dart';
 
 /// Seam yang dipakai controller, supaya test tidak menyentuh platform channel.
 abstract class PengingatTitikUkur {
+  /// Menyiapkan kanal notifikasi dan **meminta izinnya**, sekali saja.
+  ///
+  /// Dipanggil saat pengguna pertama kali masuk ke aplikasi (`MyHomePage`),
+  /// bukan saat pengingat pertama dijadwalkan. Sebelumnya izin baru diminta di
+  /// dalam [jadwalkan] — yaitu tepat pada detik sesi dimulai, saat pengguna
+  /// sedang berdiri di depan piringnya dan baru saja menekan tombol jam.
+  /// Dialog sistem yang muncul di saat itu ditolak karena menghalangi, dan
+  /// yang hilang bukan dialognya melainkan empat titik ukur yang tidak ada
+  /// lagi yang mengingatkan (§6).
+  ///
+  /// Aman dipanggil berkali-kali: hanya yang pertama yang bekerja.
+  Future<void> siapkan();
+
   /// Menjadwalkan ulang **seluruh** pengingat sesi ini.
   ///
   /// Selalu menghapus dulu, tidak pernah menambah di atas yang lama: satu-satunya
@@ -46,6 +59,9 @@ abstract class PengingatTitikUkur {
 /// setiap pemanggilan.
 class PengingatDiam implements PengingatTitikUkur {
   const PengingatDiam();
+
+  @override
+  Future<void> siapkan() async {}
 
   @override
   Future<void> jadwalkan({
@@ -80,7 +96,8 @@ class PengingatLokal implements PengingatTitikUkur {
     ),
   );
 
-  Future<void> _siapkan() async {
+  @override
+  Future<void> siapkan() async {
     if (_siap) return;
     tzdata.initializeTimeZones();
     await _plugin.initialize(
@@ -121,7 +138,7 @@ class PengingatLokal implements PengingatTitikUkur {
     required DateTime sekarang,
   }) async {
     try {
-      await _siapkan();
+      await siapkan();
       await batalkanSemua();
 
       for (final t in titik) {
@@ -182,7 +199,7 @@ class PengingatLokal implements PengingatTitikUkur {
   @override
   Future<void> batalkanSemua() async {
     try {
-      await _siapkan();
+      await siapkan();
       await _plugin.cancelAll();
     } catch (e) {
       debugPrint('Pengingat titik ukur gagal dibatalkan: $e');

@@ -349,6 +349,85 @@ void main() {
       );
     });
 
+    // Satu putaran tidak punya pembanding, jadi sebarannya nol menurut arti
+    // kata — bukan menurut kelonggaran. Yang menjaganya adalah `masukAkal`.
+    test('satu putaran selalu konsisten, dan dijaga oleh besar koreksinya', () {
+      final wajar = Kalibrasi(
+        waktu: DateTime(2026, 8, 14),
+        sisi: SisiPergelangan.kiri,
+        putaran: [putaran(124, 82, 120, 78)],
+      );
+      expect(wajar.konsisten, isTrue);
+      expect(wajar.masukAkal, isTrue);
+      expect(wajar.bisaDipakai, isTrue);
+
+      // +44/+38: bukan tekanan darah yang tinggi, melainkan pengukuran yang
+      // gagal — manset kendur, lengan terlalu rendah, atau jam tidak menempel.
+      final mustahil = Kalibrasi(
+        waktu: DateTime(2026, 8, 14),
+        sisi: SisiPergelangan.kiri,
+        putaran: [putaran(165, 115, 121, 77)],
+      );
+      expect(mustahil.konsisten, isTrue);
+      expect(mustahil.masukAkal, isFalse);
+      expect(mustahil.bisaDipakai, isFalse);
+    });
+
+    // Lubang yang selalu ada di jalur tiga putaran: sebarannya kecil, jadi
+    // ketiganya lolos `konsisten` sambil salah bersama-sama ke arah yang sama.
+    test('tiga putaran yang seragam-salah tetap tertangkap', () {
+      final k = Kalibrasi(
+        waktu: DateTime(2026, 8, 14),
+        sisi: SisiPergelangan.kiri,
+        putaran: [
+          putaran(166, 116, 121, 78),
+          putaran(165, 115, 120, 77),
+          putaran(167, 117, 122, 79),
+        ],
+      );
+      expect(k.konsisten, isTrue);
+      expect(k.bisaDipakai, isFalse);
+    });
+
+    // "+3/+5 mmHg" tidak bisa dinilai oleh orang yang baru saja mengukur, dan
+    // dengan satu putaran tidak ada putaran lain yang akan membantahnya.
+    test('koreksinya bisa dibaca sebagai kalimat, bukan hanya tanda', () {
+      // Offset = tensimeter − jam, jadi positif berarti jam membaca lebih
+      // rendah. Arah yang terbalik di sini adalah kesalahan yang paling mahal.
+      expect(
+        Kalibrasi.tunggal(
+          waktu: DateTime(2026, 8, 14),
+          sistolikReferensi: 124,
+          diastolikReferensi: 82,
+          sistolikJam: 121,
+          diastolikJam: 77,
+        ).kalimatOffset,
+        'Jam Anda membaca 3 mmHg lebih rendah pada sistolik dan 5 mmHg pada '
+        'diastolik daripada tensimeter.',
+      );
+      expect(
+        Kalibrasi.tunggal(
+          waktu: DateTime(2026, 8, 14),
+          sistolikReferensi: 118,
+          diastolikReferensi: 84,
+          sistolikJam: 124,
+          diastolikJam: 80,
+        ).kalimatOffset,
+        'Jam Anda membaca sistolik 6 mmHg lebih tinggi dan diastolik 4 mmHg '
+        'lebih rendah daripada tensimeter.',
+      );
+      expect(
+        Kalibrasi.tunggal(
+          waktu: DateTime(2026, 8, 14),
+          sistolikReferensi: 124,
+          diastolikReferensi: 82,
+          sistolikJam: 124,
+          diastolikJam: 82,
+        ).kalimatOffset,
+        contains('sudah sama dengan tensimeter'),
+      );
+    });
+
     test('masa berlakunya empat minggu dan dihitung dari waktu kalibrasi', () {
       final k = Kalibrasi.tunggal(
         waktu: DateTime(2026, 8, 1, 10),
@@ -409,9 +488,20 @@ void main() {
       await tester.pump();
     }
 
-    Future<void> lewatiJeda(WidgetTester tester) async {
+    /// Putaran tambahan: diminta dari ringkasan, lalu jedanya dilewati.
+    Future<void> ukurLagi(WidgetTester tester) async {
+      // Ringkasan yang bisa dipakai menawarkannya sebagai tombol sekunder;
+      // ringkasan dengan putaran yang bertengkar menawarkannya sebagai tombol
+      // utama, karena di sana putaran ketiga itulah yang memutuskan.
+      final tombol =
+          find.text('Ukur sekali lagi untuk lebih yakin').evaluate().isNotEmpty
+          ? find.text('Ukur sekali lagi untuk lebih yakin')
+          : find.text('Ukur Sekali Lagi');
+      await tester.ensureVisible(tombol);
+      await tester.tap(tombol);
+      await tester.pump();
       await tester.pump(Kalibrasi.jedaAntarPutaran);
-      await tester.tap(find.textContaining('Mulai Putaran'));
+      await tester.tap(find.textContaining('Mulai Pengukuran ke-'));
       await tester.pump();
     }
 
@@ -514,7 +604,10 @@ void main() {
       await tester.pump();
 
       expect(find.textContaining('Sistolik harus lebih besar'), findsOneWidget);
-      final simpan = find.widgetWithText(ElevatedButton, 'Simpan Putaran 1');
+      final simpan = find.widgetWithText(
+        ElevatedButton,
+        'Simpan & Lihat Hasil',
+      );
       expect(tester.widget<ElevatedButton>(simpan).onPressed, isNull);
     });
 
@@ -550,7 +643,7 @@ void main() {
       );
     });
 
-    testWidgets('jeda antar putaran benar-benar harus ditunggu', (
+    testWidgets('jeda sebelum putaran tambahan benar-benar harus ditunggu', (
       tester,
     ) async {
       final c = buatControllerUji();
@@ -562,7 +655,19 @@ void main() {
       await mulaiKalibrasi(tester);
       await jalankanPutaran(tester);
 
-      final lanjut = find.widgetWithText(ElevatedButton, 'Mulai Putaran 2');
+      // Putaran tambahan sekarang sukarela, tetapi jedanya tidak: yang membuat
+      // manset kedua membaca tinggi adalah pembuluh yang belum pulih, dan itu
+      // tidak berubah karena putarannya diminta sendiri.
+      await tester.ensureVisible(
+        find.text('Ukur sekali lagi untuk lebih yakin'),
+      );
+      await tester.tap(find.text('Ukur sekali lagi untuk lebih yakin'));
+      await tester.pump();
+
+      final lanjut = find.widgetWithText(
+        ElevatedButton,
+        'Mulai Pengukuran ke-2',
+      );
       expect(tester.widget<ElevatedButton>(lanjut).onPressed, isNull);
       expect(find.textContaining('membaca lebih tinggi'), findsOneWidget);
 
@@ -573,7 +678,38 @@ void main() {
       expect(tester.widget<ElevatedButton>(lanjut).onPressed, isNotNull);
     });
 
-    testWidgets('tiga putaran, koreksinya median, lalu dikirim ke jam', (
+    // Satu putaran, tanpa jeda dan tanpa putaran kedua: inilah jalur yang
+    // dilewati hampir semua orang. Prosedur tiga putaran dulu berakhir tanpa
+    // kalibrasi sama sekali terlalu sering — dan jam yang tak terkalibrasi
+    // melesetnya jauh lebih besar daripada satu manset yang agak berisik.
+    testWidgets('satu putaran sudah bisa dikirim ke jam', (tester) async {
+      final c = buatControllerUji();
+      await pumpHalaman(
+        tester,
+        const KalibrasiTekananDarahPage(),
+        controller: c,
+      );
+      await mulaiKalibrasi(tester);
+      await jalankanPutaran(tester);
+
+      // Selisih jam pertama: 124-121=3, 82-77=5.
+      expect(find.text('Koreksi +3/+5 mmHg'), findsOneWidget);
+      // Dan ditulis dengan kata, karena "+3/+5" tidak bisa dinilai oleh orang
+      // yang baru saja mengukur.
+      expect(find.textContaining('3 mmHg lebih rendah'), findsOneWidget);
+
+      await tester.tap(find.text('Kirim ke Jam'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final kalibrasi = c.kalibrasiTerakhir!;
+      expect(kalibrasi.putaran, hasLength(1));
+      expect(kalibrasi.offsetSistolik, 3);
+      expect(kalibrasi.sisi, SisiPergelangan.kiri);
+      expect(c.kalibrasiKedaluwarsa, isFalse);
+    });
+
+    testWidgets('putaran tambahan opsional, dan mediannya yang dipakai', (
       tester,
     ) async {
       final c = buatControllerUji();
@@ -585,23 +721,48 @@ void main() {
       await mulaiKalibrasi(tester);
 
       await jalankanPutaran(tester);
-      await lewatiJeda(tester);
+      await ukurLagi(tester);
       await jalankanPutaran(tester);
-      await lewatiJeda(tester);
+      await ukurLagi(tester);
       await jalankanPutaran(tester);
 
       // Selisih jam: 124-121=3, 124-119=5, 124-118=6 → median 5.
       expect(find.text('Koreksi +5/+5 mmHg'), findsOneWidget);
 
+      await tester.ensureVisible(find.text('Kirim ke Jam'));
       await tester.tap(find.text('Kirim ke Jam'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
-      final kalibrasi = c.kalibrasiTerakhir!;
-      expect(kalibrasi.putaran.length, Kalibrasi.jumlahPutaran);
-      expect(kalibrasi.offsetSistolik, 5);
-      expect(kalibrasi.sisi, SisiPergelangan.kiri);
-      expect(c.kalibrasiKedaluwarsa, isFalse);
+      expect(c.kalibrasiTerakhir!.putaran, hasLength(3));
+      expect(c.kalibrasiTerakhir!.offsetSistolik, 5);
+    });
+
+    // Yang menggantikan penjaga sebaran di jalur satu putaran. Sengaja longgar:
+    // penjaga yang ketat mengembalikan persis masalah yang dihapus di sini.
+    testWidgets('koreksi yang mustahil ditolak walau putarannya cuma satu', (
+      tester,
+    ) async {
+      final c = buatControllerUji();
+      await pumpHalaman(
+        tester,
+        const KalibrasiTekananDarahPage(),
+        controller: c,
+      );
+      await mulaiKalibrasi(tester);
+      // Manset 165/115 lawan jam 121/77 → +44/+38, jauh di atas batas wajar.
+      // Angkanya sendiri masuk akal sebagai tekanan darah, jadi
+      // galatReferensiTensimeter meloloskannya — yang menangkap adalah
+      // besarnya selisih.
+      await jalankanPutaran(tester, sistolik: 165, diastolik: 115);
+
+      expect(find.text('Hasilnya belum bisa dipakai'), findsOneWidget);
+      expect(
+        find.textContaining('Selisih jam dengan tensimeter terlalu besar'),
+        findsOneWidget,
+      );
+      expect(find.text('Kirim ke Jam'), findsNothing);
+      expect(c.kalibrasiTerakhir, isNull);
     });
 
     testWidgets('putaran yang saling bertentangan tidak boleh dikirim', (
@@ -616,10 +777,10 @@ void main() {
       await mulaiKalibrasi(tester);
 
       await jalankanPutaran(tester);
-      await lewatiJeda(tester);
+      await ukurLagi(tester);
       // Putaran kedua jauh berbeda — misalnya user baru saja berjalan.
-      await jalankanPutaran(tester, sistolik: 165, diastolik: 110);
-      await lewatiJeda(tester);
+      await jalankanPutaran(tester, sistolik: 148, diastolik: 100);
+      await ukurLagi(tester);
       await jalankanPutaran(tester);
 
       expect(find.text('Hasilnya belum bisa dipakai'), findsOneWidget);
@@ -627,9 +788,14 @@ void main() {
         find.textContaining('Selisih antar putaran terlalu jauh'),
         findsOneWidget,
       );
-      // Tidak ada jalan mengirimnya; yang ditawarkan hanya mengulang.
+      // Tidak ada jalan mengirimnya. Yang ditawarkan lebih dulu adalah putaran
+      // berikutnya — median menyingkirkan yang menyimpang, dan membuang tiga
+      // putaran yang sudah dikerjakan hanya karena satu di antaranya kacau
+      // adalah cara memastikan tidak ada kalibrasi sama sekali. Mengulang dari
+      // awal tetap ada, sebagai pilihan kedua.
       expect(find.text('Kirim ke Jam'), findsNothing);
-      expect(find.text('Ulangi Kalibrasi'), findsOneWidget);
+      expect(find.text('Ukur Sekali Lagi'), findsOneWidget);
+      expect(find.text('Ulangi kalibrasi dari awal'), findsOneWidget);
       expect(c.kalibrasiTerakhir, isNull);
     });
   });

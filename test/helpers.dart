@@ -17,6 +17,7 @@ import 'package:asawatch/repositories/sesi_login_repository.dart';
 import 'package:asawatch/services/ble_service.dart';
 import 'package:asawatch/services/sesi_server_service.dart';
 import 'package:asawatch/services/nutrisi_service.dart';
+import 'package:asawatch/services/layanan_latar.dart';
 import 'package:asawatch/services/pengingat_titik_ukur.dart';
 
 /// Registers the bundled Montserrat faces with the test binding.
@@ -100,6 +101,7 @@ SesiMakanController buatControllerUji({
   JadwalSesi? jadwal,
   DateTime Function()? jam,
   PengingatTitikUkur? pengingat,
+  LayananLatar? layanan,
   Future<String> Function(String nama)? jalurFoto,
   SesiServerService? serverSesi,
   SesiLoginRepository? sesiLogin,
@@ -134,6 +136,7 @@ SesiMakanController buatControllerUji({
     jadwal: jadwal ?? jadwalNormal.dibagi(percepatan),
     jam: jam,
     pengingat: pengingat,
+    layanan: layanan,
     jalurFoto: jalurFoto,
   );
 }

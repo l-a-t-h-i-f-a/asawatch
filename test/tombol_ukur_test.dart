@@ -16,6 +16,7 @@ import 'package:asawatch/models/jadwal_sesi.dart';
 import 'package:asawatch/models/sesi_makan.dart';
 import 'package:asawatch/services/ble_service.dart';
 import 'package:asawatch/beranda_tab.dart';
+import 'package:asawatch/main.dart';
 import 'package:asawatch/sesi_berjalan_page.dart';
 
 import 'package:asawatch/services/pengingat_titik_ukur.dart';
@@ -26,6 +27,10 @@ import 'helpers.dart';
 class PengingatPencatat implements PengingatTitikUkur {
   final List<({DateTime t0, List<int> index})> panggilan = [];
   int dibatalkan = 0;
+  int disiapkan = 0;
+
+  @override
+  Future<void> siapkan() async => disiapkan++;
 
   @override
   Future<void> jadwalkan({
@@ -485,6 +490,27 @@ void main() {
   });
 
   group('Pengingat titik ukur', () {
+    testWidgets('izinnya diminta saat masuk aplikasi, bukan saat sesi mulai', (
+      tester,
+    ) async {
+      final pengingat = PengingatPencatat();
+      final c = buatControllerUji(pengingat: pengingat);
+
+      await pumpHalaman(
+        tester,
+        const MyHomePage(title: 'AsaWatch'),
+        controller: c,
+      );
+      await tester.pumpAndSettle();
+
+      // Diminta sebelum ada sesi apa pun. Dialog izin yang muncul di detik
+      // sesi dimulai — saat pengguna sedang berdiri di depan piringnya —
+      // ditolak karena menghalangi, dan yang hilang bukan dialognya melainkan
+      // empat pengingat titik ukurnya.
+      expect(pengingat.disiapkan, 1);
+      expect(pengingat.panggilan, isEmpty);
+    });
+
     testWidgets('dijadwalkan begitu t0 ada, hanya untuk titik yang menunggu', (
       tester,
     ) async {

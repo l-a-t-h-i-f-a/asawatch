@@ -492,8 +492,19 @@ class FakeBleService implements BleService {
     return tekanSelesaiMakan();
   }
 
+  /// Setiap `UKUR` yang pernah dikirim aplikasi, **termasuk yang ditolak**.
+  ///
+  /// Ada karena sampel yang tiba terlihat persis sama entah aplikasi yang
+  /// memintanya atau jam yang menjadwalkannya sendiri — dan sejak pengukuran
+  /// titik berjalan otomatis (docs/rencana-produksi.md §7.1), "siapa yang
+  /// meminta" justru menjadi pertanyaannya. Yang ditolak ikut dicatat supaya
+  /// percobaan ulang bisa dihitung.
+  final List<({String sesiId, int index})> permintaanUkur = [];
+
   @override
   Future<bool> mintaUkur(String sesiId, int index) async {
+    permintaanUkur.add((sesiId: sesiId, index: index));
+
     // Jam sungguhan menolak `UKUR` selama belum di-ARM (§9), dan jam yang
     // terputus tidak menerimanya sama sekali. Jam palsu meniru keduanya supaya
     // jalur "baseline tidak akan pernah datang" benar-benar terlewati di test.

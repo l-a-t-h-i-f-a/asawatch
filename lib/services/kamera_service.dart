@@ -26,6 +26,16 @@ abstract class KameraService {
   /// Menyalakan kamera belakang. Melempar [GalatKamera] bila gagal.
   Future<void> siapkan();
 
+  /// Apakah dialog izin sistem sedang terbuka menunggu jawaban.
+  ///
+  /// Halaman perlu tahu ini karena dialog izin **juga** memindahkan aplikasi ke
+  /// `inactive`, persis seperti masuk latar belakang — padahal aplikasinya
+  /// masih di depan mata, kameranya belum sempat dibuka, dan yang ditunggu
+  /// justru jawaban dialog itu. Halaman yang memperlakukannya sebagai masuk
+  /// latar belakang akan membuang jawabannya sendiri dan bertanya lagi, yang
+  /// dari sisi pengguna adalah dialog yang muncul terus tanpa ujung.
+  bool get sedangMintaIzin;
+
   /// Melepas kamera. Wajib dipanggil saat halaman ditutup **dan** saat aplikasi
   /// masuk latar belakang: Android mencabut paksa kamera dari aplikasi yang
   /// tidak terlihat, dan pratinjau yang tidak dilepas kembali sebagai layar
@@ -60,11 +70,21 @@ abstract class KameraService {
 ///
 /// [izinDitolak] dipisahkan karena hanya kasus itu yang jalan keluarnya bukan
 /// "coba lagi" melainkan membuka pengaturan aplikasi.
+///
+/// [karenaIzin] lebih luas: ia menandai **setiap** kegagalan yang sebabnya
+/// izin, termasuk penolakan sekali yang masih bisa ditanyakan lagi. Halaman
+/// memakainya untuk satu keputusan yang tidak bisa diambil dari [izinDitolak]:
+/// sesudah kegagalan izin, kembalinya aplikasi ke layar **tidak** boleh
+/// memunculkan dialog izin lagi dengan sendirinya. Setiap kegagalan izin yang
+/// permanen tentu juga kegagalan karena izin, jadi bawaannya mengikuti
+/// [izinDitolak].
 class GalatKamera implements Exception {
-  const GalatKamera(this.pesan, {this.izinDitolak = false});
+  const GalatKamera(this.pesan, {this.izinDitolak = false, bool? karenaIzin})
+    : karenaIzin = karenaIzin ?? izinDitolak;
 
   final String pesan;
   final bool izinDitolak;
+  final bool karenaIzin;
 
   @override
   String toString() => 'GalatKamera: $pesan';
@@ -103,6 +123,11 @@ class KameraAsliService implements KameraService {
     return berikutnya;
   }
 
+  bool _mintaIzin = false;
+
+  @override
+  bool get sedangMintaIzin => _mintaIzin;
+
   @override
   bool get siap => _kendali?.value.isInitialized ?? false;
 
@@ -131,7 +156,13 @@ class KameraAsliService implements KameraService {
     //
     // Dengan urutan ini, saat `initialize()` dipanggil izinnya sudah pasti ada,
     // dan tidak ada dialog yang bisa menyela.
-    final izin = await Permission.camera.request();
+    _mintaIzin = true;
+    final PermissionStatus izin;
+    try {
+      izin = await Permission.camera.request();
+    } finally {
+      _mintaIzin = false;
+    }
     if (!izin.isGranted) {
       throw GalatKamera(
         izin.isPermanentlyDenied
@@ -139,8 +170,10 @@ class KameraAsliService implements KameraService {
                   'aplikasi, lalu nyalakan izin Kamera.'
             : 'AsaWatch perlu izin kamera untuk memotret makanan Anda.',
         // Hanya yang permanen yang butuh Pengaturan; yang baru ditolak sekali
-        // masih bisa ditanya lagi oleh tombol "Coba Lagi".
+        // masih bisa ditanya lagi oleh tombol "Coba Lagi" — tetapi hanya oleh
+        // tombol itu, tidak oleh aplikasi yang sekadar kembali ke layar.
         izinDitolak: izin.isPermanentlyDenied,
+        karenaIzin: true,
       );
     }
 
@@ -321,6 +354,9 @@ class KameraPalsuService implements KameraService {
 
   @override
   bool get siap => _siap;
+
+  @override
+  bool get sedangMintaIzin => false;
 
   @override
   bool get punyaLampu => true;

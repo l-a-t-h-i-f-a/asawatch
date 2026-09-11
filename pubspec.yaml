@@ -76,6 +76,17 @@ dependencies:
   image_picker: ^1.1.2
   path_provider: ^2.1.5
   flutter_local_notifications: ^22.3.0
+  # Sesi berlangsung ~2,5 jam dan pengguna pasti meninggalkan aplikasi. Tanpa
+  # foreground service, Android membunuh prosesnya jauh sebelum titik `+1 jam`
+  # jatuh tempo — dan proses yang mati tidak bisa mengirim `UKUR`, tidak bisa
+  # mengirim `ARM_TITIK`, dan tidak bisa menyambung ulang. Ini prasyarat
+  # pengukuran otomatis, bukan pemanis (rencana-produksi.md §7.1).
+  #
+  # 11.0.3 memakai `compileSdk 35`, jadi ia **tidak** mengulang jebakan yang
+  # memaku `permission_handler` dan `flutter_secure_storage`: keduanya dipatok
+  # karena versi barunya menuntut `compileSdk 37` sementara AGP di sini
+  # berhenti di 36.
+  flutter_foreground_task: ^11.0.3
   timezone: ^0.11.1
   google_sign_in: ^7.2.0
 

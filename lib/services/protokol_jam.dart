@@ -154,6 +154,45 @@ abstract final class ProtokolJam {
   static const Duration backoffAwal = Duration(seconds: 1);
   static const Duration backoffMaks = Duration(seconds: 60);
 
+  /// Batas backoff **sesudah** jam terbukti lama tidak terjangkau.
+  ///
+  /// Satu percobaan sambung adalah paging langsung selama `timeout` 15 detik —
+  /// radio menyala penuh, bukan menunggu pasif. Digabung dengan batas 60 detik,
+  /// keadaan mantapnya adalah ~20% duty cycle yang berjalan **selamanya**
+  /// selama aplikasi hidup: jam yang ditinggal di rumah dipanggil 48 kali per
+  /// jam, sepanjang hari.
+  ///
+  /// Selama ini yang diam-diam menghentikannya adalah Android sendiri, yang
+  /// membunuh prosesnya di latar belakang. Foreground service sesi
+  /// (rencana-produksi.md §7.1) mencabut penghenti itu — jadi batas kedua ini
+  /// bukan penghematan tambahan, melainkan pengganti sesuatu yang baru saja
+  /// hilang.
+  static const Duration backoffMaksLama = Duration(minutes: 5);
+
+  /// Sesudah gagal beruntun selama ini, [backoffMaksLama] yang berlaku.
+  ///
+  /// Sepuluh menit dipilih supaya seluruh gangguan yang memang sesaat — masuk
+  /// lift, jam ditaruh di meja sebentar, radio sibuk — sudah lewat sebelum
+  /// pelambatan dimulai. Yang tersisa sesudahnya hanya satu kemungkinan: jamnya
+  /// memang tidak ada.
+  static const Duration ambangBackoffLama = Duration(minutes: 10);
+
+  /// Jeda berikutnya sesudah satu percobaan sambung gagal.
+  ///
+  /// Fungsi murni, dipisahkan dari `BleAsliService` dengan alasan yang sama
+  /// seperti seluruh isi berkas ini: bagian yang menuntut radio tidak bisa
+  /// diuji, bagian yang tidak menuntut radio harus bisa.
+  static Duration backoffBerikutnya({
+    required Duration sekarang,
+    required Duration sejakGagalPertama,
+  }) {
+    final maks = sejakGagalPertama >= ambangBackoffLama
+        ? backoffMaksLama
+        : backoffMaks;
+    final berikutnya = sekarang * 2;
+    return berikutnya > maks ? maks : berikutnya;
+  }
+
   /// Nama iklan jam selalu diawali ini (§2.2) — dipakai sebagai jaring kedua
   /// setelah service UUID.
   static const String awalanNama = 'AsaWatch';

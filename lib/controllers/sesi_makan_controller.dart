@@ -12,6 +12,7 @@ import '../repositories/entri_jam_repository.dart';
 import '../repositories/kalibrasi_repository.dart';
 import '../repositories/sesi_repository.dart';
 import '../services/ble_service.dart';
+import '../services/layanan_latar.dart';
 import '../services/nutrisi_service.dart';
 import '../services/kamera_service.dart' show jalurFotoTetap;
 import '../services/pengingat_titik_ukur.dart';
@@ -50,8 +51,10 @@ class SesiMakanController extends ChangeNotifier {
     JadwalSesi? jadwal,
     DateTime Function()? jam,
     PengingatTitikUkur? pengingat,
+    LayananLatar? layanan,
     Future<String> Function(String nama)? jalurFoto,
   }) : jalurFoto = jalurFoto ?? jalurFotoTetap,
+       layanan = layanan ?? const LayananLatarDiam(),
        jam = jam ?? DateTime.now,
        pengingat = pengingat ?? const PengingatDiam(),
        jadwal = jadwal ?? jadwalBawaan,
@@ -168,6 +171,14 @@ class SesiMakanController extends ChangeNotifier {
   /// yang menyentuh sesi akan mencoba memanggil platform channel notifikasi yang
   /// tidak ada di bawah `flutter_test`.
   final PengingatTitikUkur pengingat;
+
+  /// Foreground service yang menjaga proses tetap hidup selama sesi berjalan
+  /// (docs/rencana-produksi.md §7.1).
+  ///
+  /// Bawaannya [LayananLatarDiam] dengan alasan yang persis sama seperti
+  /// [pengingat]: `main()` yang merakit yang sungguhan, dan `flutter_test`
+  /// tidak punya kanal platform untuk service Android.
+  final LayananLatar layanan;
   final SesiRepository? repo;
 
   /// Unggahan riwayat ke server. null berarti aplikasi ini memang tidak
@@ -536,6 +547,115 @@ class SesiMakanController extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ==========================================================================
+  // Foreground service — docs/rencana-produksi.md §7.1
+  // ==========================================================================
+
+  Timer? _timerLayanan;
+  String? _judulLayanan;
+  String? _isiLayanan;
+
+  /// Menyalakan, memperbarui, atau menghentikan foreground service sesuai
+  /// keadaan sesi sekarang.
+  ///
+  /// **Dipanggil dari [notifyListeners], bukan dari sebelas tempat yang
+  /// menugaskan `_sesiAktif`.** Itu bukan kemalasan: satu di antara sebelas
+  /// yang lupa memanggil akan meninggalkan service menyala sesudah sesinya
+  /// selesai — notifikasi permanen untuk sesuatu yang sudah tidak ada, dan
+  /// tidak satu pun layar yang menunjukkannya. Setiap perubahan keadaan sesi
+  /// sudah pasti memberi tahu pendengarnya; tidak ada jalur kedua.
+  void _selaraskanLayanan() {
+    final sesi = _sesiAktif;
+
+    if (sesi == null || !sesi.status.sedangAktif) {
+      _timerLayanan?.cancel();
+      _timerLayanan = null;
+      // Percobaan ulang pengukuran mati bersama sesinya, di tempat yang sama.
+      // Sesi berakhir lewat lima jalan berbeda — selesai, dibatalkan, tenggat,
+      // "akhiri lebih awal", dan pergantian akun — dan timer yang harus
+      // dibatalkan di lima tempat pada akhirnya tertinggal di salah satunya,
+      // lalu mengirim `UKUR` untuk sesi yang sudah tidak ada.
+      _timerUlangUkur?.cancel();
+      _timerUlangUkur = null;
+      if (_judulLayanan != null) {
+        _judulLayanan = null;
+        _isiLayanan = null;
+        unawaited(layanan.hentikan());
+      }
+      return;
+    }
+
+    // Hitung mundurnya bergerak sendiri, sedangkan pendengar hanya diberi tahu
+    // saat ada peristiwa — dan di antara dua titik ukur tidak ada peristiwa apa
+    // pun selama satu jam. Tanpa denyut ini notifikasinya membeku pada angka
+    // yang benar satu jam yang lalu, yang lebih buruk daripada tidak ada angka.
+    _timerLayanan ??= Timer.periodic(
+      Duration(seconds: jadwal.uji ? 1 : 30),
+      (_) => _selaraskanLayanan(),
+    );
+
+    final (judul, isi) = _kabarLayanan(sesi);
+    if (judul == _judulLayanan && isi == _isiLayanan) return;
+    _judulLayanan = judul;
+    _isiLayanan = isi;
+    unawaited(layanan.pastikanJalan(judul: judul, isi: isi));
+  }
+
+  /// Isi notifikasi persisten.
+  ///
+  /// Ia menemani pengguna 2,5 jam di lockscreen, jadi kalimatnya menyebut satu
+  /// hal saja: apa yang harus dilakukan orangnya sekarang. Untuk pengguna
+  /// lansia jawabannya nyaris selalu "pakai jamnya" — bukan "buka aplikasi",
+  /// karena aplikasi inilah yang akan mengukur.
+  (String, String) _kabarLayanan(SesiMakan sesi) {
+    if (sesi.t0 == null) {
+      return (
+        'Sesi makan disiapkan',
+        'Tekan tombol "Selesai Makan" di jam saat Anda selesai makan.',
+      );
+    }
+
+    final titik = titikBerikutnya;
+    if (titik == null) {
+      return (
+        'Sesi makan berjalan',
+        'Semua pengukuran sudah masuk. Sesi akan ditutup sendiri.',
+      );
+    }
+
+    final sisa = sisaSampaiTitikBerikutnya ?? Duration.zero;
+    if (sisa.inSeconds > 0) {
+      return (
+        'Sesi makan berjalan',
+        'Pengukuran ${titik.label} ${_sisaTerbaca(sisa)} lagi. '
+            'Pastikan jam terpakai di pergelangan.',
+      );
+    }
+    return (
+      'Saatnya pengukuran ${titik.label}',
+      'Pakai jam Anda dengan rapat — pengukurannya berjalan sendiri.',
+    );
+  }
+
+  /// "1 jam 5 menit", "6 menit", "kurang dari 1 menit".
+  ///
+  /// Detik sengaja tidak pernah ditulis: notifikasi ini hanya diperbarui tiap
+  /// setengah menit, jadi angka detik di dalamnya sudah salah begitu terbaca.
+  static String _sisaTerbaca(Duration sisa) {
+    final menit = sisa.inMinutes;
+    if (menit < 1) return 'kurang dari 1 menit';
+    if (menit < 60) return '$menit menit';
+    final jam = menit ~/ 60;
+    final sisaMenit = menit % 60;
+    return sisaMenit == 0 ? '$jam jam' : '$jam jam $sisaMenit menit';
+  }
+
+  @override
+  void notifyListeners() {
+    super.notifyListeners();
+    if (!_dibuang) _selaraskanLayanan();
+  }
+
   final Set<String> _sedangAnalisis = {};
 
   /// Analisis berjalan di latar belakang dan bisa selesai **setelah** controller
@@ -773,10 +893,88 @@ class SesiMakanController extends ChangeNotifier {
       return;
     }
 
-    if (_titikDiarm == '${sesi.id}#${titik.index}') return;
-    if (await ble.armTitik(sesi.id, titik.index)) {
-      _titikDiarm = '${sesi.id}#${titik.index}';
+    if (_titikDiarm != '${sesi.id}#${titik.index}') {
+      if (await ble.armTitik(sesi.id, titik.index)) {
+        _titikDiarm = '${sesi.id}#${titik.index}';
+      }
     }
+
+    unawaited(_ukurOtomatis());
+  }
+
+  Timer? _timerUlangUkur;
+  String? _ukurOtomatisBerjalan;
+
+  /// Mengukur titik yang sudah jatuh tempo **tanpa menunggu ada yang menekan
+  /// apa pun**.
+  ///
+  /// Ini alasan foreground service ada (docs/rencana-produksi.md §7.1). Sampai
+  /// sekarang setiap titik menuntut satu tindakan manusia pada menit yang
+  /// tepat — tombol di jam atau tombol di aplikasi — dan pengguna aplikasi ini
+  /// lansia: titik yang terlewat tidak punya pengganti, dan arah kesalahannya
+  /// justru menenangkan (docs/jadwal-titik-ukur.md §3).
+  ///
+  /// **Jalur yang dipakai sama persis dengan tombolnya**, sampai ke pemanggilan
+  /// [ukurTitikSekarang] yang sama. Itu disengaja: tidak ada perilaku kedua
+  /// yang harus dijaga sebanding, dan tidak ada keadaan di mana yang otomatis
+  /// mengukur titik yang berbeda dari yang ditekan orang.
+  ///
+  /// **Tombol fisik di jam tidak digantikan.** Ia satu-satunya yang bekerja
+  /// saat ponsel tidak ada di tangan, dan itu keadaan yang lazim sambil makan.
+  ///
+  /// Terhadap firmware yang belum melayani `UKUR` di luar ARMED (protokol §12
+  /// v1.3 perubahan 1), perintah ini dijawab `NAK` dan yang tersisa adalah
+  /// jalur tombol — persis seperti sebelum fungsi ini ada. Tidak ada yang
+  /// rusak selama firmware belum menyusul; yang hilang hanya otomatisasinya.
+  Future<void> _ukurOtomatis() async {
+    final sesi = _sesiAktif;
+    final titik = titikBerikutnya;
+    if (sesi == null || titik == null) return;
+
+    final kunci = '${sesi.id}#${titik.index}';
+    // Satu percobaan pada satu waktu. `_armTitikBerikutnya` dipanggil dari
+    // setiap notifikasi status jam, jadi tanpa penjaga ini satu jam yang cerewet
+    // menghasilkan belasan `UKUR` untuk titik yang sama.
+    if (_ukurOtomatisBerjalan == kunci) return;
+    _ukurOtomatisBerjalan = kunci;
+    try {
+      final galat = await ukurTitikSekarang();
+      if (galat != null) {
+        debugPrint('Ukur otomatis ${titik.label} belum berhasil: $galat');
+      }
+    } finally {
+      _ukurOtomatisBerjalan = null;
+    }
+
+    _jadwalkanUlangUkur(titik);
+  }
+
+  /// Mencoba lagi selama titiknya masih kosong.
+  ///
+  /// **Percobaan ulang inilah keuntungan terbesar pengukuran otomatis**, lebih
+  /// besar daripada tidak perlu menekan tombol. Satu pengukuran yang gagal —
+  /// pergelangan dingin, tali longgar, jam baru saja dinyalakan — hari ini
+  /// berarti titik itu hilang, karena tidak ada yang tahu ia gagal sampai
+  /// sesinya berakhir. Jendela `+1 jam` selebar 15 menit; ia memuat beberapa
+  /// percobaan dengan longgar.
+  ///
+  /// Jedanya diturunkan dari lebar jendela titik itu sendiri, bukan konstanta:
+  /// jadwal uji yang dimampatkan 60x akan menghabiskan seluruh jendelanya
+  /// sebelum percobaan kedua bila angkanya ditulis tetap.
+  void _jadwalkanUlangUkur(TitikJadwal titik) {
+    _timerUlangUkur?.cancel();
+    _timerUlangUkur = null;
+    if (!titik.berjendela) return;
+    if (_dibuang || !(_sesiAktif?.status.sedangAktif ?? false)) return;
+
+    final lebar = (titik.jendelaAkhir! - titik.jendelaAwal!) ~/ 5;
+    _timerUlangUkur = Timer(Duration(seconds: lebar < 3 ? 3 : lebar), () {
+      _timerUlangUkur = null;
+      // Lewat `_armTitikBerikutnya`, bukan langsung ke `_ukurOtomatis`: titiknya
+      // mungkin sudah terisi, sesinya mungkin sudah berakhir, dan tombol
+      // fisiknya mungkin perlu di-ARM ulang setelah jam sempat mati.
+      unawaited(_armTitikBerikutnya());
+    });
   }
 
   /// Kunci `sesiId#index` terakhir yang berhasil di-ARM.
@@ -1302,7 +1500,7 @@ class SesiMakanController extends ChangeNotifier {
             diperbarui.t0 != null
         ? diperbarui.salin(status: StatusSesi.berjalan)
         : diperbarui;
-    _simpanAktif();
+    _simpanAktifLaluKirim();
     // Titik ini sudah terisi; yang berikutnya perlu tombolnya sendiri.
     unawaited(_armTitikBerikutnya());
     notifyListeners();
@@ -1340,9 +1538,11 @@ class SesiMakanController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Menulis sesi yang berakhir, lalu mengunggah **hasil tulisannya** — bukan
-  /// salinan yang dipegang pemanggil, yang stempelnya masih dari sebelum
-  /// penulisan ini.
+  /// Menulis satu sesi, lalu mengunggah **hasil tulisannya** — bukan salinan
+  /// yang dipegang pemanggil, yang stempelnya masih dari sebelum penulisan ini.
+  ///
+  /// Dipakai dua kali: saat sesi berakhir, dan setiap kali satu titik ukur
+  /// terisi ([_simpanAktifLaluKirim]).
   Future<void> _simpanLaluKirim(SesiMakan sesi) async {
     final tersimpan = await _simpan(sesi);
     await _kirimKeServer(tersimpan ?? sesi);
@@ -1365,6 +1565,28 @@ class SesiMakanController extends ChangeNotifier {
   void _simpanAktif() {
     final sesi = _sesiAktif;
     if (sesi != null) unawaited(_simpan(sesi));
+  }
+
+  /// Menulis sesi yang masih berjalan, lalu **mengunggahnya juga** — dipakai
+  /// setiap kali satu titik ukur terisi.
+  ///
+  /// Sebelum ini server tidak melihat apa pun antara draft yang diunggah saat
+  /// rana ditekan dan sesi yang sudah selesai dua setengah jam kemudian:
+  /// keempat titiknya sampai sekaligus di akhir. Sapuan
+  /// [kirimRiwayatKeServer] tidak menutup celah itu, karena ia berjalan atas
+  /// `_riwayat` saja dan sesi aktif tidak ada di sana. Dashboard karena itu
+  /// tidak bisa memantau sesi yang sedang berjalan.
+  ///
+  /// Aman diulang: endpoint §5.2 adalah upsert, dan aturan server "sampel yang
+  /// sudah `terisi` tidak pernah ditimpa" berarti tiap titik ditulis sekali,
+  /// pada kiriman pertama yang membawanya. Urutan simpan-dulu-baru-kirim sama
+  /// alasannya dengan [_simpanLaluKirim]: yang diunggah harus sesi berstempel
+  /// hasil penulisan, bukan salinan sebelum penulisan — kalau tidak, server
+  /// menolaknya `409 konflik_versi`. Kegagalannya diam, seperti unggahan lain:
+  /// datanya tetap di ponsel dan sesi ini akan dikirim utuh saat berakhir.
+  void _simpanAktifLaluKirim() {
+    final sesi = _sesiAktif;
+    if (sesi != null) unawaited(_simpanLaluKirim(sesi));
   }
 
   /// Menulis satu sesi, lalu **menempelkan stempel hasil tulisan itu** ke
@@ -1420,7 +1642,8 @@ class SesiMakanController extends ChangeNotifier {
     return _riwayat.where((s) => s.id == sesiId).firstOrNull;
   }
 
-  /// Mengunggah satu sesi yang sudah berakhir.
+  /// Mengunggah satu sesi — yang sudah berakhir, atau yang baru saja bertambah
+  /// satu titik ukur.
   ///
   /// Diam-diam, dan kegagalannya tidak diperlihatkan: berbeda dengan
   /// [galatPenyimpanan], gagal mengunggah **tidak menghilangkan apa pun** —
@@ -1727,6 +1950,12 @@ class SesiMakanController extends ChangeNotifier {
     _dibuang = true;
     _tenggat?.cancel();
     _timerArm?.cancel();
+    _timerUlangUkur?.cancel();
+    _timerLayanan?.cancel();
+    // Service milik sesi, bukan milik controller — tetapi controller yang
+    // dibuang tanpa menghentikannya meninggalkan notifikasi permanen yang tidak
+    // ada lagi pemiliknya, dan tidak ada apa pun yang akan menghapusnya.
+    unawaited(layanan.hentikan());
     _langgananSampel?.cancel();
     _langgananT0?.cancel();
     _langgananStatus?.cancel();

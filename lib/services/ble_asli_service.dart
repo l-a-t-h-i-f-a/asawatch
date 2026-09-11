@@ -134,6 +134,11 @@ class BleAsliService implements BleService {
   final List<StreamSubscription<dynamic>> _langganan = [];
   Timer? _reconnect;
   Duration _backoff = ProtokolJam.backoffAwal;
+
+  /// Kapan rentetan kegagalan sambung yang sedang berlangsung dimulai, null
+  /// bila percobaan terakhir berhasil. Dipakai [ProtokolJam.backoffBerikutnya]
+  /// untuk memutuskan kapan berhenti memanggil jam yang jelas tidak ada.
+  DateTime? _mulaiGagal;
   bool _dibuang = false;
 
   // --- Kontrak BleService ------------------------------------------------
@@ -567,6 +572,7 @@ class BleAsliService implements BleService {
     }
 
     _backoff = ProtokolJam.backoffAwal;
+    _mulaiGagal = null;
     _perbaruiStatus(
       _status.salin(
         tersambung: true,
@@ -698,6 +704,7 @@ class BleAsliService implements BleService {
     _info = null;
     _kontrol = null;
     _backoff = ProtokolJam.backoffAwal;
+    _mulaiGagal = null;
     _perbaruiStatus(StatusPerangkat.kosong);
   }
 
@@ -1613,10 +1620,18 @@ class BleAsliService implements BleService {
 
     // Backoff 1s → 2s → 4s → … → maks 60s (§8). Radio yang mencoba tiap detik
     // selama jam ditinggal di rumah adalah baterai yang habis sebelum sore.
-    final berikutnya = _backoff * 2;
-    _backoff = berikutnya > ProtokolJam.backoffMaks
-        ? ProtokolJam.backoffMaks
-        : berikutnya;
+    //
+    // Dan sesudah sepuluh menit gagal beruntun, batasnya naik ke lima menit.
+    // Satu percobaan adalah paging 15 detik dengan radio menyala penuh, jadi
+    // batas 60 detik berarti seperlima waktu dihabiskan memanggil jam yang
+    // tidak ada — dulu dihentikan Android yang membunuh prosesnya di latar
+    // belakang, yang tidak lagi terjadi begitu foreground service sesi
+    // menahannya tetap hidup.
+    _mulaiGagal ??= DateTime.now();
+    _backoff = ProtokolJam.backoffBerikutnya(
+      sekarang: _backoff,
+      sejakGagalPertama: DateTime.now().difference(_mulaiGagal!),
+    );
   }
 
   Future<void> _sambungkanUlang(String idPerangkat) async {
@@ -1685,6 +1700,10 @@ class BleAsliService implements BleService {
     final tersimpan = await perangkatRepo.muat();
     if (tersimpan == null) return;
     _backoff = ProtokolJam.backoffAwal;
+    // Kembali ke depan adalah isyarat baru, bukan percobaan ke-n: rentetan
+    // kegagalan sebelumnya tidak boleh memperlambat percobaan yang dipicu
+    // pengguna membuka aplikasi.
+    _mulaiGagal = null;
     await _sambungkanUlang(tersimpan.id);
   }
 

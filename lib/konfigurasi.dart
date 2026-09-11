@@ -13,12 +13,15 @@
 /// tidak menyeret satu baris pun kode demo ke dalam jalur produksinya.
 library;
 
+import 'dart:io';
+
 import 'models/jadwal_sesi.dart';
 import 'services/auth_http_service.dart';
 import 'services/auth_service.dart';
 import 'services/google_masuk_service.dart';
 import 'services/izin_ble.dart';
 import 'services/kamera_service.dart';
+import 'services/layanan_latar.dart';
 
 const bool pakaiJamPalsu = bool.fromEnvironment('PAKAI_JAM_PALSU');
 
@@ -190,3 +193,15 @@ KameraService buatKameraBawaan() =>
 const IzinBle izinBleBawaan = pakaiJamPalsu
     ? IzinBleSelaluBoleh()
     : IzinBlePermissionHandler();
+
+/// Foreground service yang menjaga sesi tetap hidup — lihat [LayananLatar].
+///
+/// Android saja. Bukan karena iOS tidak diurus, melainkan karena iOS memang
+/// tidak punya padanannya: prosesnya tidak bisa dipertahankan dua jam dengan
+/// cara apa pun, dan yang menggantikannya di sana sudah ada — buffer jam plus
+/// `BleAsliService.kembaliKeDepan()` saat aplikasi kembali ke depan
+/// (rencana-produksi.md §7.1). Di bawah `flutter_test` [Platform.isAndroid]
+/// bernilai true, tetapi kanal platformnya tidak ada — karena itu test tetap
+/// menyuntikkan [LayananLatarDiam] sendiri lewat controller.
+LayananLatar buatLayananLatarBawaan() =>
+    Platform.isAndroid ? LayananLatarAndroid() : const LayananLatarDiam();

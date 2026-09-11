@@ -147,6 +147,7 @@ Future<SesiMakanController> buatControllerBawaan({
     // menjadwalkan titik ukurnya sendiri (protokol §9 v1.3), tidak ada lagi
     // yang mengingatkan penggunanya selain ini.
     pengingat: PengingatLokal(),
+    layanan: buatLayananLatarBawaan(),
     // Unggahan riwayat satu arah (§5.2). Tanpa token, keduanya diam saja —
     // aplikasi tetap berjalan penuh tanpa server.
     serverSesi: SesiHttpService(
@@ -465,6 +466,26 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
+
+    // **Izin notifikasi diminta di sini, saat pengguna masuk ke aplikasi.**
+    // Sebelumnya ia diminta di dalam `PengingatLokal.jadwalkan`, yang berarti
+    // dialog sistem itu muncul tepat pada detik sesi dimulai — saat pengguna
+    // sedang berdiri di depan piringnya dan baru saja menekan tombol jam.
+    // Dialog yang muncul di saat itu ditolak karena menghalangi, dan yang
+    // hilang bukan dialognya melainkan empat pengingat titik ukur yang tidak
+    // ada lagi yang membunyikannya (docs/jadwal-titik-ukur.md §6).
+    //
+    // Tidak ditunggu, dan kegagalannya tidak menghalangi apa pun: izin yang
+    // ditolak hanya menghilangkan pengingat saat aplikasi tertutup, sedangkan
+    // seluruh layar sesi tetap bekerja apa adanya.
+    unawaited(
+      context.read<SesiMakanController>().pengingat.siapkan().catchError((
+        Object galat,
+      ) {
+        debugPrint('Izin notifikasi gagal diminta: $galat');
+      }),
+    );
+
     _tabs = [
       const BerandaTab(),
       const RiwayatTab(),

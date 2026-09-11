@@ -110,6 +110,37 @@ void main() {
       expect(server.diterima.last.status.sedangAktif, isFalse);
     });
 
+    // Tanpa ini server tidak melihat apa pun antara draft yang diunggah saat
+    // rana ditekan dan sesi yang selesai dua setengah jam kemudian: keempat
+    // titiknya sampai sekaligus di akhir, dan sesi yang sedang berjalan tidak
+    // bisa dipantau sama sekali. Sapuan `kirimRiwayatKeServer` tidak
+    // menutupinya — ia berjalan atas `riwayat` saja, dan sesi aktif tidak ada
+    // di sana.
+    test(
+      'titik ukur yang terisi langsung diunggah, sesi belum berakhir',
+      () async {
+        final server = SesiServerPalsu();
+        final c = buatControllerUji(
+          percepatan: 3600, // 1 jam jadwal = 1 detik nyata
+          serverSesi: server,
+          sesiLogin: _masuk(),
+        );
+        addTearDown(c.dispose);
+
+        await c.mulaiDraft('/tmp/foto.jpg');
+        (c.ble as FakeBleService).tekanSelesaiMakan();
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+
+        // Sesinya masih berjalan, dan server sudah memegang titik +1 jam.
+        expect(c.sesiAktif, isNotNull);
+        final terakhir = server.diterima.last;
+        expect(terakhir.status.sedangAktif, isTrue);
+        expect(terakhir.sampel[1].status, StatusSampel.terisi);
+
+        await c.batalkan();
+      },
+    );
+
     test('gagal mengunggah tidak menjatuhkan sesinya', () async {
       final server = SesiServerPalsu(gagal: true);
       final c = buatControllerUji(serverSesi: server, sesiLogin: _masuk());

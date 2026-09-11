@@ -36,11 +36,17 @@ import 'utils/format_waktu.dart';
 ///    tensimeter masuk**: melihat angka jam lebih dulu membuat orang "membetulkan"
 ///    angka yang diketiknya, dan koreksi yang lahir dari situ menipu diri
 ///    sendiri. Yang dulu dijaga oleh urutan, sekarang dijaga oleh tirai.
-/// 4. **Jeda satu menit antar putaran**, dihitung mundur di layar. Manset yang
-///    langsung dipompa ulang membaca terlalu tinggi.
-/// 5. **Hasilnya boleh ditolak.** Bila ketiga putaran terlalu jauh berbeda
-///    (`Kalibrasi.konsisten`), yang ditawarkan adalah mengulang — bukan
-///    mengirim median dari angka yang saling bertentangan.
+/// 4. **Satu putaran sudah cukup, putaran kedua ditawarkan bukan diwajibkan.**
+///    Alasannya ada di dokumentasi `Kalibrasi`: prosedur tiga putaran lebih
+///    sering berakhir tanpa kalibrasi sama sekali daripada dengan kalibrasi
+///    yang lebih baik. Yang memilih mengukur lagi tetap mendapat median, dan
+///    tetap melewati jeda satu menit — manset yang langsung dipompa ulang
+///    membaca terlalu tinggi.
+/// 5. **Hasilnya masih boleh ditolak, dengan dua sebab yang berbeda kalimat.**
+///    `Kalibrasi.masukAkal` menolak koreksi yang mustahil (periksa manset dan
+///    jam), `Kalibrasi.konsisten` menolak putaran yang saling bertentangan
+///    (ukur ulang saat lebih tenang). Menyuruh "ulangi" tanpa menyebut mana
+///    yang salah hanya mengulang kesalahan yang sama.
 class KalibrasiTekananDarahPage extends StatefulWidget {
   const KalibrasiTekananDarahPage({super.key});
 
@@ -93,6 +99,12 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
 
   /// Putaran ke berapa yang sedang berjalan, mulai dari 1.
   int get _nomorPutaran => _selesai.length + 1;
+
+  /// Berapa petak yang digambar penanda kemajuan. Bukan konstanta lagi:
+  /// putaran tambahan yang diminta pengguna memperpanjang prosedurnya.
+  int get _totalPutaran => _selesai.length < Kalibrasi.jumlahPutaran
+      ? Kalibrasi.jumlahPutaran
+      : _selesai.length + (_tahap == _Tahap.ringkasan ? 0 : 1);
 
   PutaranKalibrasi? get _putaranIni {
     final jam = _pembacaanJam;
@@ -219,6 +231,16 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
     });
   }
 
+  /// Putaran tambahan atas permintaan pengguna, dari ringkasan.
+  ///
+  /// Lewat jeda yang sama seperti dulu: yang membuat manset kedua membaca
+  /// terlalu tinggi adalah pembuluh yang belum pulih, dan itu tidak berubah
+  /// hanya karena putarannya sekarang sukarela.
+  void _ukurLagi() {
+    setState(() => _tahap = _Tahap.jeda);
+    _mulaiHitungMundur();
+  }
+
   void _lanjutSetelahJeda() {
     _jeda?.cancel();
     setState(() => _tahap = _Tahap.putaran);
@@ -235,7 +257,7 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
 
   Future<void> _kirim() async {
     final kalibrasi = _kalibrasi;
-    if (kalibrasi == null || !kalibrasi.konsisten) return;
+    if (kalibrasi == null || !kalibrasi.bisaDipakai) return;
 
     final controller = context.read<SesiMakanController>();
     final navigator = Navigator.of(context);
@@ -329,9 +351,9 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
         const SizedBox(height: 6),
         Text(
           'Jam mengukur tekanan darah dari gelombang nadi, jadi ia perlu satu '
-          'kali dibandingkan dengan tensimeter lengan atas. Prosesnya '
-          '${Kalibrasi.jumlahPutaran} kali pengukuran berpasangan, sekitar 10 '
-          'menit, dan berlaku ${Kalibrasi.masaBerlaku.inDays ~/ 7} minggu.',
+          'kali dibandingkan dengan tensimeter lengan atas. Prosesnya satu '
+          'kali pengukuran berpasangan, sekitar 3 menit, dan berlaku '
+          '${Kalibrasi.masaBerlaku.inDays ~/ 7} minggu.',
           style: const TextStyle(
             fontSize: 12,
             color: Color(0xFF6B807B),
@@ -461,9 +483,9 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
     // dan itu dikatakan apa adanya, bukan disamarkan sebagai "sedang
     // mengukur" (docs/protokol-jam.md §5.5 v1.4).
     final kemajuan = context.watch<SesiMakanController>().kemajuanUkur;
-    // Diperiksa sebelum tombolnya bisa ditekan, bukan sesudah: prosedur ini
-    // tiga putaran berjeda 60 detik, dan gagal di putaran terakhir karena
-    // baterai berarti seluruhnya diulang dari awal.
+    // Diperiksa sebelum tombolnya bisa ditekan, bukan sesudah: jam yang
+    // menolak mengukur karena baterai kritis (§5.5 bit2) akan menggagalkan
+    // pengukuran setelah manset terlanjur dipompa.
     final halangan = context
         .watch<SesiMakanController>()
         .alasanJamTidakBisaUkur;
@@ -471,13 +493,16 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _PenandaKemajuan(
-          selesai: _selesai.length,
-          total: Kalibrasi.jumlahPutaran,
-        ),
-        const SizedBox(height: 18),
+        if (_totalPutaran > 1) ...[
+          _PenandaKemajuan(selesai: _selesai.length, total: _totalPutaran),
+          const SizedBox(height: 18),
+        ],
         Text(
-          'Putaran $_nomorPutaran dari ${Kalibrasi.jumlahPutaran}',
+          // "Putaran 1 dari 1" adalah kalimat yang menimbulkan pertanyaan yang
+          // tidak perlu; prosedurnya memang satu pengukuran berpasangan.
+          _selesai.isEmpty
+              ? 'Ukur bersamaan'
+              : 'Pengukuran tambahan ke-$_nomorPutaran',
           style: const TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.bold,
@@ -659,9 +684,7 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
           const SizedBox(height: 16),
         ],
         _TombolUtama(
-          label: _selesai.length == Kalibrasi.jumlahPutaran - 1
-              ? 'Simpan & Lihat Hasil'
-              : 'Simpan Putaran $_nomorPutaran',
+          label: 'Simpan & Lihat Hasil',
           onPressed: putaran == null ? null : _simpanPutaran,
         ),
         const SizedBox(height: 10),
@@ -679,7 +702,7 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
     );
   }
 
-  // Tahap 3 — jeda wajib antar putaran.
+  // Tahap 3 — jeda sebelum putaran tambahan.
   Widget _tampilanJeda() {
     final total = Kalibrasi.jedaAntarPutaran.inSeconds;
     final sisa = _sisaJeda.clamp(0, total);
@@ -688,10 +711,7 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _PenandaKemajuan(
-          selesai: _selesai.length,
-          total: Kalibrasi.jumlahPutaran,
-        ),
+        _PenandaKemajuan(selesai: _selesai.length, total: _totalPutaran),
         const SizedBox(height: 28),
         Center(
           child: SizedBox(
@@ -752,9 +772,27 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
         ),
         const SizedBox(height: 28),
         _TombolUtama(
-          label: 'Mulai Putaran $_nomorPutaran',
+          label: 'Mulai Pengukuran ke-$_nomorPutaran',
           onPressed: selesai ? _lanjutSetelahJeda : null,
         ),
+        // Putaran tambahan diminta sendiri, jadi harus bisa dibatalkan sendiri
+        // — tanpa ini satu-satunya jalan keluar adalah mengulang dari awal,
+        // yang justru membuang putaran yang sudah benar.
+        if (_selesai.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Center(
+            child: TextButton(
+              onPressed: () => setState(() {
+                _jeda?.cancel();
+                _tahap = _Tahap.ringkasan;
+              }),
+              child: const Text(
+                'Cukup, pakai hasil yang tadi',
+                style: TextStyle(fontSize: 12, color: Color(0xFF8FA7A1)),
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: 24),
       ],
     );
@@ -763,18 +801,17 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
   // Tahap 4 — ringkasan dan pengiriman.
   Widget _ringkasan() {
     final kalibrasi = _kalibrasi!;
-    final konsisten = kalibrasi.konsisten;
+    final bisaDipakai = kalibrasi.bisaDipakai;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _PenandaKemajuan(
-          selesai: Kalibrasi.jumlahPutaran,
-          total: Kalibrasi.jumlahPutaran,
-        ),
-        const SizedBox(height: 18),
+        if (_totalPutaran > 1) ...[
+          _PenandaKemajuan(selesai: _totalPutaran, total: _totalPutaran),
+          const SizedBox(height: 18),
+        ],
         Text(
-          konsisten ? 'Hasil kalibrasi' : 'Hasilnya belum bisa dipakai',
+          bisaDipakai ? 'Hasil kalibrasi' : 'Hasilnya belum bisa dipakai',
           style: const TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.bold,
@@ -834,18 +871,47 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
         ),
         const SizedBox(height: 16),
 
-        if (!konsisten) ...[
+        if (!bisaDipakai) ...[
+          // Dua sebab, dua perbaikan. Koreksi yang mustahil menyuruh memeriksa
+          // alat sebelum mengukur lagi; sebaran yang lebar menyuruh menunggu
+          // tubuh tenang. Satu kalimat untuk keduanya akan salah separuh waktu.
           _KartuPeringatan(
-            teks:
-                'Selisih antar putaran terlalu jauh '
-                '(${kalibrasi.sebaranSistolik}/${kalibrasi.sebaranDiastolik} '
-                'mmHg, batasnya ${Kalibrasi.sebaranMaksimum}). Biasanya karena '
-                'manset kurang rapat, lengan tidak setinggi dada, atau tubuh '
-                'belum benar-benar istirahat. Ulangi kalibrasinya — koreksi '
-                'dari angka yang berbeda-beda akan salah selama sebulan penuh.',
+            teks: !kalibrasi.masukAkal
+                ? 'Selisih jam dengan tensimeter terlalu besar '
+                      '(${kalibrasi.ringkasanOffset}, batas wajarnya '
+                      '${Kalibrasi.offsetMaksimum} mmHg). Angka sebesar itu '
+                      'hampir selalu berarti pengukurannya yang gagal, bukan '
+                      'tekanan darahnya: manset kurang rapat atau salah ukuran, '
+                      'lengan tidak setinggi dada, atau jam tidak menempel di '
+                      'pergelangan. Periksa ketiganya, lalu ukur lagi.'
+                : 'Selisih antar putaran terlalu jauh '
+                      '(${kalibrasi.sebaranSistolik}/'
+                      '${kalibrasi.sebaranDiastolik} mmHg, batasnya '
+                      '${Kalibrasi.sebaranMaksimum}). Biasanya karena tubuh '
+                      'belum benar-benar istirahat. Duduk tenang beberapa '
+                      'menit, lalu ukur ulang — koreksi dari angka yang '
+                      'berbeda-beda akan salah selama sebulan penuh.',
           ),
           const SizedBox(height: 16),
-          _TombolUtama(label: 'Ulangi Kalibrasi', onPressed: _ulangSemua),
+          // Dua putaran yang bertengkar tidak butuh dibuang, mereka butuh
+          // suara ketiga: mediannya kemudian menyingkirkan yang menyimpang.
+          // Koreksi yang mustahil tidak mendapat tawaran itu — angka sejauh
+          // itu tidak boleh ikut menentukan median apa pun.
+          if (!kalibrasi.masukAkal)
+            _TombolUtama(label: 'Ulangi Kalibrasi', onPressed: _ulangSemua)
+          else ...[
+            _TombolUtama(label: 'Ukur Sekali Lagi', onPressed: _ukurLagi),
+            const SizedBox(height: 10),
+            Center(
+              child: TextButton(
+                onPressed: _ulangSemua,
+                child: const Text(
+                  'Ulangi kalibrasi dari awal',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF8FA7A1)),
+                ),
+              ),
+            ),
+          ],
         ] else ...[
           Container(
             width: double.infinity,
@@ -867,9 +933,14 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Nilai tengah dari ${Kalibrasi.jumlahPutaran} putaran, untuk '
-                  '${kalibrasi.sisi.label.toLowerCase()}. Jam akan '
-                  'menambahkannya pada tiap pengukuran berikutnya sampai '
+                  // Angka bertanda tidak bisa dinilai oleh orang yang baru
+                  // saja mengukur; kalimatnya bisa. Ini satu-satunya
+                  // kesempatan menolak hasil yang aneh sebelum ia dipakai
+                  // empat minggu — dengan satu putaran, tidak ada putaran lain
+                  // yang akan membantahnya.
+                  '${kalibrasi.kalimatOffset} '
+                  '${kalibrasi.putaran.length > 1 ? "Nilai tengah dari ${kalibrasi.putaran.length} putaran, untuk" : "Berlaku untuk"} '
+                  '${kalibrasi.sisi.label.toLowerCase()}, sampai '
                   '${formatTanggal(kalibrasi.berlakuSampai)}.',
                   style: const TextStyle(
                     fontSize: 11,
@@ -890,6 +961,18 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
             onPressed: _sedangMengirim ? null : _kirim,
           ),
           const SizedBox(height: 10),
+          // Prosedur tiga putaran tidak dibuang, hanya berhenti diwajibkan:
+          // yang ragu pada angkanya bisa menambah putaran, dan mediannya
+          // dipakai. Sekunder, karena satu putaran sudah cukup untuk dikirim.
+          Center(
+            child: TextButton(
+              onPressed: _ukurLagi,
+              child: const Text(
+                'Ukur sekali lagi untuk lebih yakin',
+                style: TextStyle(fontSize: 12, color: Color(0xFF0EAD69)),
+              ),
+            ),
+          ),
           Center(
             child: TextButton(
               onPressed: _ulangSemua,

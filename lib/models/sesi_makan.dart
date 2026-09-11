@@ -711,16 +711,34 @@ String? galatReferensiTensimeter({int? sistolik, int? diastolik}) {
   return null;
 }
 
-/// Kalibrasi tekanan darah: **tiga** putaran tensimeter + jam, bukan satu.
+/// Kalibrasi tekanan darah: satu putaran tensimeter + jam, dengan putaran
+/// tambahan sebagai pilihan.
 ///
 /// Metodenya mengikuti alat sejenis yang sudah dipakai luas (Samsung Health
-/// Monitor). Tiga hal di dalamnya bukan hiasan:
+/// Monitor), **kecuali jumlah putarannya**. Tiga hal di dalamnya bukan hiasan:
 ///
-/// 1. **Tiga putaran, koreksinya diambil median.** Satu pengukuran manset
-///    tunggal bisa meleset belasan mmHg karena manset kendur, lengan tidak
-///    setinggi jantung, atau user baru saja berjalan. Dengan satu putaran,
-///    meleset itu langsung menjadi koreksi permanen. Median dari tiga tahan
-///    terhadap satu putaran yang kacau; rata-rata tidak.
+/// 1. **Satu putaran, dan penjaganya besar koreksinya — bukan sebarannya.**
+///    Prosedur tiga putaran memang lebih tahan terhadap satu pembacaan yang
+///    kacau, tetapi harganya ternyata lebih mahal daripada yang dibelinya:
+///    pengukuran jam sendiri lambat, tensimeter rumahan berisik, dan tiga
+///    putaran yang berselisih berakhir di [konsisten] `false` — yang berarti
+///    **tidak ada yang tersimpan sama sekali**. Hasil akhirnya bukan kalibrasi
+///    yang lebih akurat, melainkan tidak ada kalibrasi: jam terus memakai
+///    angka mentahnya, yang melesetnya jauh lebih besar daripada satu putaran
+///    manset yang agak berisik. Pembandingnya bukan "benar lawan agak salah",
+///    melainkan "agak salah lawan sangat salah".
+///
+///    Yang menggantikan penjaga sebaran adalah [masukAkal]: koreksi di atas
+///    [offsetMaksimum] hampir pasti bukan tekanan darah yang tinggi melainkan
+///    pembacaan yang gagal. Ia sengaja longgar — penjaga yang ketat akan
+///    mengembalikan persis masalah yang dihapus di sini. Ia juga menambal
+///    lubang yang selalu ada di jalur tiga putaran: tiga pembacaan yang
+///    sama-sama salah ke arah yang sama punya sebaran kecil, jadi lolos
+///    [konsisten] sambil salah bersama-sama.
+///
+///    Median tetap dipakai bila [putaran] lebih dari satu, dan [konsisten]
+///    tetap diperiksa di sana — putaran tambahan ditawarkan di ringkasan bagi
+///    yang mau lebih yakin. Yang hilang hanya kewajibannya.
 /// 2. **Kalibrasi punya tanggal kedaluwarsa** ([masaBerlaku], 4 minggu).
 ///    Hubungan antara gelombang nadi di pergelangan dan tekanan sebenarnya
 ///    ikut bergeser mengikuti tonus pembuluh, berat badan, dan obat. Koreksi
@@ -757,8 +775,16 @@ class Kalibrasi {
          ],
        );
 
-  /// Jumlah putaran yang diminta alur kalibrasi baru.
-  static const int jumlahPutaran = 3;
+  /// Jumlah putaran yang diminta sebelum hasilnya boleh dikirim. Sisanya
+  /// pilihan pengguna, bukan syarat.
+  static const int jumlahPutaran = 1;
+
+  /// Koreksi terbesar (mmHg) yang masih mungkin lahir dari pengukuran yang
+  /// benar. Di atas ini yang terjadi hampir pasti manset kendur, lengan tidak
+  /// setinggi jantung, atau jam yang tidak menempel — bukan tekanan darah.
+  ///
+  /// Longgar dengan sengaja: lihat butir 1 di dokumentasi kelas ini.
+  static const int offsetMaksimum = 30;
 
   /// Jeda minimum antar putaran. Manset yang langsung dipompa ulang membaca
   /// terlalu tinggi — pembuluh di lengan belum pulih dari tekanan sebelumnya.
@@ -794,11 +820,28 @@ class Kalibrasi {
   int get sebaranDiastolik =>
       _sebaran([for (final p in putaran) p.offsetDiastolik]);
 
-  /// Ketiga putaran cukup mirip satu sama lain untuk dirangkum jadi satu
+  /// Putaran-putarannya cukup mirip satu sama lain untuk dirangkum jadi satu
   /// koreksi. Bila tidak, yang benar adalah mengulang — bukan mengirim median
   /// dari angka yang saling bertentangan.
+  ///
+  /// **Satu putaran selalu konsisten**, dan itu bukan kelonggaran melainkan
+  /// arti kata: sebaran satu angka adalah nol karena tidak ada pembandingnya.
+  /// Yang menjaga jalur satu putaran adalah [masukAkal].
   bool get konsisten =>
-      sebaranSistolik <= sebaranMaksimum && sebaranDiastolik <= sebaranMaksimum;
+      putaran.length < 2 ||
+      (sebaranSistolik <= sebaranMaksimum &&
+          sebaranDiastolik <= sebaranMaksimum);
+
+  /// Koreksinya sendiri masih dalam batas yang mungkin ([offsetMaksimum]).
+  bool get masukAkal =>
+      offsetSistolik.abs() <= offsetMaksimum &&
+      offsetDiastolik.abs() <= offsetMaksimum;
+
+  /// Kedua penjaga sekaligus — inilah yang memutuskan boleh-tidaknya dikirim
+  /// ke jam. Keduanya dipisah karena kalimat perbaikannya berbeda: sebaran
+  /// yang lebar minta diukur ulang saat lebih tenang, koreksi yang mustahil
+  /// minta manset dan jam diperiksa dulu.
+  bool get bisaDipakai => konsisten && masukAkal;
 
   DateTime get berlakuSampai => waktu.add(masaBerlaku);
 
@@ -813,6 +856,38 @@ class Kalibrasi {
   String get ringkasanOffset {
     String tanda(int n) => n >= 0 ? '+$n' : '$n';
     return '${tanda(offsetSistolik)}/${tanda(offsetDiastolik)} mmHg';
+  }
+
+  /// Koreksi yang sama, ditulis dengan kata.
+  ///
+  /// `+9/-4 mmHg` tidak bisa dinilai oleh orang yang baru saja mengukur;
+  /// "jam membaca 9 mmHg lebih rendah" bisa. Ini satu-satunya kesempatan
+  /// pengguna menolak angka yang aneh sebelum ia dipakai selama empat minggu,
+  /// jadi ia harus terbaca tanpa perlu tahu arah tandanya.
+  ///
+  /// Offset = tensimeter − jam, sehingga offset positif berarti jam membaca
+  /// **lebih rendah** daripada tensimeter.
+  String get kalimatOffset {
+    String arah(int n) => n > 0 ? 'lebih rendah' : 'lebih tinggi';
+    final s = offsetSistolik;
+    final d = offsetDiastolik;
+    if (s == 0 && d == 0) {
+      return 'Jam Anda sudah sama dengan tensimeter; tidak ada yang perlu '
+          'dikoreksi.';
+    }
+    if (s == 0 || d == 0) {
+      final (nol, ada, nilai) = s == 0
+          ? ('Sistolik', 'diastolik', d)
+          : ('Diastolik', 'sistolik', s);
+      return '$nol jam sudah sama dengan tensimeter, $ada-nya '
+          '${nilai.abs()} mmHg ${arah(nilai)}.';
+    }
+    if (s.sign == d.sign) {
+      return 'Jam Anda membaca ${s.abs()} mmHg ${arah(s)} pada sistolik dan '
+          '${d.abs()} mmHg pada diastolik daripada tensimeter.';
+    }
+    return 'Jam Anda membaca sistolik ${s.abs()} mmHg ${arah(s)} dan '
+        'diastolik ${d.abs()} mmHg ${arah(d)} daripada tensimeter.';
   }
 }
 

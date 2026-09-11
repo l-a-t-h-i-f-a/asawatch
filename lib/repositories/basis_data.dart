@@ -205,9 +205,12 @@ class TabelAnchorWaktu extends Table {
 /// lupa pernah mengalibrasi setiap kali ditutup.
 /// Sejak v4 baris ini hanya menyimpan **identitas** satu kalibrasi: kapan dan
 /// di pergelangan mana. Angkanya pindah ke [TabelPutaranKalibrasi], karena satu
-/// kalibrasi kini terdiri dari tiga putaran (`Kalibrasi.jumlahPutaran`) dan
-/// koreksi yang dikirim ke jam adalah mediannya — nilai turunan, yang seperti
-/// nilai turunan lain di skema ini tidak punya kolom sendiri.
+/// kalibrasi bisa terdiri dari lebih dari satu putaran dan koreksi yang dikirim
+/// ke jam adalah mediannya — nilai turunan, yang seperti nilai turunan lain di
+/// skema ini tidak punya kolom sendiri. Jumlahnya tidak lagi tetap tiga:
+/// `Kalibrasi.jumlahPutaran` adalah satu, dan putaran berikutnya ditambahkan
+/// bila pengguna memintanya. Skemanya tidak berubah karena tabel putaran memang
+/// tidak pernah mengasumsikan jumlahnya.
 class TabelKalibrasi extends Table {
   IntColumn get waktu => integer()();
 
