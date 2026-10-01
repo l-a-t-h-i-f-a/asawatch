@@ -1,3 +1,5 @@
+import 'dart:async';
+
 // Dua tombol untuk satu titik ukur — docs/jadwal-titik-ukur.md §9.
 //
 // Sejak protokol v1.3, jam tidak lagi menjadwalkan titik ukurnya sendiri: ia
@@ -10,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:asawatch/widgets/kartu_kemajuan_ukur.dart';
 import 'package:asawatch/controllers/sesi_makan_controller.dart';
 import 'package:asawatch/models/contoh_sesi.dart';
 import 'package:asawatch/models/jadwal_sesi.dart';
@@ -18,6 +21,7 @@ import 'package:asawatch/services/ble_service.dart';
 import 'package:asawatch/beranda_tab.dart';
 import 'package:asawatch/main.dart';
 import 'package:asawatch/sesi_berjalan_page.dart';
+import 'package:asawatch/konfirmasi_pakai_jam_page.dart';
 
 import 'package:asawatch/services/pengingat_titik_ukur.dart';
 
@@ -34,6 +38,7 @@ class PengingatPencatat implements PengingatTitikUkur {
 
   @override
   Future<void> jadwalkan({
+    required String sesiId,
     required DateTime t0,
     required List<TitikJadwal> titik,
     required DateTime sekarang,
@@ -43,6 +48,19 @@ class PengingatPencatat implements PengingatTitikUkur {
 
   @override
   Future<void> batalkanSemua() async => dibatalkan++;
+
+  final List<int> alarmDihentikan = [];
+  final _diketuk = StreamController<AlarmTitik>.broadcast();
+  void ketukAlarm(AlarmTitik a) => _diketuk.add(a);
+
+  @override
+  Future<void> hentikanAlarm(int index) async => alarmDihentikan.add(index);
+
+  @override
+  Stream<AlarmTitik> get alarmDiketuk => _diketuk.stream;
+
+  @override
+  Future<AlarmTitik?> ambilAlarmPeluncuran() async => null;
 }
 
 /// Jadwal yang jendelanya benar-benar punya jarak, supaya "belum waktunya"
@@ -222,7 +240,10 @@ void main() {
       await tester.pump(const Duration(milliseconds: 120));
 
       expect(c.sesiAktif!.t0, isNull, reason: 'masih draft, belum ada t0');
-      expect(find.textContaining('mengukur baseline'), findsOneWidget);
+      // Kartu kemajuan yang sama dengan titik lain — bukan lagi spinner 14 px
+      // dengan satu baris 11 px di bawah kotak petunjuk.
+      expect(find.byType(KartuKemajuanUkur), findsOneWidget);
+      expect(find.text('JAM SEDANG MENGUKUR · BASELINE'), findsOneWidget);
 
       // Tombol "Selesai Makan" **tidak** ikut mati: firmware sengaja tidak
       // memeriksa `s_ukur_aktif` saat tombolnya ditekan (§9), dan orang yang
@@ -236,7 +257,7 @@ void main() {
       expect(tombol.onPressed, isNotNull);
 
       await tester.pump(const Duration(milliseconds: 400));
-      expect(find.textContaining('mengukur baseline'), findsNothing);
+      expect(find.byType(KartuKemajuanUkur), findsNothing);
 
       await hentikanSesi(tester, c);
     });
@@ -274,26 +295,121 @@ void main() {
 
       // Kemajuannya datang dari jam, bukan dari hitungan layar.
       expect(c.kemajuanUkur, isNotNull);
-      // Persennya ada di label tombolnya sendiri — halaman ini penuh angka
-      // ber-% lain (baterai, SpO2), jadi yang dicari adalah label itu.
+      final kartu = find.byType(KartuKemajuanUkur);
+      expect(kartu, findsOneWidget);
+      // Persennya dicari di dalam kartu — halaman ini penuh angka ber-% lain
+      // (baterai, SpO2).
       expect(
-        find.textContaining(RegExp(r'Jam mengukur… \d+%')),
+        find.descendant(
+          of: kartu,
+          matching: find.textContaining(RegExp(r'^\d+%$')),
+        ),
         findsOneWidget,
       );
-      expect(find.textContaining('Perkiraan sisa'), findsWidgets);
-
-      // Tombolnya tetap mati selama jam bekerja — bukan menyala kembali
-      // beberapa milidetik setelah ACK.
-      final tombol = tester.widget<ElevatedButton>(
-        find.ancestor(
-          of: find.textContaining('Jam mengukur…'),
-          matching: find.byType(ElevatedButton),
-        ),
+      expect(
+        find.descendant(of: kartu, matching: find.textContaining('detik lagi')),
+        findsOneWidget,
       );
-      expect(tombol.onPressed, isNull);
+
+      // Tombolnya menyerahkan tempatnya ke kartu selama jam bekerja — tidak
+      // ada tombol yang bisa menyala kembali beberapa milidetik setelah ACK.
+      expect(find.textContaining('Ukur '), findsNothing);
 
       await tester.pump(const Duration(milliseconds: 400));
       expect(c.kemajuanUkur, isNull);
+
+      await hentikanSesi(tester, c);
+    });
+
+    testWidgets('di Beranda persennya jadi hero, dan hanya ditulis sekali', (
+      tester,
+    ) async {
+      // Selama jam mengukur, hitung mundur di hero sudah tidak menjawab apa
+      // pun. Angka terbesar kartu berganti menjadi kemajuan, dan kartu kemajuan
+      // di bawahnya tidak menulis angka yang sama untuk kedua kalinya.
+      final ble = FakeBleService(
+        percepatan: 60,
+        lewatkan: {2, 3},
+        otomatisSelesaiMakan: null,
+      );
+      final jam = JamPalsu();
+      final c = buatControllerUji(
+        ble: ble,
+        jadwal: jadwalUjiTitik,
+        jam: jam.call,
+      );
+      await pumpHalaman(
+        tester,
+        const Scaffold(body: BerandaTab()),
+        controller: c,
+      );
+      await c.mulaiDraft(contohFotoPath);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tekanTombolJam(tester, c);
+      await tester.pump(const Duration(milliseconds: 500));
+
+      await majuBersama(tester, jam, const Duration(seconds: 56));
+      ble.lewatkan.clear();
+
+      await tester.tap(find.text('Ukur +1 jam Sekarang'));
+      await tester.pump(const Duration(milliseconds: 120));
+
+      expect(find.text('JAM SEDANG MENGUKUR'), findsOneWidget);
+      expect(find.text('TITIK BERIKUTNYA'), findsNothing);
+
+      final persen = find.textContaining(RegExp(r'^\d+%$'));
+      final kartu = find.byType(KartuKemajuanUkur);
+      expect(kartu, findsOneWidget);
+      expect(find.descendant(of: kartu, matching: persen), findsNothing);
+
+      // Dan ia tetap angka terbesar halaman, seperti hitung mundur sebelumnya.
+      double terbesar(Finder f) => tester
+          .widgetList<Text>(f)
+          .map((t) => t.style?.fontSize ?? 0)
+          .fold<double>(0, (a, b) => a > b ? a : b);
+      expect(terbesar(persen), terbesar(find.byType(Text)));
+
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('JAM SEDANG MENGUKUR'), findsNothing);
+
+      await hentikanSesi(tester, c);
+    });
+
+    testWidgets('pindai kesehatan di tengah sesi tidak diaku sebagai titik', (
+      tester,
+    ) async {
+      // Paket Status tidak menyebut titik mana yang diukur (§5.5). Tanpa
+      // pembeda, kartu besar akan mengumumkan "+1 jam" untuk pindai yang
+      // dijalankan dari halaman lain — dan sampelnya tidak mengisi titik apa
+      // pun.
+      final ble = FakeBleService(
+        percepatan: 60,
+        lewatkan: {2, 3},
+        otomatisSelesaiMakan: null,
+      );
+      final jam = JamPalsu();
+      final c = buatControllerUji(
+        ble: ble,
+        jadwal: jadwalUjiTitik,
+        jam: jam.call,
+      );
+      await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
+      await c.mulaiDraft(contohFotoPath);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tekanTombolJam(tester, c);
+      await tester.pump(const Duration(milliseconds: 500));
+      await majuBersama(tester, jam, const Duration(seconds: 56));
+
+      final pindai = c.pindaiKesehatan();
+      await tester.pump(const Duration(milliseconds: 120));
+
+      expect(c.kemajuanUkur, isNotNull);
+      expect(c.kemajuanUkurSesi, isNull);
+      expect(find.byType(KartuKemajuanUkur), findsNothing);
+      expect(find.text('Jam sedang dipakai…'), findsOneWidget);
+
+      await tester.pump(const Duration(milliseconds: 400));
+      await pindai;
 
       await hentikanSesi(tester, c);
     });
@@ -584,6 +700,86 @@ void main() {
       // Kalau tidak, ponsel akan berbunyi satu jam lagi menyuruh mengukur sesi
       // yang sudah tidak ada.
       expect(pengingat.dibatalkan, greaterThan(sebelum));
+    });
+
+    test('muatan alarm membawa sesi dan titiknya, dan menolak yang lain', () {
+      const a = AlarmTitik(sesiId: 'abc-123', index: 2);
+      expect(AlarmTitik.dariMuatan(a.keMuatan()), a);
+      expect(AlarmTitik.dariMuatan(null), isNull);
+      expect(AlarmTitik.dariMuatan('lain:abc:2'), isNull);
+      expect(AlarmTitik.dariMuatan('alarm:abc:x'), isNull);
+      expect(AlarmTitik.dariMuatan('alarm::2'), isNull);
+    });
+
+    testWidgets('alarm yang diketuk membuka layar konfirmasi', (tester) async {
+      final pengingat = PengingatPencatat();
+      final c = buatControllerUji(pengingat: pengingat);
+      await pumpHalaman(
+        tester,
+        const MyHomePage(title: 'AsaWatch'),
+        controller: c,
+      );
+      await tester.pumpAndSettle();
+
+      pengingat.ketukAlarm(const AlarmTitik(sesiId: 'sesi-lama', index: 2));
+      await tester.pumpAndSettle();
+
+      // Alarm dari sesi yang sudah tidak berjalan: layarnya tetap terbuka
+      // (mengetuk tidak boleh berakhir di Beranda yang diam), mengatakan
+      // tidak ada yang perlu dikerjakan, dan membungkam alarmnya sendiri.
+      expect(find.byType(KonfirmasiPakaiJamPage), findsOneWidget);
+      expect(find.text('Pengukuran ini sudah tidak perlu'), findsOneWidget);
+      expect(find.text('Oke, Jam Sudah Dipakai'), findsNothing);
+      expect(pengingat.alarmDihentikan, [2]);
+
+      // Ketukan kedua tidak menumpuk layar kedua.
+      pengingat.ketukAlarm(const AlarmTitik(sesiId: 'sesi-lama', index: 2));
+      await tester.pumpAndSettle();
+      expect(find.byType(KonfirmasiPakaiJamPage), findsOneWidget);
+    });
+
+    testWidgets('membuka layar konfirmasi tidak membungkam alarm; tombolnya '
+        'membungkam lalu menyuruh jam mengukur', (tester) async {
+      final pengingat = PengingatPencatat();
+      final jam = JamPalsu();
+      final c = buatControllerUji(
+        percepatan: 3600,
+        lewatkan: {2, 3},
+        jadwal: jadwalUjiTitik,
+        jam: jam.call,
+        pengingat: pengingat,
+      );
+      await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
+      await jalankan(tester, c);
+
+      unawaited(
+        Navigator.of(tester.element(find.byType(SesiBerjalanPage))).push(
+          MaterialPageRoute(
+            builder: (_) => KonfirmasiPakaiJamPage(
+              alarm: AlarmTitik(sesiId: c.sesiAktif!.id, index: 2),
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 500));
+
+      // Tersambung, terbuka, dilihat — semuanya belum konfirmasi.
+      expect(find.text('Pakai jam di pergelangan'), findsOneWidget);
+      expect(pengingat.alarmDihentikan, isEmpty);
+
+      await tester.tap(find.text('Oke, Jam Sudah Dipakai'));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(pengingat.alarmDihentikan, [2]);
+      expect(find.byType(KonfirmasiPakaiJamPage), findsNothing);
+      expect(find.byType(SesiBerjalanPage), findsOneWidget);
+      // Perintah ukurnya benar-benar dicoba: jendela titik ini belum terbuka,
+      // dan penolakannya sampai ke layar alih-alih hilang diam-diam.
+      expect(find.textContaining('belum waktunya diukur'), findsOneWidget);
+
+      await hentikanSesi(tester, c);
     });
   });
 

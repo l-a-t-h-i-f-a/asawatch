@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/sesi_makan_controller.dart';
-import '../models/sesi_makan.dart';
+import 'kartu_kemajuan_ukur.dart';
 
 /// Dua cara mengukur satu titik sesi, dan keduanya berujung di tempat yang sama.
 ///
@@ -94,26 +94,12 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
     }
   }
 
-  /// Satu kalimat untuk tiga keadaan pengukuran yang sedang berjalan.
-  ///
-  /// Perkiraan sisanya berasal **dari jam**, dihitung ulang dari laju detak
-  /// yang benar-benar terjadi, jadi ia boleh memanjang — dan justru itu yang
-  /// membuatnya jujur. Hitung mundur buatan layar akan menjanjikan detik yang
-  /// tidak dijanjikan siapa pun.
-  static String _kalimatKemajuan(KemajuanUkur k) {
-    if (k.macet) {
-      return 'Jam masih bekerja tetapi belum menemukan gelombang nadi. '
-          'Rapatkan jam di pergelangan dan diamkan tangan.';
-    }
-    final sisa = k.sisaDetik;
-    if (sisa == null) {
-      return 'Diamkan tangan sampai jam selesai. Jangan lepas jamnya.';
-    }
-    if (sisa >= 255) {
-      return 'Diamkan tangan. Perkiraan sisa lebih dari 4 menit menurut jam.';
-    }
-    return 'Diamkan tangan. Perkiraan sisa ±$sisa detik menurut jam.';
-  }
+  /// Jam sedang menjalankan pengukuran yang **bukan** milik titik ini — pindai
+  /// kesehatan atau putaran kalibrasi. Pengukuran titik sesi sendiri tidak
+  /// sampai ke sini; ia digambar [KartuKemajuanUkur].
+  static const _kalimatJamDipakai =
+      'Jam sedang menjalankan pengukuran lain (pindai kesehatan atau '
+      'kalibrasi). Titik ini bisa diambil setelahnya.';
 
   String _hitungMundur(Duration sisa) {
     final menit = (sisa.inSeconds / 60).ceil();
@@ -152,6 +138,18 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
     final sedangUkur = kemajuan != null;
     final siap = !belumWaktunya && tersambung && !bateraiKritis && !sedangUkur;
 
+    // Selama jam mengukur titik ini, tombol dan kotak penjelasnya menyerahkan
+    // seluruh tempatnya ke kartu kemajuan: tidak ada yang bisa ditekan, dan yang
+    // perlu dibaca justru apa yang sedang dikerjakan jam.
+    final kemajuanSesi = c.kemajuanUkurSesi;
+    if (kemajuanSesi != null) {
+      return KartuKemajuanUkur(
+        kemajuan: kemajuanSesi,
+        namaTitik: titik.label,
+        ringkas: widget.ringkas,
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -186,9 +184,7 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
                     children: [
                       Text(
                         sedangUkur
-                            ? (kemajuan.macet
-                                  ? 'Jam belum menemukan nadi'
-                                  : 'Jam sedang mengukur ${titik.label}')
+                            ? 'Jam sedang dipakai'
                             : belumWaktunya
                             ? 'Pengukuran ${titik.label} ${_hitungMundur(sisa)}'
                             : !tersambung
@@ -207,7 +203,7 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
                       const SizedBox(height: 3),
                       Text(
                         sedangUkur
-                            ? _kalimatKemajuan(kemajuan)
+                            ? _kalimatJamDipakai
                             : belumWaktunya
                             // Diminta menyalakan jam **sebelum** waktunya, bukan
                             // tepat pada waktunya: menyalakan jam dan
@@ -278,9 +274,7 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
                 const SizedBox(width: 10),
                 Text(
                   sedangUkur
-                      ? (kemajuan.persen != null
-                            ? 'Jam mengukur… ${kemajuan.persen}%'
-                            : 'Jam sedang mengukur…')
+                      ? 'Jam sedang dipakai…'
                       : _mengirim
                       ? 'Mengukur…'
                       : 'Ukur ${titik.label} Sekarang',
@@ -297,7 +291,7 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
         Text(
           _galat ??
               (sedangUkur
-                  ? _kalimatKemajuan(kemajuan)
+                  ? _kalimatJamDipakai
                   : belumWaktunya
                   ? 'Mengukur terlalu awal akan mencatat angka dari titik yang '
                         'salah, jadi tombolnya menyala tepat waktu.'

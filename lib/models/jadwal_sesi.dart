@@ -18,6 +18,8 @@
 /// waktu.
 library;
 
+import 'sesi_makan.dart' show JenisSesi;
+
 /// Satu titik ukur: kapan nominalnya, dan sampai kapan pengukurannya masih
 /// dianggap mewakili titik itu.
 class TitikJadwal {
@@ -100,7 +102,24 @@ class JadwalSesi {
     required this.titik,
     required this.tenggatSetelahAkhir,
     this.uji = false,
+    this.faktor = 1,
   });
+
+  /// Seberapa jauh jadwal ini dimampatkan dari aslinya (1 = jadwal sungguhan).
+  ///
+  /// Disimpan supaya [keJenis] bisa memberi jadwal jenis lain dengan
+  /// pemampatan yang **sama** — controller menerima satu jadwal (normal atau
+  /// uji), dan sesi puasa di rakitan uji harus ikut dimampatkan sebesar itu.
+  final int faktor;
+
+  /// Jadwal milik [jenis] dengan pemampatan yang sama dengan jadwal ini.
+  ///
+  /// Sesi makan mendapat jadwal ini apa adanya — ia sumber semua jadwal lain,
+  /// dan jalur utama tidak boleh berubah karena jenis kedua ditambahkan.
+  JadwalSesi keJenis(JenisSesi jenis) => switch (jenis) {
+    JenisSesi.makan => this,
+    JenisSesi.puasa => faktor == 1 ? jadwalPuasa : jadwalPuasa.dibagi(faktor),
+  };
 
   final List<TitikJadwal> titik;
 
@@ -146,6 +165,7 @@ class JadwalSesi {
       seconds: TitikJadwal._minimal(tenggatSetelahAkhir.inSeconds ~/ faktor, 5),
     ),
     uji: true,
+    faktor: this.faktor * faktor,
   );
 }
 
@@ -177,6 +197,37 @@ const JadwalSesi jadwalNormal = JadwalSesi(
       label: '+2 jam',
       jendelaAwal: 6600, // 110 mnt
       jendelaAkhir: 9000, // 150 mnt
+    ),
+  ],
+  tenggatSetelahAkhir: Duration(minutes: 30),
+);
+
+/// Jadwal sesi puasa — tiga titik, tanpa index 1.
+///
+/// Tidak ada makanan, jadi tidak ada momen "selesai makan" yang terpisah dari
+/// awal sesi: baseline jatuh tepat di t0 dan diambil dari pengukuran yang jam
+/// lakukan sendiri sesaat setelah `MULAI_SESI` (firmware mengukurnya sebagai
+/// index 1; aplikasi menyimpannya sebagai index 0 — lihat
+/// `SesiMakanController._terimaSampel`). +1 jam dan +2 jam sengaja memakai index
+/// dan jendela yang sama dengan [jadwalNormal], supaya kolom per slot di server
+/// dan di ekspor tetap sejajar di antara kedua jenis
+/// (docs/rancangan-api-laravel.md §5.2 `jenis`).
+const JadwalSesi jadwalPuasa = JadwalSesi(
+  titik: [
+    TitikJadwal(index: 0, detikNominal: 0, label: 'Baseline'),
+    TitikJadwal(
+      index: 2,
+      detikNominal: 3600,
+      label: '+1 jam',
+      jendelaAwal: 3300,
+      jendelaAkhir: 4200,
+    ),
+    TitikJadwal(
+      index: 3,
+      detikNominal: 7200,
+      label: '+2 jam',
+      jendelaAwal: 6600,
+      jendelaAkhir: 9000,
     ),
   ],
   tenggatSetelahAkhir: Duration(minutes: 30),

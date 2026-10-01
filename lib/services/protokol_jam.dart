@@ -78,7 +78,7 @@ abstract final class ProtokolJam {
   /// dibelinya adalah kemampuan mengenali firmware lama nanti, saat ada firmware
   /// lama.
   static const int versiMayorDidukung = 1;
-  static const int versiMinorDidukung = 3;
+  static const int versiMinorDidukung = 5;
 
   static const String uuidLayanan = 'a5a70001-6b4c-4e2a-9d31-0f8c2e5a7b10';
   static const String uuidInfo = 'a5a70002-6b4c-4e2a-9d31-0f8c2e5a7b10';
@@ -192,6 +192,36 @@ abstract final class ProtokolJam {
     final berikutnya = sekarang * 2;
     return berikutnya > maks ? maks : berikutnya;
   }
+
+  /// Berapa kali penyambungan yang diminta pengguna dicoba sebelum menyerah.
+  ///
+  /// Dua, bukan satu: di Android percobaan `connect` pertama gagal sesekali
+  /// tanpa sebab yang bisa diperbaiki (GATT 133 — radio sibuk, sisa koneksi
+  /// lama yang belum ditutup stack) lalu langsung berhasil pada percobaan
+  /// kedua. Tanpa ulangan otomatis, pengguna lansia membaca kegagalan pertama
+  /// itu sebagai "jamnya rusak". Tidak lebih dari dua, karena percobaan yang
+  /// habis waktu tidak diulang sama sekali (jamnya memang tidak terjangkau) dan
+  /// kegagalan ketiga berturut-turut hampir pasti bukan kebetulan lagi.
+  static const int maksPercobaanSambung = 2;
+
+  /// Jeda sebelum ulangan otomatis di atas.
+  static const Duration jedaUlangSambung = Duration(seconds: 1);
+
+  /// Jeda antara memutus koneksi lama dan membuka koneksi baru.
+  ///
+  /// Stack Android masih menutup objek GATT lama beberapa ratus milidetik
+  /// setelah `disconnect()` kembali, dan `connect` yang dimulai di celah itu
+  /// adalah pemicu GATT 133 yang paling sering. Hanya dibayar bila memang ada
+  /// koneksi lama yang diputus.
+  static const Duration jedaSesudahPutus = Duration(milliseconds: 600);
+
+  /// Jarak minimum antara dua percobaan sambung yang dipicu pengintai iklan
+  /// (`BleAsliService._jamTerlihat`).
+  ///
+  /// Jam yang terlihat mengiklan tetapi menolak disambungi (kunci basi, tautan
+  /// sedang macet) akan terlihat lagi setiap beberapa detik; tanpa batas ini
+  /// pengintai berubah menjadi lingkaran sambung tanpa jeda.
+  static const Duration jedaMinimumPengintai = Duration(seconds: 15);
 
   /// Nama iklan jam selalu diawali ini (§2.2) — dipakai sebagai jaring kedua
   /// setelah service UUID.
@@ -509,6 +539,7 @@ class StatusJam {
     required this.bateraiKritis,
     required this.punyaAnchor,
     required this.uptimeS,
+    this.sedangDicas = false,
     this.ukurPersen,
     this.ukurSisaDetik,
   });
@@ -521,6 +552,11 @@ class StatusJam {
   final bool bateraiKritis;
   final bool punyaAnchor;
   final int uptimeS;
+
+  /// Kabel cas tertancap dan arus mengalir (§5.5 `flag` bit4, v1.5). Firmware
+  /// ≤ v1.4 selalu mengirim 0 di bit ini, jadi yang lama terbaca "tidak dicas"
+  /// — dan layar lalu menampilkan persen seperti sebelumnya.
+  final bool sedangDicas;
 
   /// Kemajuan pengukuran 0..100, atau null bila firmware belum mengirimkannya
   /// (paket 8 byte, ≤ v1.3).
@@ -620,6 +656,7 @@ StatusJam bacaStatus(List<int> data) {
     kalibrasiTersimpan: flag & 0x02 != 0,
     bateraiKritis: flag & 0x04 != 0,
     punyaAnchor: flag & 0x08 != 0,
+    sedangDicas: flag & 0x10 != 0,
     uptimeS: b.getUint32(4, Endian.little),
     // Dua byte terakhir hanya ada sejak v1.4. Dibaca lewat panjang paketnya
     // sendiri, bukan lewat `versi_minor` handshake: yang menentukan apakah byte

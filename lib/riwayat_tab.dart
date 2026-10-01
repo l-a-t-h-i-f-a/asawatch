@@ -6,6 +6,7 @@ import 'models/sesi_makan.dart';
 import 'ringkasan_sesi_page.dart';
 import 'utils/format_waktu.dart';
 import 'utils/ikon.dart';
+import 'widgets/ikon_puasa.dart';
 import 'widgets/foto_makanan.dart';
 import 'widgets/lencana_kualitas.dart';
 
@@ -25,13 +26,17 @@ class RiwayatTab extends StatefulWidget {
 class _RiwayatTabState extends State<RiwayatTab> {
   WaktuMakan? _filterWaktu; // null = semua
   KualitasRespons? _filterKualitas; // null = semua
+  JenisSesi? _filterJenis; // null = semua
 
-  bool get _adaFilter => _filterWaktu != null || _filterKualitas != null;
+  bool get _adaFilter =>
+      _filterWaktu != null || _filterKualitas != null || _filterJenis != null;
 
   String get _labelFilter {
     final bagian = <String>[
       if (_filterWaktu != null) _filterWaktu!.label,
       if (_filterKualitas != null) _filterKualitas!.label,
+      if (_filterJenis == JenisSesi.makan) 'Sesi makan',
+      if (_filterJenis == JenisSesi.puasa) 'Puasa',
     ];
     return bagian.isEmpty ? 'Filter' : bagian.join(' · ');
   }
@@ -42,9 +47,14 @@ class _RiwayatTabState extends State<RiwayatTab> {
       // setiap filter waktu makan dengan sendirinya (protokol §4.3) — dan tetap
       // terlihat selama filter itu tidak dipasang.
       if (_filterWaktu != null && s.waktuMakan != _filterWaktu) return false;
-      if (_filterKualitas != null && s.kualitasRespons != _filterKualitas) {
+      // Kualitas respons adalah penilaian respons terhadap **makanan**; sesi
+      // puasa tidak pernah punya salah satunya, jadi ia keluar dari filter itu
+      // alih-alih menumpuk di "Belum lengkap".
+      if (_filterKualitas != null &&
+          (s.puasa || s.kualitasRespons != _filterKualitas)) {
         return false;
       }
+      if (_filterJenis != null && s.jenis != _filterJenis) return false;
       return true;
     }).toList();
   }
@@ -75,8 +85,11 @@ class _RiwayatTabState extends State<RiwayatTab> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       backgroundColor: Colors.white,
+      // Tiga kelompok filter tidak selalu muat di separuh layar yang diberikan
+      // bottom sheet bawaan; ia boleh tumbuh dan isinya boleh digulir.
+      isScrollControlled: true,
       builder: (context) {
-        return Container(
+        return SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -136,6 +149,25 @@ class _RiwayatTabState extends State<RiwayatTab> {
                     _chipKualitas(k, k.label),
                 ],
               ),
+              const SizedBox(height: 20),
+              const Text(
+                'Jenis Sesi',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF7E9A94),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  _chipJenis(null, 'Semua'),
+                  _chipJenis(JenisSesi.makan, 'Sesi makan'),
+                  _chipJenis(JenisSesi.puasa, 'Puasa'),
+                ],
+              ),
               const SizedBox(height: 24),
             ],
           ),
@@ -153,6 +185,22 @@ class _RiwayatTabState extends State<RiwayatTab> {
         Navigator.pop(context);
       },
       ikon: nilai == null ? Icons.done_all_rounded : ikonWaktuMakan(nilai),
+    );
+  }
+
+  Widget _chipJenis(JenisSesi? nilai, String label) {
+    return _chip(
+      label,
+      _filterJenis == nilai,
+      () {
+        setState(() => _filterJenis = nilai);
+        Navigator.pop(context);
+      },
+      ikon: switch (nilai) {
+        null => Icons.done_all_rounded,
+        JenisSesi.makan => Icons.restaurant_rounded,
+        JenisSesi.puasa => Icons.nightlight_round,
+      },
     );
   }
 
@@ -331,6 +379,7 @@ class _RiwayatTabState extends State<RiwayatTab> {
                         onPressed: () => setState(() {
                           _filterWaktu = null;
                           _filterKualitas = null;
+                          _filterJenis = null;
                         }),
                         child: const Text(
                           'Hapus filter',
@@ -381,14 +430,19 @@ class _EntriSesi extends StatelessWidget {
         ),
         child: Row(
           children: [
-            FotoMakanan(fotoPath: sesi.fotoPath, lebar: 48, tinggi: 48),
+            if (sesi.puasa)
+              const IkonPuasa(ukuran: 48)
+            else
+              FotoMakanan(fotoPath: sesi.fotoPath, lebar: 48, tinggi: 48),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    sesi.hasil?.ringkasanNama ?? 'Makanan',
+                    sesi.puasa
+                        ? 'Pemantauan Puasa'
+                        : (sesi.hasil?.ringkasanNama ?? 'Makanan'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -413,12 +467,21 @@ class _EntriSesi extends StatelessWidget {
                             // seluruh sisa baris ini adalah angka, dan pembaca
                             // harus tahu angka siapa sebelum membacanya.
                             if (sesi.sesiUji) 'SESI UJI',
-                            sesi.labelWaktuMakan,
-                            // Nutrisi yang belum dianalisis ditulis apa
-                            // adanya (§8).
-                            kalori == null
-                                ? 'nutrisi $tandaKosong'
-                                : '${formatAngka(kalori)} kcal',
+                            if (sesi.puasa)
+                              // Tanpa makanan tidak ada kalori untuk
+                              // ditulis; angka yang berarti di sini adalah
+                              // yang terendah.
+                              sesi.gulaTerendah == null
+                                  ? 'terendah $tandaKosong'
+                                  : 'terendah ${sesi.gulaTerendah} mg/dL'
+                            else ...[
+                              sesi.labelWaktuMakan,
+                              // Nutrisi yang belum dianalisis ditulis apa
+                              // adanya (§8).
+                              kalori == null
+                                  ? 'nutrisi $tandaKosong'
+                                  : '${formatAngka(kalori)} kcal',
+                            ],
                           ].join(' · '),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -437,7 +500,10 @@ class _EntriSesi extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                LencanaKualitas(kualitas: sesi.kualitasRespons),
+                if (sesi.puasa)
+                  LencanaPuasa(kondisi: sesi.kondisiPuasa)
+                else
+                  LencanaKualitas(kualitas: sesi.kualitasRespons),
                 const SizedBox(height: 4),
                 Text(
                   formatJam(waktu),

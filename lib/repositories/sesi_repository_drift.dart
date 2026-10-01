@@ -9,6 +9,7 @@ library;
 
 import 'package:drift/drift.dart';
 
+import '../models/jadwal_sesi.dart';
 import '../models/sesi_makan.dart';
 import 'basis_data.dart';
 import 'sesi_repository.dart';
@@ -75,10 +76,14 @@ class SesiRepositoryDrift implements SesiRepository {
           status: s.status,
           waktuTidakPasti: s.waktuTidakPasti,
           sesiUji: s.sesiUji,
+          jenis: s.jenis,
           diperbaruiPada: s.diperbaruiPada == null
               ? null
               : _keWaktu(s.diperbaruiPada!),
-          sampel: _rakitSampel(sampelPerSesi[s.id] ?? const []),
+          sampel: _rakitSampel(
+            sampelPerSesi[s.id] ?? const [],
+            (s.sesiUji ? jadwalUji : jadwalNormal).keJenis(s.jenis),
+          ),
           hasil: _rakitHasil(hasilPerSesi[s.id], itemPerSesi[s.id] ?? const []),
         ),
     ];
@@ -107,6 +112,7 @@ class SesiRepositoryDrift implements SesiRepository {
               status: sesi.status,
               waktuTidakPasti: Value(sesi.waktuTidakPasti),
               sesiUji: Value(sesi.sesiUji),
+              jenis: Value(sesi.jenis),
               // Distempel di sini, bukan di pemanggil: setiap penulisan lokal
               // **adalah** perubahan lokal, dan satu tempat yang menstempel
               // tidak bisa lupa seperti selusin pemanggil. Yang dikembalikan
@@ -276,19 +282,23 @@ class SesiRepositoryDrift implements SesiRepository {
   static DateTime _keWaktu(int e) =>
       DateTime.fromMicrosecondsSinceEpoch(e, isUtc: true).toLocal();
 
-  /// Merakit empat titik ukur dari baris yang ada.
+  /// Merakit seluruh titik jadwal sesi dari baris yang ada.
   ///
-  /// `SesiMakan.sampel` dijanjikan selalu empat elemen dan diindeks langsung
-  /// (`sampel[0]`, `sampel[2]`, …) di seluruh UI. Baris yang hilang — hanya
-  /// mungkin bila basis data pernah rusak atau disunting tangan — diisi kembali
-  /// sebagai `menunggu` alih-alih dibiarkan menjatuhkan aplikasi saat start.
-  static List<Sampel> _rakitSampel(List<TabelSampelData> baris) {
-    const jadwalBawaan = [0, 0, 3600, 7200];
+  /// `SesiMakan.sampel` dijanjikan selalu memuat setiap titik [jadwal]-nya —
+  /// empat untuk sesi makan, tiga untuk sesi puasa — dan `sampel[0]` diindeks
+  /// langsung di seluruh UI. Baris yang hilang — hanya mungkin bila basis data
+  /// pernah rusak atau disunting tangan — diisi kembali sebagai `menunggu`
+  /// alih-alih dibiarkan menjatuhkan aplikasi saat start. Baris untuk index di
+  /// luar jadwal (index 1 pada sesi puasa) tidak dirakit.
+  static List<Sampel> _rakitSampel(
+    List<TabelSampelData> baris,
+    JadwalSesi jadwal,
+  ) {
     final perIndex = {for (final b in baris) b.index: b};
 
     return [
-      for (var i = 0; i < 4; i++)
-        if (perIndex[i] case final b?)
+      for (final t in jadwal.titik)
+        if (perIndex[t.index] case final b?)
           Sampel(
             index: b.index,
             detikRelatifT0: b.detikRelatifT0,
@@ -301,7 +311,7 @@ class SesiRepositoryDrift implements SesiRepository {
             spo2: b.spo2,
           )
         else
-          Sampel.menunggu(index: i, detikRelatifT0: jadwalBawaan[i]),
+          Sampel.menunggu(index: t.index, detikRelatifT0: t.detikNominal),
     ];
   }
 

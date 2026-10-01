@@ -85,6 +85,14 @@ class TabelSesi extends Table {
   /// diberi tahu, jadi nisannya tidak pernah dibuat sejak awal.
   IntColumn get dihapusPada => integer().nullable()();
 
+  /// Makan atau puasa (v8) — lihat [JenisSesi].
+  ///
+  /// Bawaannya `makan` di tingkat SQL, bukan hanya di Dart: baris yang sudah
+  /// ada saat migrasi harus menjadi sesi makan tanpa satu langkah pun yang
+  /// menulisnya, karena memang itulah mereka.
+  TextColumn get jenis =>
+      textEnum<JenisSesi>().withDefault(Constant(JenisSesi.makan.name))();
+
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -305,7 +313,7 @@ class BasisData extends _$BasisData {
   BasisData(super.e);
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -431,6 +439,14 @@ class BasisData extends _$BasisData {
               (b) => b.read<String>('name') == 'dihapus_pada',
             )) {
               await m.addColumn(tabelSesi, tabelSesi.dihapusPada);
+            }
+
+          case 7: // v7 → v8: jenis sesi (makan / puasa)
+            final kolomSesiV8 = await m.database
+                .customSelect('PRAGMA table_info(tabel_sesi)')
+                .get();
+            if (!kolomSesiV8.any((b) => b.read<String>('name') == 'jenis')) {
+              await m.addColumn(tabelSesi, tabelSesi.jenis);
             }
 
           default:

@@ -14,6 +14,7 @@ import 'dart:io' show File, FileSystemException, SocketException;
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 
+import '../models/jadwal_sesi.dart';
 import '../models/sesi_makan.dart';
 import 'auth_service.dart';
 
@@ -419,6 +420,10 @@ Map<String, dynamic> badanSesi(SesiMakan sesi) => {
   // angkanya tidak mencemari apa pun adalah tandanya sendiri: server menyimpan
   // dan menampilkannya, tetapi tidak pernah menghitungnya.
   'sesi_uji': sesi.sesiUji,
+  // Selalu dikirim, termasuk `makan`: server yang belum mengenal field ini
+  // membuangnya tanpa galat, dan server yang sudah mengenalnya menetapkannya
+  // sekali saat sesi lahir (§7.1 aturan 5).
+  'jenis': sesi.jenis.name,
   'sampel': [
     for (final s in sesi.sampel)
       {
@@ -515,6 +520,19 @@ SesiMakan? sesiDariJson(Map<String, dynamic> data) {
   }
   sampel.sort((a, b) => a.index.compareTo(b.index));
 
+  // Nama anggota enum dipakai apa adanya di kawat (`makan`, `puasa`). Nilai
+  // yang tidak dikenal — atau tidak ada sama sekali, dari server yang belum
+  // mengenal field ini — dibaca sebagai sesi makan, fungsi utama aplikasi.
+  final jenis =
+      JenisSesi.values.where((j) => j.name == data['jenis']).firstOrNull ??
+      JenisSesi.makan;
+  if (jenis == JenisSesi.puasa) {
+    // Hanya titik milik jadwal puasa. Index 1 tidak punya tempat di sesi ini,
+    // dan membiarkannya masuk menggeser posisi +1 jam ke `sampel[1]`.
+    final indexPuasa = jadwalPuasa.titik.map((t) => t.index).toSet();
+    sampel.removeWhere((s) => !indexPuasa.contains(s.index));
+  }
+
   // **Offset baseline diturunkan di sini, bukan dipercaya dari kawat.**
   //
   // Jarak baseline ke t0 adalah `waktuFoto - t0` — persis rumus yang dipakai
@@ -532,8 +550,15 @@ SesiMakan? sesiDariJson(Map<String, dynamic> data) {
   //
   // Tanpa t0 tidak ada yang bisa diturunkan, dan nilai kawat tetap dipakai:
   // sesi yang tombolnya tidak pernah ditekan memang belum punya titik nol.
+  //
+  // Sesi puasa tidak diperlakukan begini: baseline-nya diukur **sesudah** t0,
+  // oleh jam yang sudah tahu t0, jadi nilai kawatnya justru yang benar — dan
+  // `waktuFoto` di sana hanyalah saat sesi dibuat, bukan saat diukur.
   final t0 = DateTime.tryParse(data['t0'] as String? ?? '')?.toLocal();
-  if (t0 != null && sampel.first.index == 0) {
+  if (t0 != null &&
+      jenis == JenisSesi.makan &&
+      sampel.isNotEmpty &&
+      sampel.first.index == 0) {
     final b = sampel.first;
     sampel[0] = Sampel(
       index: b.index,
@@ -568,6 +593,7 @@ SesiMakan? sesiDariJson(Map<String, dynamic> data) {
     hasil: _hasilDariJson(data['hasil']),
     waktuTidakPasti: data['waktu_tidak_pasti'] == true,
     sesiUji: data['sesi_uji'] == true,
+    jenis: jenis,
     // Ikut dibaca, dan itu perlu: sesi hasil unduhan yang stempelnya null akan
     // mengirim ulang dirinya dengan `waktuFoto` sebagai `diperbarui_pada`, yang
     // pasti lebih tua daripada `updated_at` baris itu di server — 409 setiap

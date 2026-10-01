@@ -7,6 +7,7 @@ import 'controllers/sesi_makan_controller.dart';
 import 'konfigurasi.dart';
 import 'models/sesi_makan.dart';
 import 'services/kamera_service.dart';
+import 'sesi_berjalan_page.dart';
 import 'utils/format_waktu.dart';
 import 'utils/gaya_sistem.dart';
 import 'widgets/foto_makanan.dart';
@@ -145,7 +146,10 @@ class _DeteksiMakananPageState extends State<DeteksiMakananPage>
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<SesiMakanController>();
-    final sesi = controller.sesiAktif;
+    // Sesi puasa tidak punya piring untuk ditampilkan di sini; layar ini hanya
+    // sempat melihatnya sesaat sebelum berpindah ke Sesi Berjalan.
+    final aktif = controller.sesiAktif;
+    final sesi = (aktif?.puasa ?? false) ? null : aktif;
 
     // Satu-satunya layar berlatar gelap: ikon bilah statusnya harus terang,
     // kebalikan dari bawaan aplikasi (lihat utils/gaya_sistem.dart).
@@ -201,16 +205,23 @@ class _DeteksiMakananPageState extends State<DeteksiMakananPage>
                 bottom: 60 + MediaQuery.paddingOf(context).bottom,
                 left: 40,
                 right: 40,
-                child: _KendaliKamera(
-                  aktif: _kamera.siap && !_sibuk,
-                  lampuMenyala: _kamera.lampuMenyala,
-                  punyaLampu: _kamera.punyaLampu,
-                  onGaleri: _pilihDariGaleri,
-                  onRana: _tekanShutter,
-                  onLampu: () async {
-                    await _kamera.gantiLampu();
-                    if (mounted) setState(() {});
-                  },
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _TombolPuasa(onTap: _sibuk ? null : _mulaiPuasa),
+                    const SizedBox(height: 20),
+                    _KendaliKamera(
+                      aktif: _kamera.siap && !_sibuk,
+                      lampuMenyala: _kamera.lampuMenyala,
+                      punyaLampu: _kamera.punyaLampu,
+                      onGaleri: _pilihDariGaleri,
+                      onRana: _tekanShutter,
+                      onLampu: () async {
+                        await _kamera.gantiLampu();
+                        if (mounted) setState(() {});
+                      },
+                    ),
+                  ],
                 ),
               ),
 
@@ -240,6 +251,7 @@ class _DeteksiMakananPageState extends State<DeteksiMakananPage>
         galat: _galat!,
         onCobaLagi: _cobaLagi,
         onGaleri: _pilihDariGaleri,
+        onPuasa: _mulaiPuasa,
       );
     }
     if (_kamera.siap) return _kamera.pratinjau();
@@ -280,6 +292,73 @@ class _DeteksiMakananPageState extends State<DeteksiMakananPage>
       await context.read<SesiMakanController>().mulaiDraft(jalur);
     } on GalatKamera catch (e) {
       _kabarkan(e.pesan);
+    } finally {
+      if (mounted) setState(() => _sibuk = false);
+    }
+  }
+
+  /// Pemantauan saat berpuasa: sesi tanpa foto (lihat `JenisSesi.puasa`).
+  ///
+  /// Ditanya dulu, karena begitu dimulai jam langsung mengukur dan jadwal dua
+  /// jam berjalan — dan tombolnya duduk tepat di atas rana, tempat jari yang
+  /// hendak memotret bisa meleset.
+  Future<void> _mulaiPuasa() async {
+    if (_sibuk) return;
+    final yakin = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Mulai pemantauan puasa?',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF1E3A34),
+          ),
+        ),
+        content: const Text(
+          'Tanpa foto makanan. Jam langsung mengukur sekarang sebagai '
+          'baseline, lalu lagi pada +1 jam dan +2 jam. Pakai jam di '
+          'pergelangan dan pastikan sudah tersambung.',
+          style: TextStyle(fontSize: 13, color: Color(0xFF6B807B), height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text(
+              'Batal',
+              style: TextStyle(
+                color: Color(0xFF6B807B),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(
+              'Mulai',
+              style: TextStyle(
+                color: Color(0xFF0EAD69),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (yakin != true || !mounted) return;
+
+    setState(() => _sibuk = true);
+    try {
+      if (!await _pastikanTidakAdaSesiAktif()) return;
+      if (!mounted) return;
+      final navigator = Navigator.of(context);
+      await context.read<SesiMakanController>().mulaiPuasa();
+      if (!mounted) return;
+      navigator.pushReplacement(
+        MaterialPageRoute(builder: (_) => const SesiBerjalanPage()),
+      );
     } finally {
       if (mounted) setState(() => _sibuk = false);
     }
@@ -343,6 +422,68 @@ class _DeteksiMakananPageState extends State<DeteksiMakananPage>
     if (akhiri != true) return false;
     await controller.akhiriLebihAwal();
     return true;
+  }
+}
+
+/// Pintu ke sesi puasa — harus terbaca sebagai **tombol**, tetapi tetap kalah
+/// pamor dari rana.
+///
+/// Versi pertamanya pil putih 18% tanpa garis tepi, dan itu terbaca sebagai
+/// label: tidak ada tepi yang menjanjikan bisa ditekan, dan di atas pratinjau
+/// kamera sungguhan — piring terang, taplak bermotif — kontrasnya hampir
+/// hilang. Yang membuatnya tombol di sini adalah tiga penanda yang dikenali
+/// siapa saja: garis tepi tegas di atas latar gelap semi-pekat (terbaca di atas
+/// pratinjau terang maupun gelap), tinggi 48 px (ukuran sentuh minimum, dan
+/// jari lansia), dan panah di ujung. Yang membuatnya tetap sekunder: tanpa isi
+/// warna, sehingga rana hijau tetap satu-satunya yang berwarna di baris ini.
+class _TombolPuasa extends StatelessWidget {
+  const _TombolPuasa({required this.onTap});
+
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    const bentuk = StadiumBorder(
+      side: BorderSide(color: Colors.white, width: 1.5),
+    );
+    return Opacity(
+      opacity: onTap == null ? 0.5 : 1,
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.55),
+        shape: bentuk,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: bentuk,
+          child: const SizedBox(
+            height: 48,
+            child: Padding(
+              padding: EdgeInsets.only(left: 18, right: 12),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.nightlight_round, color: Colors.white, size: 18),
+                  SizedBox(width: 10),
+                  Text(
+                    'Mulai Tanpa Foto (Puasa)',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  SizedBox(width: 6),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: Colors.white,
+                    size: 22,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -446,11 +587,16 @@ class _LayarGalatKamera extends StatelessWidget {
     required this.galat,
     required this.onCobaLagi,
     required this.onGaleri,
+    required this.onPuasa,
   });
 
   final GalatKamera galat;
   final VoidCallback onCobaLagi;
   final VoidCallback onGaleri;
+
+  /// Pemantauan puasa tidak butuh kamera sama sekali, jadi kamera yang gagal
+  /// dibuka bukan alasan menutup jalannya.
+  final VoidCallback onPuasa;
 
   @override
   Widget build(BuildContext context) {
@@ -511,6 +657,14 @@ class _LayarGalatKamera extends StatelessWidget {
                 style: TextButton.styleFrom(foregroundColor: Colors.white70),
                 child: const Text(
                   'Pilih Foto dari Galeri',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+              ),
+              TextButton(
+                onPressed: onPuasa,
+                style: TextButton.styleFrom(foregroundColor: Colors.white70),
+                child: const Text(
+                  'Mulai Tanpa Foto (Puasa)',
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
               ),

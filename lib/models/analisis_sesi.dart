@@ -76,8 +76,17 @@ class AnalisisSesi {
         // seseorang**. Satu sesi dua menit di dalam garis tren akan terlihat
         // persis seperti data sungguhan besok pagi, dan tidak ada satu pun
         // gejala yang memberitahu bahwa tren itu sudah tercemar.
+        //
+        // Sesi puasa dikeluarkan karena seluruh analisis ini menjawab
+        // "bagaimana tubuh merespons makanan": karbohidrat vs puncak, pemicu
+        // lonjakan, pemulihan. Kurva tanpa makanan yang ikut dirata-rata
+        // menarik respons makan ke bawah tanpa gejala apa pun.
         for (final s in sesi)
-          if (!s.status.sedangAktif && !s.waktuTidakPasti && !s.sesiUji) s,
+          if (!s.status.sedangAktif &&
+              !s.waktuTidakPasti &&
+              !s.sesiUji &&
+              !s.puasa)
+            s,
       ];
 
   final List<SesiMakan> sesi;

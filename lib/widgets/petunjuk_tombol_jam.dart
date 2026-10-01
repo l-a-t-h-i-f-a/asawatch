@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../controllers/sesi_makan_controller.dart';
 import '../models/sesi_makan.dart';
+import 'kartu_kemajuan_ukur.dart';
 
 /// Dua cara memulai sesi, dan keduanya berujung di tempat yang sama.
 ///
@@ -38,10 +39,17 @@ class PetunjukTombolJam extends StatefulWidget {
     super.key,
     required this.status,
     required this.perangkat,
+    this.puasa = false,
   });
 
   final StatusSesi status;
   final StatusPerangkat perangkat;
+
+  /// Sesi puasa: tidak ada makan yang selesai, jadi yang dimulai adalah
+  /// pemantauannya. Perintah dan jalurnya sama persis (`MULAI_SESI`); yang
+  /// berbeda hanya kalimatnya — dan bahwa controller sudah mengirimnya sendiri
+  /// begitu jam siap, sehingga tombol di sini hanya jalan cadangan.
+  final bool puasa;
 
   @override
   State<PetunjukTombolJam> createState() => _PetunjukTombolJamState();
@@ -63,9 +71,11 @@ class _PetunjukTombolJamState extends State<PetunjukTombolJam> {
       if (!mounted) return;
       if (!berhasil) {
         setState(() {
-          _galat =
-              'Jam belum menerima perintahnya. Dekatkan jam ke ponsel, lalu '
-              'coba lagi — atau tekan langsung tombol di jam.';
+          _galat = widget.puasa
+              ? 'Jam belum menerima perintahnya. Dekatkan jam ke ponsel, lalu '
+                    'coba lagi.'
+              : 'Jam belum menerima perintahnya. Dekatkan jam ke ponsel, lalu '
+                    'coba lagi — atau tekan langsung tombol di jam.';
         });
       }
       // Yang berhasil sengaja tidak mengubah apa pun di sini: sesinya baru
@@ -97,10 +107,11 @@ class _PetunjukTombolJamState extends State<PetunjukTombolJam> {
     // punya t0, dan karena itu sebelum `PetunjukTombolUkur` ada di layar sama
     // sekali. Tanpa baris ini, satu-satunya pengukuran yang terjadi tanpa
     // diminta pengguna adalah juga satu-satunya yang tidak pernah dikabarkan.
-    final kemajuan = context.watch<SesiMakanController>().kemajuanUkur;
+    final kemajuan = context.watch<SesiMakanController>().kemajuanUkurSesi;
     final siap =
         status == StatusSesi.draft && perangkat.tersambung && !bateraiKritis;
     final hijau = siap || sudahMulai;
+    final puasa = widget.puasa;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -133,9 +144,13 @@ class _PetunjukTombolJamState extends State<PetunjukTombolJam> {
                   children: [
                     Text(
                       sudahMulai
-                          ? 'Sesi sudah dimulai'
+                          ? (puasa
+                                ? 'Pemantauan sudah dimulai'
+                                : 'Sesi sudah dimulai')
                           : siap
-                          ? 'Selesai makan? Tekan tombol di jam'
+                          ? (puasa
+                                ? 'Memulai pemantauan puasa'
+                                : 'Selesai makan? Tekan tombol di jam')
                           : bateraiKritis
                           ? 'Baterai jam habis'
                           : 'Jam belum tersambung',
@@ -149,7 +164,21 @@ class _PetunjukTombolJamState extends State<PetunjukTombolJam> {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      sudahMulai
+                      puasa
+                          ? (sudahMulai
+                                ? 'Pemantauan berjalan memakai waktu jam. '
+                                      'Pantau perkembangannya di layar ini.'
+                                : siap
+                                ? 'Jam mulai mengukur begitu menerima '
+                                      'perintahnya. Kalau belum juga, tekan '
+                                      'tombol di bawah ini.'
+                                : bateraiKritis
+                                ? 'Di bawah 10% jam menolak memulai '
+                                      'pemantauan. Isi daya jam dulu.'
+                                : 'Pemantauan dimulai sendiri begitu jam '
+                                      'tersambung. Nyalakan jam dan dekatkan '
+                                      'ke ponsel.')
+                          : sudahMulai
                           ? 'Sesi berjalan memakai waktu jam. Pantau '
                                 'perkembangannya di layar Sesi Berjalan.'
                           : (siap
@@ -187,35 +216,8 @@ class _PetunjukTombolJamState extends State<PetunjukTombolJam> {
         // supaya pengukuran yang berjalan sendiri tidak terbaca sebagai jam
         // yang tidak melakukan apa-apa.
         if (kemajuan != null && !sudahMulai) ...[
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              const SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Color(0xFF0EAD69),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  kemajuan.macet
-                      ? 'Jam sedang mengukur baseline, tetapi belum menemukan '
-                            'nadi. Rapatkan jam di pergelangan.'
-                      : kemajuan.persen != null
-                      ? 'Jam sedang mengukur baseline… ${kemajuan.persen}%'
-                      : 'Jam sedang mengukur baseline…',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF6B807B),
-                    height: 1.35,
-                  ),
-                ),
-              ),
-            ],
-          ),
+          const SizedBox(height: 12),
+          KartuKemajuanUkur(kemajuan: kemajuan, namaTitik: 'baseline'),
         ],
 
         // Tombolnya hanya ada selama sesi memang belum dimulai. Setelah t0
@@ -250,7 +252,12 @@ class _PetunjukTombolJamState extends State<PetunjukTombolJam> {
                       ),
                     )
                   else
-                    const Icon(Icons.restaurant_rounded, size: 20),
+                    Icon(
+                      puasa
+                          ? Icons.play_arrow_rounded
+                          : Icons.restaurant_rounded,
+                      size: 20,
+                    ),
                   const SizedBox(width: 10),
                   Text(
                     // Kalimat orang, bukan nama perintah. Yang ditekan pengguna
@@ -259,6 +266,8 @@ class _PetunjukTombolJamState extends State<PetunjukTombolJam> {
                     // "Selesaikan Sesi" yang justru mengakhiri pemantauan.
                     _mengirim
                         ? 'Memberi tahu jam…'
+                        : puasa
+                        ? 'Mulai Pemantauan Sekarang'
                         : 'Saya Sudah Selesai Makan',
                     style: const TextStyle(
                       fontSize: 15,
@@ -273,8 +282,10 @@ class _PetunjukTombolJamState extends State<PetunjukTombolJam> {
           Text(
             _galat ??
                 (siap
-                    ? 'Jam yang mencatat waktunya, bukan ponsel — hasilnya sama '
-                          'persis dengan menekan tombol di jam.'
+                    ? (puasa
+                          ? 'Jam yang mencatat waktu mulainya, bukan ponsel.'
+                          : 'Jam yang mencatat waktunya, bukan ponsel — hasilnya '
+                                'sama persis dengan menekan tombol di jam.')
                     : bateraiKritis
                     ? 'Baterai jam tinggal ${perangkat.baterai ?? 0}% — jam '
                           'menolak memulai sesi di bawah 10%. Isi daya jam dulu.'

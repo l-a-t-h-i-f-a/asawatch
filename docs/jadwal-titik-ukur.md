@@ -168,6 +168,31 @@ Notifikasi yang baru berbunyi tepat di detik ke-3600 sudah pasti menghasilkan pe
 Konsekuensi teknis: dependensi baru (`flutter_local_notifications`), izin `POST_NOTIFICATIONS` di
 Android 13+, dan penjadwalannya harus tahan aplikasi ditutup — jadi `zonedSchedule`, bukan `Timer`.
 
+### 6.1 Yang kedua adalah alarm, dan hanya konfirmasi yang membungkamnya
+
+Notifikasi biasa berbunyi sekali lalu lewat; untuk pengguna lansia yang ponselnya di meja sebelah,
+itu sama dengan tidak diingatkan. Karena itu pengingat **T** dikirim di kanal tersendiri
+(`titik_ukur_alarm` — kanal lama tidak bisa diubah setelah dibuat) sebagai alarm: aliran suara
+alarm, nada alarm bawaan ponsel, `FLAG_INSISTENT` (bunyi diulang), tidak bisa digeser hilang, dan
+tidak hilang saat diketuk. Pengingat T−5 tetap notifikasi biasa.
+
+- **Mengetuknya membuka `KonfirmasiPakaiJamPage`**, satu tombol: *"Oke, Jam Sudah Dipakai"*. Tombol
+  itu membungkam alarm dan langsung menyuruh jam mengukur, lalu berganti ke Sesi Berjalan. **Tidak
+  ada tombol tunda**: jendela titik ukur hanya beberapa menit, dan menunda adalah cara termudah
+  melewatkannya.
+- **Tersambung bukan konfirmasi.** Jam di meja tetap tersambung, dan protokol tidak membawa tanda
+  "terpakai". Penjadwalan ulang yang dipicu tiap koneksi karena itu **tidak** menghapus alarm yang
+  sedang berbunyi untuk titik yang masih kosong dan jendelanya masih terbuka.
+- **Yang membungkamnya hanya dua**: konfirmasi, atau sampel titik itu yang benar-benar masuk (sampel
+  butuh nadi, jadi ia bukti jamnya menempel — dan pengukuran otomatis tetap berjalan seperti biasa).
+- **Ia berhenti sendiri saat jendelanya tertutup** (`timeoutAfter`): setelah itu titiknya sudah
+  terlewat, dan alarm untuk sesuatu yang tidak bisa lagi dikerjakan hanya mengajari orang mematikan
+  suara.
+- Konfirmasi yang pengukurannya kemudian gagal **tidak** membunyikan alarm lagi: orangnya sedang
+  memegang ponsel, dan Sesi Berjalan sudah menerangkan sebabnya.
+- Alarm membawa `sesiId` di muatannya; alarm basi (sesi lain, titik sudah terisi) membuka layar
+  "sudah tidak perlu" dan membungkam dirinya sendiri.
+
 ## 7. Mode jadwal uji
 
 Menguji sesi penuh tidak boleh menuntut menunggu dua jam. Mode ini mengecilkan **jadwal**, bukan
@@ -269,10 +294,13 @@ Konsekuensi `sesiUji == true`:
 
 ### 7.2 Notifikasi di mode uji
 
-`zonedSchedule` tidak dapat diandalkan pada jarak 30 detik, dan Doze memperburuknya. Di mode uji,
-pengingat memakai `Timer` dalam aplikasi. Ini berarti **jalur notifikasi yang sesungguhnya tidak ikut
-teruji oleh mode ini** — ia harus diuji terpisah dengan jadwal normal, dan itu memang tidak bisa
-dipercepat.
+Rancangan awal memakai `Timer` di mode uji karena `zonedSchedule` dikhawatirkan tidak andal pada
+jarak puluhan detik. **Yang dibangun tidak bercabang**: `PengingatLokal` memakai `zonedSchedule`
+yang sama di kedua mode, jadi mode uji *menguji* jalur notifikasi dan alarm yang sesungguhnya
+(§6.1) — hanya waktunya yang dimampatkan. Dua hal tidak ikut dimampatkan: pengingat T−5 tetap 5
+menit sebelum jendela (pada faktor 12, yang untuk `+1 jam` jatuh sebelum t0 dan dilewati, sedangkan
+yang untuk `+2 jam` berbunyi lebih dulu daripada alarm `+1 jam`), dan lama alarm berbunyi mengikuti
+lebar jendela yang sudah dimampatkan (75 detik untuk `+1 jam` pada faktor 12, 15 detik pada 60).
 
 ---
 

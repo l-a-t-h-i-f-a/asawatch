@@ -572,7 +572,7 @@ memberi tahu aplikasi bahwa ada garis waktu baru.
 | 0 | 1 | `status_sesi` jam: 0 idle, 1 armed, 2 running |
 | 1 | 1 | `sampel_tertunda` — jumlah entri belum di-ack di buffer |
 | 2 | 1 | `baterai` % (duplikasi `0x2A19`, agar satu kali baca cukup) |
-| 3 | 1 | `flag`: bit0 sedang mengukur, bit1 kalibrasi tersimpan, bit2 baterai kritis, bit3 boot ini sudah punya anchor |
+| 3 | 1 | `flag`: bit0 sedang mengukur, bit1 kalibrasi tersimpan, bit2 baterai kritis, bit3 boot ini sudah punya anchor, bit4 sedang dicas **(v1.5)** |
 | 4 | 4 | `uptime_s` uint32 LE |
 | 8 | 1 | `ukur_persen` 0..100, 0 bila tidak mengukur **(v1.4)** |
 | 9 | 1 | `ukur_sisa_detik`, jenuh di 255, 0 bila tidak mengukur **(v1.4)** |
@@ -1173,6 +1173,18 @@ yang diimplementasikannya di byte 0–1 handshake (§3).
 
 Bagian ini adalah satu-satunya tempat yang memberi arti pada angka itu. Tanpanya, `versi_minor` cuma
 bilangan yang naik.
+
+### v1.5
+
+Satu bit, tanpa perubahan panjang paket: **`flag` bit4 = sedang dicas** (§5.5), diisi dari
+`battery_charging()` yang firmware sudah punya. Selama arus cas mengalir, tegangan yang terbaca bukan
+tegangan sel (`BATT_CHG_IR_MV` di `config.h`) dan persennya bisa melompat 8–15%. Aplikasi membacanya
+ke `StatusPerangkat.sedangDicas`, dan `IndikatorBaterai` menirunya seperti layar jam: hijau dan
+petir selama dicas, **kecuali pada 100%** — pembungkaman itu milik tampilan, jadi bit ini sendiri
+tetap melaporkan keadaan sebenarnya dan aplikasilah yang membungkam.
+Firmware juga mengirim ulang Status saat kabel dicolok atau dicabut, karena bit ini ada di byte 3 dan
+Status hanya dikirim bila empat byte pertamanya berubah. Firmware ≤ v1.4 selalu mengirim 0 di bit
+ini, yang terbaca "tidak dicas" — layar lalu menampilkan persen seperti biasa, tidak ada yang rusak.
 
 ### v1.4
 

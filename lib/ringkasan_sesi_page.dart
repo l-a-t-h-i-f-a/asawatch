@@ -11,6 +11,7 @@ import 'tekanan_darah_detail_page.dart';
 import 'utils/format_waktu.dart';
 import 'utils/ikon.dart';
 import 'utils/warna_respons.dart';
+import 'widgets/peringatan_gula_rendah.dart';
 import 'widgets/foto_makanan.dart';
 import 'widgets/judul_bagian.dart';
 import 'widgets/kurva_sampel.dart';
@@ -75,9 +76,9 @@ class RingkasanSesiPage extends StatelessWidget {
           icon: const Icon(Icons.arrow_back, color: Color(0xFF1E3A34)),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
-          'Ringkasan Sesi',
-          style: TextStyle(
+        title: Text(
+          sesi.puasa ? 'Ringkasan Pemantauan' : 'Ringkasan Sesi',
+          style: const TextStyle(
             color: Color(0xFF1E3A34),
             fontWeight: FontWeight.bold,
             fontSize: 18,
@@ -103,57 +104,70 @@ class RingkasanSesiPage extends StatelessWidget {
               _KartuHasil(sesi: sesi),
               const SizedBox(height: 16),
 
-              // Dibaca kiri ke kanan sebagai satu kalimat: mulai dari mana,
-              // setinggi apa, berapa lama kembali. Delta sengaja tidak ada di
-              // sini — ia sudah menjadi angka besar di kartu atas, dan angka yang
-              // sama ditulis dua kali membuat keduanya terasa kurang penting.
-              IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _KotakNilai(
-                      ikon: Icons.trip_origin_rounded,
-                      label: 'Baseline',
-                      nilai: baseline?.toString() ?? tandaKosong,
-                      satuan: baseline == null ? 'belum terukur' : 'mg/dL',
-                    ),
-                    const SizedBox(width: 10),
-                    _KotakNilai(
-                      ikon: Icons.arrow_upward_rounded,
-                      label: 'Puncak',
-                      nilai: sesi.puncakGulaDarah?.toString() ?? tandaKosong,
-                      satuan: sesi.sampelPuncak == null
-                          ? 'mg/dL'
-                          : 'mg/dL · ${sesi.sampelPuncak!.label.toLowerCase()}',
-                    ),
-                    const SizedBox(width: 10),
-                    _KotakNilai(
-                      ikon: Icons.restart_alt_rounded,
-                      label: 'Pemulihan',
-                      nilai: pemulihan == null
-                          ? tandaKosong
-                          : formatDurasiRingkas(pemulihan),
-                      satuan: pemulihan == null
-                          ? 'belum kembali'
-                          : 'sejak selesai makan',
-                    ),
-                  ],
+              if (sesi.puasa) ...[
+                if (sesi.kondisiPuasa.perluPerhatian) ...[
+                  PeringatanGulaRendah(sesi: sesi),
+                  const SizedBox(height: 16),
+                ],
+                // Padanan baris di bawah untuk sesi puasa: mulai dari mana,
+                // serendah apa, dan selisihnya. Terendah **tidak** diulang di
+                // sini bila ia sudah menjadi angka besar kartu atas.
+                _KotakPuasa(sesi: sesi),
+              ] else
+                // Dibaca kiri ke kanan sebagai satu kalimat: mulai dari mana,
+                // setinggi apa, berapa lama kembali. Delta sengaja tidak ada di
+                // sini — ia sudah menjadi angka besar di kartu atas, dan angka yang
+                // sama ditulis dua kali membuat keduanya terasa kurang penting.
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _KotakNilai(
+                        ikon: Icons.trip_origin_rounded,
+                        label: 'Baseline',
+                        nilai: baseline?.toString() ?? tandaKosong,
+                        satuan: baseline == null ? 'belum terukur' : 'mg/dL',
+                      ),
+                      const SizedBox(width: 10),
+                      _KotakNilai(
+                        ikon: Icons.arrow_upward_rounded,
+                        label: 'Puncak',
+                        nilai: sesi.puncakGulaDarah?.toString() ?? tandaKosong,
+                        satuan: sesi.sampelPuncak == null
+                            ? 'mg/dL'
+                            : 'mg/dL · ${sesi.sampelPuncak!.label.toLowerCase()}',
+                      ),
+                      const SizedBox(width: 10),
+                      _KotakNilai(
+                        ikon: Icons.restart_alt_rounded,
+                        label: 'Pemulihan',
+                        nilai: pemulihan == null
+                            ? tandaKosong
+                            : formatDurasiRingkas(pemulihan),
+                        satuan: pemulihan == null
+                            ? 'belum kembali'
+                            : 'sejak selesai makan',
+                      ),
+                    ],
+                  ),
                 ),
-              ),
               const SizedBox(height: 28),
 
               // Tanpa keterangan: jumlah titik terukur adalah milik "Detail Tiap
               // Titik" di bawah, dan baseline sudah berdiri sebagai kotak nilai
               // beberapa piksel di atas — lengkap dengan garis acuannya sendiri
               // di dalam kurva.
-              const JudulBagian(
+              JudulBagian(
                 ikon: ikonGulaDarah,
-                judul: 'Respons Gula Darah',
+                judul: sesi.puasa
+                    ? 'Gula Darah Selama Puasa'
+                    : 'Respons Gula Darah',
               ),
               KurvaSampel(
                 sampel: sesi.sampel,
                 seri: const [seriGulaDarah],
                 garisAcuan: baseline,
+                ambangRendah: sesi.puasa ? ambangGulaRendah : null,
                 pesanKosong: 'Belum ada sampel gula darah',
               ),
               const SizedBox(height: 24),
@@ -170,54 +184,58 @@ class RingkasanSesiPage extends StatelessWidget {
               // adalah persis yang §3 protokol larang.
               _Spo2Sesi(sesi: sesi),
 
-              const JudulBagian(
-                ikon: Icons.restaurant_menu_rounded,
-                judul: 'Nutrisi Sesi Ini',
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 16,
+              // Sesi puasa tidak punya foto dan tidak punya makanan: tidak ada
+              // kartu kosong yang menunggu angka gizi yang tidak akan datang.
+              if (!sesi.puasa) ...[
+                const JudulBagian(
+                  ikon: Icons.restaurant_menu_rounded,
+                  judul: 'Nutrisi Sesi Ini',
                 ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: const Color(0xFFE2EBE8),
-                    width: 1.5,
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 16,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: const Color(0xFFE2EBE8),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Fotonya berdiri di sini, bukan sebagai jempol 72 px di
+                      // kepala halaman.
+                      //
+                      // Seluruh angka di kartu ini adalah **perkiraan dari foto
+                      // itu**, dan baris di bawahnya menyebut seberapa yakin
+                      // perkiraannya. "Keyakinan 82%" tidak bisa dinilai siapa pun
+                      // tanpa melihat apa yang dilihat detektornya: porsi yang
+                      // jelas meleset baru kelihatan meleset ketika piringnya ada
+                      // di layar yang sama. Di kepala halaman ia hanya menandai
+                      // sesi yang mana — dan itu sudah dikerjakan oleh nama
+                      // makanan tepat di sebelahnya.
+                      FotoMakanan(
+                        fotoPath: sesi.fotoPath,
+                        lebar: double.infinity,
+                        tinggi: 150,
+                        bisaDibuka: true,
+                        judulPratinjau: sesi.hasil?.ringkasanNama,
+                      ),
+                      const SizedBox(height: 14),
+                      RingkasanNutrisi(hasil: sesi.hasil),
+                      if (sesi.hasil != null) ...[
+                        const SizedBox(height: 14),
+                        _CatatanMakanan(hasil: sesi.hasil!),
+                      ],
+                    ],
                   ),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Fotonya berdiri di sini, bukan sebagai jempol 72 px di
-                    // kepala halaman.
-                    //
-                    // Seluruh angka di kartu ini adalah **perkiraan dari foto
-                    // itu**, dan baris di bawahnya menyebut seberapa yakin
-                    // perkiraannya. "Keyakinan 82%" tidak bisa dinilai siapa pun
-                    // tanpa melihat apa yang dilihat detektornya: porsi yang
-                    // jelas meleset baru kelihatan meleset ketika piringnya ada
-                    // di layar yang sama. Di kepala halaman ia hanya menandai
-                    // sesi yang mana — dan itu sudah dikerjakan oleh nama
-                    // makanan tepat di sebelahnya.
-                    FotoMakanan(
-                      fotoPath: sesi.fotoPath,
-                      lebar: double.infinity,
-                      tinggi: 150,
-                      bisaDibuka: true,
-                      judulPratinjau: sesi.hasil?.ringkasanNama,
-                    ),
-                    const SizedBox(height: 14),
-                    RingkasanNutrisi(hasil: sesi.hasil),
-                    if (sesi.hasil != null) ...[
-                      const SizedBox(height: 14),
-                      _CatatanMakanan(hasil: sesi.hasil!),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
+                const SizedBox(height: 24),
+              ],
 
               // Data mentahnya tetap ada, tetapi dilipat: yang dicari orang saat
               // membuka sesi lama adalah jawabannya, bukan 16 angka.
@@ -258,7 +276,9 @@ class _KepalaSesi extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          sesi.hasil?.ringkasanNama ?? 'Makanan',
+          sesi.puasa
+              ? 'Pemantauan Puasa'
+              : (sesi.hasil?.ringkasanNama ?? 'Makanan'),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(
@@ -316,10 +336,16 @@ class _KartuHasil extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final delta = sesi.deltaPuncak;
-    final warna = warnaKualitas(sesi.kualitasRespons);
+    final puasa = sesi.puasa;
+    // Sesi puasa dijawab lewat titik terendahnya, dengan warna dari
+    // penilaiannya sendiri — "lonjakan" tidak punya arti tanpa makanan.
+    final warna = puasa
+        ? warnaKondisiPuasa(sesi.kondisiPuasa)
+        : warnaKualitas(sesi.kualitasRespons);
     final aktif = sesi.status.sedangAktif;
     final jadwal = sesi.jadwalBerikutnya;
-    final adaAngka = !aktif && delta != null;
+    final terendah = sesi.gulaTerendah;
+    final adaAngka = !aktif && (puasa ? terendah != null : delta != null);
 
     return Container(
       width: double.infinity,
@@ -331,11 +357,18 @@ class _KartuHasil extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          LencanaKualitas(
-            kualitas: sesi.kualitasRespons,
-            ukuranTeks: 11,
-            diAtasLatarBerwarna: true,
-          ),
+          if (puasa)
+            LencanaPuasa(
+              kondisi: sesi.kondisiPuasa,
+              ukuranTeks: 11,
+              diAtasLatarBerwarna: true,
+            )
+          else
+            LencanaKualitas(
+              kualitas: sesi.kualitasRespons,
+              ukuranTeks: 11,
+              diAtasLatarBerwarna: true,
+            ),
           const SizedBox(height: 14),
 
           // Angka inti hanya ditulis besar bila sesinya memang sudah selesai
@@ -348,7 +381,7 @@ class _KartuHasil extends StatelessWidget {
                 // Satu-satunya angka sebesar ini di seluruh halaman. Kalau nanti
                 // ada yang kedua, keduanya berhenti menjadi jawaban.
                 Text(
-                  '${delta >= 0 ? '+' : ''}$delta',
+                  puasa ? '$terendah' : '${delta! >= 0 ? '+' : ''}$delta',
                   style: TextStyle(
                     fontSize: 46,
                     fontWeight: FontWeight.bold,
@@ -374,9 +407,11 @@ class _KartuHasil extends StatelessWidget {
             // Angkanya tidak diulang: baseline berdiri sebagai kotak nilai
             // sendiri tepat di bawah kartu ini. Kalimat ini hanya menerangkan
             // **apa** angka besar di atasnya, bukan menyebut ulang berapa.
-            const Text(
-              'kenaikan puncak dari baseline',
-              style: TextStyle(fontSize: 11.5, color: Color(0xFF6B807B)),
+            Text(
+              puasa
+                  ? 'gula darah terendah selama pemantauan'
+                  : 'kenaikan puncak dari baseline',
+              style: const TextStyle(fontSize: 11.5, color: Color(0xFF6B807B)),
             ),
           ] else ...[
             Row(
@@ -641,6 +676,62 @@ class _BarisCatatan extends StatelessWidget {
                 height: 1.3,
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Tiga kotak nilai sesi puasa: baseline, terendah, dan selisih keduanya.
+class _KotakPuasa extends StatelessWidget {
+  const _KotakPuasa({required this.sesi});
+
+  final SesiMakan sesi;
+
+  @override
+  Widget build(BuildContext context) {
+    final dasar = sesi.gulaDarahBaseline;
+    final terendah = sesi.gulaTerendah;
+    final selisih = (dasar == null || terendah == null)
+        ? null
+        : terendah - dasar;
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _KotakNilai(
+            ikon: Icons.trip_origin_rounded,
+            label: 'Baseline',
+            nilai: dasar?.toString() ?? tandaKosong,
+            satuan: dasar == null ? 'belum terukur' : 'mg/dL',
+          ),
+          const SizedBox(width: 10),
+          // Begitu sesi selesai, angka terendah sudah menjadi angka besar kartu
+          // di atas — di sini yang tersisa untuk dikatakan adalah **kapan**.
+          // Selagi berjalan kartu atas belum punya angka, jadi angkanya di sini.
+          if (sesi.status.sedangAktif || sesi.sampelTerendah == null)
+            _KotakNilai(
+              ikon: Icons.arrow_downward_rounded,
+              label: 'Terendah',
+              nilai: terendah?.toString() ?? tandaKosong,
+              satuan: 'mg/dL',
+            )
+          else
+            _KotakNilai(
+              ikon: Icons.schedule_rounded,
+              label: 'Saat terendah',
+              nilai: sesi.labelSampel(sesi.sampelTerendah!),
+              satuan: 'titik ukur',
+            ),
+          const SizedBox(width: 10),
+          _KotakNilai(
+            ikon: Icons.swap_vert_rounded,
+            label: 'Perubahan',
+            nilai: selisih == null
+                ? tandaKosong
+                : '${selisih > 0 ? '+' : ''}$selisih',
+            satuan: 'dari baseline',
           ),
         ],
       ),
@@ -1083,7 +1174,10 @@ class _PintuMetrik extends StatelessWidget {
 
     return Row(
       children: [
-        if (kemampuan.gulaDarah) ...[
+        // Halaman detail gula darah menjawab respons terhadap makanan
+        // (lonjakan, pemulihan, tumpukan antarsesi). Sesi puasa sudah
+        // menampilkan seluruh kurva gulanya di halaman ini.
+        if (kemampuan.gulaDarah && !sesi.puasa) ...[
           _tombol(
             context,
             ikon: ikonGulaDarah,

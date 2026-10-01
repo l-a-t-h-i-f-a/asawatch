@@ -111,6 +111,16 @@ class $TabelSesiTable extends TabelSesi
     requiredDuringInsert: false,
   );
   @override
+  late final GeneratedColumnWithTypeConverter<JenisSesi, String> jenis =
+      GeneratedColumn<String>(
+        'jenis',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        defaultValue: Constant(JenisSesi.makan.name),
+      ).withConverter<JenisSesi>($TabelSesiTable.$converterjenis);
+  @override
   List<GeneratedColumn> get $columns => [
     id,
     fotoPath,
@@ -121,6 +131,7 @@ class $TabelSesiTable extends TabelSesi
     sesiUji,
     diperbaruiPada,
     dihapusPada,
+    jenis,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -238,6 +249,12 @@ class $TabelSesiTable extends TabelSesi
         DriftSqlType.int,
         data['${effectivePrefix}dihapus_pada'],
       ),
+      jenis: $TabelSesiTable.$converterjenis.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}jenis'],
+        )!,
+      ),
     );
   }
 
@@ -248,6 +265,8 @@ class $TabelSesiTable extends TabelSesi
 
   static JsonTypeConverter2<StatusSesi, String, String> $converterstatus =
       const EnumNameConverter<StatusSesi>(StatusSesi.values);
+  static JsonTypeConverter2<JenisSesi, String, String> $converterjenis =
+      const EnumNameConverter<JenisSesi>(JenisSesi.values);
 }
 
 class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
@@ -303,6 +322,13 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
   /// pengguna yang belum pernah masuk — dan di sana tidak ada server untuk
   /// diberi tahu, jadi nisannya tidak pernah dibuat sejak awal.
   final int? dihapusPada;
+
+  /// Makan atau puasa (v8) — lihat [JenisSesi].
+  ///
+  /// Bawaannya `makan` di tingkat SQL, bukan hanya di Dart: baris yang sudah
+  /// ada saat migrasi harus menjadi sesi makan tanpa satu langkah pun yang
+  /// menulisnya, karena memang itulah mereka.
+  final JenisSesi jenis;
   const TabelSesiData({
     required this.id,
     required this.fotoPath,
@@ -313,6 +339,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
     required this.sesiUji,
     this.diperbaruiPada,
     this.dihapusPada,
+    required this.jenis,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -336,6 +363,11 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
     if (!nullToAbsent || dihapusPada != null) {
       map['dihapus_pada'] = Variable<int>(dihapusPada);
     }
+    {
+      map['jenis'] = Variable<String>(
+        $TabelSesiTable.$converterjenis.toSql(jenis),
+      );
+    }
     return map;
   }
 
@@ -354,6 +386,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
       dihapusPada: dihapusPada == null && nullToAbsent
           ? const Value.absent()
           : Value(dihapusPada),
+      jenis: Value(jenis),
     );
   }
 
@@ -374,6 +407,9 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
       sesiUji: serializer.fromJson<bool>(json['sesiUji']),
       diperbaruiPada: serializer.fromJson<int?>(json['diperbaruiPada']),
       dihapusPada: serializer.fromJson<int?>(json['dihapusPada']),
+      jenis: $TabelSesiTable.$converterjenis.fromJson(
+        serializer.fromJson<String>(json['jenis']),
+      ),
     );
   }
   @override
@@ -391,6 +427,9 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
       'sesiUji': serializer.toJson<bool>(sesiUji),
       'diperbaruiPada': serializer.toJson<int?>(diperbaruiPada),
       'dihapusPada': serializer.toJson<int?>(dihapusPada),
+      'jenis': serializer.toJson<String>(
+        $TabelSesiTable.$converterjenis.toJson(jenis),
+      ),
     };
   }
 
@@ -404,6 +443,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
     bool? sesiUji,
     Value<int?> diperbaruiPada = const Value.absent(),
     Value<int?> dihapusPada = const Value.absent(),
+    JenisSesi? jenis,
   }) => TabelSesiData(
     id: id ?? this.id,
     fotoPath: fotoPath ?? this.fotoPath,
@@ -416,6 +456,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
         ? diperbaruiPada.value
         : this.diperbaruiPada,
     dihapusPada: dihapusPada.present ? dihapusPada.value : this.dihapusPada,
+    jenis: jenis ?? this.jenis,
   );
   TabelSesiData copyWithCompanion(TabelSesiCompanion data) {
     return TabelSesiData(
@@ -434,6 +475,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
       dihapusPada: data.dihapusPada.present
           ? data.dihapusPada.value
           : this.dihapusPada,
+      jenis: data.jenis.present ? data.jenis.value : this.jenis,
     );
   }
 
@@ -448,7 +490,8 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
           ..write('waktuTidakPasti: $waktuTidakPasti, ')
           ..write('sesiUji: $sesiUji, ')
           ..write('diperbaruiPada: $diperbaruiPada, ')
-          ..write('dihapusPada: $dihapusPada')
+          ..write('dihapusPada: $dihapusPada, ')
+          ..write('jenis: $jenis')
           ..write(')'))
         .toString();
   }
@@ -464,6 +507,7 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
     sesiUji,
     diperbaruiPada,
     dihapusPada,
+    jenis,
   );
   @override
   bool operator ==(Object other) =>
@@ -477,7 +521,8 @@ class TabelSesiData extends DataClass implements Insertable<TabelSesiData> {
           other.waktuTidakPasti == this.waktuTidakPasti &&
           other.sesiUji == this.sesiUji &&
           other.diperbaruiPada == this.diperbaruiPada &&
-          other.dihapusPada == this.dihapusPada);
+          other.dihapusPada == this.dihapusPada &&
+          other.jenis == this.jenis);
 }
 
 class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
@@ -490,6 +535,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
   final Value<bool> sesiUji;
   final Value<int?> diperbaruiPada;
   final Value<int?> dihapusPada;
+  final Value<JenisSesi> jenis;
   final Value<int> rowid;
   const TabelSesiCompanion({
     this.id = const Value.absent(),
@@ -501,6 +547,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
     this.sesiUji = const Value.absent(),
     this.diperbaruiPada = const Value.absent(),
     this.dihapusPada = const Value.absent(),
+    this.jenis = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   TabelSesiCompanion.insert({
@@ -513,6 +560,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
     this.sesiUji = const Value.absent(),
     this.diperbaruiPada = const Value.absent(),
     this.dihapusPada = const Value.absent(),
+    this.jenis = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        fotoPath = Value(fotoPath),
@@ -528,6 +576,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
     Expression<bool>? sesiUji,
     Expression<int>? diperbaruiPada,
     Expression<int>? dihapusPada,
+    Expression<String>? jenis,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -540,6 +589,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
       if (sesiUji != null) 'sesi_uji': sesiUji,
       if (diperbaruiPada != null) 'diperbarui_pada': diperbaruiPada,
       if (dihapusPada != null) 'dihapus_pada': dihapusPada,
+      if (jenis != null) 'jenis': jenis,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -554,6 +604,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
     Value<bool>? sesiUji,
     Value<int?>? diperbaruiPada,
     Value<int?>? dihapusPada,
+    Value<JenisSesi>? jenis,
     Value<int>? rowid,
   }) {
     return TabelSesiCompanion(
@@ -566,6 +617,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
       sesiUji: sesiUji ?? this.sesiUji,
       diperbaruiPada: diperbaruiPada ?? this.diperbaruiPada,
       dihapusPada: dihapusPada ?? this.dihapusPada,
+      jenis: jenis ?? this.jenis,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -602,6 +654,11 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
     if (dihapusPada.present) {
       map['dihapus_pada'] = Variable<int>(dihapusPada.value);
     }
+    if (jenis.present) {
+      map['jenis'] = Variable<String>(
+        $TabelSesiTable.$converterjenis.toSql(jenis.value),
+      );
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -620,6 +677,7 @@ class TabelSesiCompanion extends UpdateCompanion<TabelSesiData> {
           ..write('sesiUji: $sesiUji, ')
           ..write('diperbaruiPada: $diperbaruiPada, ')
           ..write('dihapusPada: $dihapusPada, ')
+          ..write('jenis: $jenis, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -4616,6 +4674,7 @@ typedef $$TabelSesiTableCreateCompanionBuilder =
       Value<bool> sesiUji,
       Value<int?> diperbaruiPada,
       Value<int?> dihapusPada,
+      Value<JenisSesi> jenis,
       Value<int> rowid,
     });
 typedef $$TabelSesiTableUpdateCompanionBuilder =
@@ -4629,6 +4688,7 @@ typedef $$TabelSesiTableUpdateCompanionBuilder =
       Value<bool> sesiUji,
       Value<int?> diperbaruiPada,
       Value<int?> dihapusPada,
+      Value<JenisSesi> jenis,
       Value<int> rowid,
     });
 
@@ -4752,6 +4812,12 @@ class $$TabelSesiTableFilterComposer
     column: $table.dihapusPada,
     builder: (column) => ColumnFilters(column),
   );
+
+  ColumnWithTypeConverterFilters<JenisSesi, JenisSesi, String> get jenis =>
+      $composableBuilder(
+        column: $table.jenis,
+        builder: (column) => ColumnWithTypeConverterFilters(column),
+      );
 
   Expression<bool> tabelSampelRefs(
     Expression<bool> Function($$TabelSampelTableFilterComposer f) f,
@@ -4882,6 +4948,11 @@ class $$TabelSesiTableOrderingComposer
     column: $table.dihapusPada,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get jenis => $composableBuilder(
+    column: $table.jenis,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$TabelSesiTableAnnotationComposer
@@ -4925,6 +4996,9 @@ class $$TabelSesiTableAnnotationComposer
     column: $table.dihapusPada,
     builder: (column) => column,
   );
+
+  GeneratedColumnWithTypeConverter<JenisSesi, String> get jenis =>
+      $composableBuilder(column: $table.jenis, builder: (column) => column);
 
   Expression<T> tabelSampelRefs<T extends Object>(
     Expression<T> Function($$TabelSampelTableAnnotationComposer a) f,
@@ -5044,6 +5118,7 @@ class $$TabelSesiTableTableManager
                 Value<bool> sesiUji = const Value.absent(),
                 Value<int?> diperbaruiPada = const Value.absent(),
                 Value<int?> dihapusPada = const Value.absent(),
+                Value<JenisSesi> jenis = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TabelSesiCompanion(
                 id: id,
@@ -5055,6 +5130,7 @@ class $$TabelSesiTableTableManager
                 sesiUji: sesiUji,
                 diperbaruiPada: diperbaruiPada,
                 dihapusPada: dihapusPada,
+                jenis: jenis,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -5068,6 +5144,7 @@ class $$TabelSesiTableTableManager
                 Value<bool> sesiUji = const Value.absent(),
                 Value<int?> diperbaruiPada = const Value.absent(),
                 Value<int?> dihapusPada = const Value.absent(),
+                Value<JenisSesi> jenis = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TabelSesiCompanion.insert(
                 id: id,
@@ -5079,6 +5156,7 @@ class $$TabelSesiTableTableManager
                 sesiUji: sesiUji,
                 diperbaruiPada: diperbaruiPada,
                 dihapusPada: dihapusPada,
+                jenis: jenis,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

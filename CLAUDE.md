@@ -13,7 +13,9 @@ storage), `flutter_secure_storage` (the login token, and nothing else),
 `camera` + `image_picker` + `path_provider` (the food photo — see below), and
 `flutter_local_notifications` + `timezone` (measurement-point reminders — see
 [docs/jadwal-titik-ukur.md](docs/jadwal-titik-ukur.md) §6; since the watch stopped scheduling its own
-points, nothing but the app reminds the user).
+points, nothing but the app reminds the user; the due-time one is an **insistent alarm** that only
+`KonfirmasiPakaiJamPage`'s "Oke, Jam Sudah Dipakai" or the point's arriving sample silences — being
+connected is not proof of wearing, see §6.1 there).
 `drift_dev` + `build_runner` are dev-only, for the generated `basis_data.g.dart`.
 
 **Both BLE-adjacent dependencies are pinned below their latest, for unrelated reasons.**
@@ -169,7 +171,23 @@ loads and then fails when the database opens.
    `bondState` at the top of the reconnect loop: **pairing is never initiated from the background**,
    so the loop stops and raises `StatusPerangkat.penyandinganHilang` instead of popping a system
    pairing dialog at an arbitrary moment. That flag earns its own copy ("Jam Tidak Tersandingkan" /
-   "Sandingkan Ulang") because, unlike a plain disconnect, it never resolves on its own. **The scan is filtered to the
+   "Sandingkan Ulang") because, unlike a plain disconnect, it never resolves on its own.
+   **A user-initiated `sambungkan()` silences every background path** (`_manualBerjalan`): the
+   backoff timer, the advert watcher, and `kembaliKeDepan` all stand down, and the loop is resumed
+   afterwards only if it was running before and the attempt failed. Before this, a timer falling due
+   mid-pairing — or the `resumed` that the system pairing dialog raises when it closes — called
+   `_sambungkan`, whose first line disconnects, and killed the link the user was building; it only
+   bit phones that already remembered a watch (switching units, re-pairing). Every `await` in
+   `_sambungkan` is followed by a **generation check** (`_generasiSambung`), which `putuskan()` also
+   bumps, so "Batal" and superseded attempts stop instead of finishing on a link that is no longer
+   theirs. A manual attempt is **retried once automatically** unless it timed out (GATT 133 on the
+   first try is routine on Android), with a 600 ms pause after tearing down a live link. And while a
+   remembered watch is disconnected, a **low-power scan filtered to its address** runs beside the
+   backoff timer and connects the moment the watch advertises — the backoff reaches minutes while
+   the watch is off, and the watch only advertises fast for 30 s after power-on, so waiting for the
+   timer's turn used to land on the 1000 ms advertising interval. The watcher yields the radio to
+   `pindai()` and is rate-limited (`jedaMinimumPengintai`) so a watch that advertises but refuses
+   the link cannot become a tight loop. **The scan is filtered to the
    AsaWatch service UUID at the OS level** (`startScan(withServices: …)`), so non-AsaWatch devices
    never reach the app at all — `FakeBleService` mirrors that by filtering its own catalogue, which
    still contains a stranger device so the filter is visibly filtering something. That filtering
@@ -337,7 +355,7 @@ loads and then fails when the database opens.
    wipes pending tombstones on an account switch (they could only be sent with the previous account's
    token, which is gone), and a reinstall before the sweep loses them the same way. The §7 cursor
    sync is still unwritten.
-3. **Everything about a session is persisted, including while it is running.** History lives in SQLite via drift — `SesiRepository` ([lib/repositories/sesi_repository.dart](lib/repositories/sesi_repository.dart)) is the seam, `SesiRepositoryDrift` + the schema in [lib/repositories/basis_data.dart](lib/repositories/basis_data.dart) are the real implementation, and `SesiRepositoryMemori` remains as the in-memory one for tests (the same role `FakeBleService` plays). Editing the schema means re-running `build_runner`; `basis_data.g.dart` is generated and committed. Three things are load-bearing there: enums are stored via `textEnum` so **renaming a `StatusSesi`/`StatusSampel` member is a schema change**, derived values (verdict, kualitas respons) have no columns and are recomputed on load, and `onUpgrade` walks one version at a time with a `default` branch that throws, so a bumped `schemaVersion` cannot ship without a written migration (`test/anchor_repository_test.dart` actually drives v1→v4, v2→v4, and v3→v4). **The controller's constructor stays synchronous on purpose** — `main()` loads history and passes it as `riwayatAwal`, so no session surface needs a loading state. The constructor also **splits the active session out of `riwayatAwal`**: a session that was still running when the app closed comes back as `sesiAktif`, with its schedule recomputed from absolute `t0` (never from remaining time), and its `(sesiId, index)` dedup keys restored. Cancelling turns the row into a tombstone (`SesiRepository.nisankan`, or `hapus` outright when there is no account) — a draft that was abandoned must not come back as an active session. A fresh install starts genuinely empty — `contoh_sesi.dart` is test-only fixture data. Two failure paths are handled: the database failing to open shows `AplikasiGagalMulai` instead of a blank screen, and a session that fails to save sets `SesiMakanController.galatPenyimpanan`, which Beranda shows as a persistent warning card (not a SnackBar — the consequence outlives a toast). The schema is at **v7**: v2 added `tabel_anchor_waktu` ([lib/repositories/anchor_repository.dart](lib/repositories/anchor_repository.dart), [lib/models/anchor_waktu.dart](lib/models/anchor_waktu.dart)); v3 added `tabel_kalibrasi`, `tabel_entri_jam`, and `tabel_sesi.waktu_tidak_pasti` — all three explained in the BLE section below; v4 reshaped calibration into rounds (`tabel_putaran_kalibrasi` + `tabel_kalibrasi.sisi`, see the calibration section — the table never assumed how many, which is why dropping to one round was not a schema change); v5 added `tabel_sesi.sesi_uji`; v6 made the nutrition columns nullable and added `tabel_sesi.diperbarui_pada`; **v7 added `tabel_sesi.dihapus_pada`**, the cancellation tombstone described above. That v3→v4 step is the one to read before writing another migration: it has to ask SQLite (`PRAGMA table_info`) whether the old columns are actually there, because `m.createTable()` in an *earlier* step creates today's shape, not that version's — a device coming from v2 arrives at the v4 step with a table that is already v4-shaped and empty. **The profile is synced with the server, and `SharedPreferences` is its offline half.**
+3. **Everything about a session is persisted, including while it is running.** History lives in SQLite via drift — `SesiRepository` ([lib/repositories/sesi_repository.dart](lib/repositories/sesi_repository.dart)) is the seam, `SesiRepositoryDrift` + the schema in [lib/repositories/basis_data.dart](lib/repositories/basis_data.dart) are the real implementation, and `SesiRepositoryMemori` remains as the in-memory one for tests (the same role `FakeBleService` plays). Editing the schema means re-running `build_runner`; `basis_data.g.dart` is generated and committed. Three things are load-bearing there: enums are stored via `textEnum` so **renaming a `StatusSesi`/`StatusSampel` member is a schema change**, derived values (verdict, kualitas respons) have no columns and are recomputed on load, and `onUpgrade` walks one version at a time with a `default` branch that throws, so a bumped `schemaVersion` cannot ship without a written migration (`test/anchor_repository_test.dart` actually drives v1→v4, v2→v4, and v3→v4). **The controller's constructor stays synchronous on purpose** — `main()` loads history and passes it as `riwayatAwal`, so no session surface needs a loading state. The constructor also **splits the active session out of `riwayatAwal`**: a session that was still running when the app closed comes back as `sesiAktif`, with its schedule recomputed from absolute `t0` (never from remaining time), and its `(sesiId, index)` dedup keys restored. Cancelling turns the row into a tombstone (`SesiRepository.nisankan`, or `hapus` outright when there is no account) — a draft that was abandoned must not come back as an active session. A fresh install starts genuinely empty — `contoh_sesi.dart` is test-only fixture data. Two failure paths are handled: the database failing to open shows `AplikasiGagalMulai` instead of a blank screen, and a session that fails to save sets `SesiMakanController.galatPenyimpanan`, which Beranda shows as a persistent warning card (not a SnackBar — the consequence outlives a toast). The schema is at **v8**: v2 added `tabel_anchor_waktu` ([lib/repositories/anchor_repository.dart](lib/repositories/anchor_repository.dart), [lib/models/anchor_waktu.dart](lib/models/anchor_waktu.dart)); v3 added `tabel_kalibrasi`, `tabel_entri_jam`, and `tabel_sesi.waktu_tidak_pasti` — all three explained in the BLE section below; v4 reshaped calibration into rounds (`tabel_putaran_kalibrasi` + `tabel_kalibrasi.sisi`, see the calibration section — the table never assumed how many, which is why dropping to one round was not a schema change); v5 added `tabel_sesi.sesi_uji`; v6 made the nutrition columns nullable and added `tabel_sesi.diperbarui_pada`; v7 added `tabel_sesi.dihapus_pada`, the cancellation tombstone described above; **v8 added `tabel_sesi.jenis`** (`makan`/`puasa`, SQL default `makan` — see *Fasting mode* below). That v3→v4 step is the one to read before writing another migration: it has to ask SQLite (`PRAGMA table_info`) whether the old columns are actually there, because `m.createTable()` in an *earlier* step creates today's shape, not that version's — a device coming from v2 arrives at the v4 step with a table that is already v4-shaped and empty. **The profile is synced with the server, and `SharedPreferences` is its offline half.**
    `ProfilRepository` gained an optional `server:`
    ([lib/services/profil_server_service.dart](lib/services/profil_server_service.dart), §5.1
    `GET`/`PUT /api/v1/profil`) and `sesiLogin:` for the token; with neither it behaves exactly as
@@ -488,6 +506,38 @@ check reads Status once before clearing, so a watch that dies mid-measurement st
 measure without a waiter to notice. `FakeBleService(denyutUkur:, denyutUkurBerhenti:, persenUkurMacet:)`
 models the three watch behaviours; a real watch cannot be ordered to die mid-measurement.
 
+**On session surfaces the progress replaces the button, it does not sit beside it.**
+[lib/widgets/kartu_kemajuan_ukur.dart](lib/widgets/kartu_kemajuan_ukur.dart) (`KartuKemajuanUkur`:
+label, 28 px percent, animated full-width bar, the watch's own remaining-seconds estimate, and the
+instruction) takes over `PetunjukTombolUkur` entirely while a session point is measured, and
+replaces the baseline line in `PetunjukTombolJam`. It used to be an 18 px spinner inside a dead
+button plus an 11 px caption — for the longest thing anyone watches during a session. `macet`
+turns it amber with "rapatkan jam", and a firmware ≤ v1.3 watch (no percent) gets an indeterminate
+bar and a word, never a fake `0%`. **On Beranda the hero becomes the percent** while measuring and
+the card renders `ringkas` (no percent), so the number is written once and stays the largest on the
+page — `tombol_ukur_test.dart` pins both. Session surfaces read
+**`SesiMakanController.kemajuanUkurSesi`, not `kemajuanUkur`**: the Status packet does not say which
+point is being measured (§5.5), so a Pindai Kesehatan or calibration round started elsewhere
+(`_sedangMemindai`, `_sedangUkurKalibrasi`) would otherwise be announced as "+1 jam"; in that case
+the button only says the watch is busy.
+
+**The watch battery is drawn as the watch draws it: four boxes, and no percent.**
+[lib/widgets/indikator_baterai.dart](lib/widgets/indikator_baterai.dart) (`IndikatorBaterai`) sits
+on the second line of `StatusPerangkatBar` (Beranda header and Sesi Berjalan), beside the sync time
+— the status sentence owns the first line, because sharing one row folded "Jam tersambung" syllable
+by syllable. **Its rules are copied from firmware, not designed** (`batt_hitung_kotak`,
+`BATT_TURUN`/`BATT_NAIK`, `batt_gambar`, `refresh_cb` in `touchscreen` and `no_touch-callibration`;
+the old `no_touch` variant still has three boxes and is deliberately left alone): boxes light at
+25/50/75/100 and go out below 20/45/70/95, **with the hysteresis** (so the widget is stateful) and
+the midpoint guess on first paint; grey normally, **green with a bolt while charging**, red when no
+box is lit or the watch reports critical (bit2). **The bolt is suppressed at 100%**, like the watch
+screen — protocol **v1.5** `flag` bit4 (`StatusPerangkat.sedangDicas`, dropped on disconnect like
+`baterai`) deliberately carries the raw `battery_charging()`, so the app does the suppressing. If
+firmware changes its thresholds, this file changes with it. **No number is written beside the
+boxes, deliberately**: the divider ratio was calibrated on one board and the reading jumps 8–15%
+while charging, so even a rounded "≈70%" claimed a precision the boxes do not. The exact percent
+stays on `MenghubungkanPerangkatPage`, for testers.
+
 **A critical battery is the watch refusing service, not a low number.** §5.5 `flag` bit2 is set
 below `AW_BATERAI_KRITIS_PCT` (10%), and under it the firmware `NAK`s `UKUR`, `UKUR_SEKARANG`,
 `ARM_SESI`, and `MULAI_SESI`, and its physical button does nothing (§7 code `0x06`). The bit reached
@@ -571,6 +621,40 @@ have been recorded by a different watch. `kemampuan` is also **retained across d
 `baterai` — a watch does not grow an SpO₂ sensor while out of range. Heart rate has no bit in §3 and
 is always assumed present; do not invent one. `FakeBleService(kemampuan: …)` models a watch missing a
 sensor, which is distinct from `metrikGagal` (sensor present, reading failed).
+
+**Fasting mode (`JenisSesi.puasa`) is an add-on, and every layer defaults to the meal session.**
+It monitors blood glucose while fasting: **no photo, no food, no "Selesai Makan" button**, three
+points — baseline at t0, +1 jam, +2 jam (`jadwalPuasa`; indexes **0, 2, 3**, no index 1, matching
+the server contract in [docs/rancangan-api-laravel.md](docs/rancangan-api-laravel.md) §5.2 `jenis`
+and §7.1 rule 5). The entry is one deliberately quieter button above the shutter on
+`DeteksiMakananPage` ("Mulai Tanpa Foto (Puasa)", confirmed by a dialog, also offered on the camera
+error screen), which calls `SesiMakanController.mulaiPuasa()` and replaces the page with
+`SesiBerjalanPage`. Five things are load-bearing. **t0 is still the watch's**: the controller arms
+the watch and sends `MULAI_SESI` itself (`_mulaiPuasaBilaSiap`, once per connection, re-tried on
+every status change so a watch that connects later still starts it) — firmware is untouched. **The
+baseline is the measurement firmware takes by itself right after t0**, which it always names index
+1; `_terimaSampel` stores it as index 0 for a fasting session, and looks samples up **by `index`,
+never by position**, since +1 jam sits at `sampel[1]` there. `SesiMakan.sampel` therefore holds
+every point of its own schedule (4 or 3) and `sampel[0]` is the baseline in both — `_rakitSampel`
+and `sesiDariJson` assemble per `jadwal`, and `sesiDariJson` drops a stray index 1 and skips the
+meal-only `waktuFoto - t0` baseline correction. **Fasting never counts as a meal**: excluded from
+`sesiHariIni`, `puncakTerakhir`, `AnalisisSesi`, `KurvaTumpukSesi`, and the glucose detail page
+(whose default is now the latest *meal* session, and whose door is hidden on a fasting summary);
+`waktuMakan` is null and `kualitasRespons` is `belumLengkap`, so neither Riwayat filter catches it —
+Riwayat got a *Jenis Sesi* filter instead. **It is judged by its lowest point, not by a spike**:
+`KondisiPuasa` (stabil / turun ≥ 15 / rendah < 70 / sangat rendah < 54, `ambangGulaRendah`), where
+low is reported the moment one point reads low, while stable/falling wait for the session to end.
+`PeringatanGulaRendah` shows on Sesi Berjalan, Beranda and the summary, and **does not command**:
+the watch's glucose is an optical estimate, so it says confirm with a glucometer and *consider*
+breaking the fast. The summary keeps "one number, one place" — the hero is the lowest value, so the
+middle box says *when* it happened. Its curve gets `KurvaSampel(ambangRendah: ambangGulaRendah)`: an
+amber band labelled in words (not "70"), always inside the y-axis so a harmless dip and a near-low one
+do not look equally steep, and low points coloured. **`KurvaSampelPainter` decides solid vs dashed by
+position in the `sampel` list, never by `Sampel.index`** — comparing indexes drew baseline → +1 jam
+dashed on every fasting session, as if a point had been missed that was never scheduled. And **meal paths are unchanged**: `jenis` defaults to `makan`
+in the model, the SQL column, `sesiDariJson` (a server that omits the field), and on the server;
+`PetunjukTombolJam(puasa:)` defaults to false; auto-start is fasting-only, which
+`test/sesi_puasa_test.dart` pins alongside the rest.
 
 **Reaching the metric detail pages.** They are no longer linked from Beranda (the vital dashboard is gone). `AnalisisTab`'s "Telusuri per Metrik" rows and `RingkasanSesiPage`'s three buttons are the only entry points, and both hide the door for a metric the watch lacks — a page that is all `—` is a dead end you have to walk down before finding out; the latter passes its own `SesiMakan` so the page shows that session rather than the newest one.
 

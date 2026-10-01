@@ -205,6 +205,7 @@ Bentuk JSON-nya sama untuk baca dan tulis:
   "status": "selesai",
   "waktu_tidak_pasti": false,
   "sesi_uji": false,
+  "jenis": "makan",
   "foto": {
     "url": "https://cdn.asawatch.id/foto/9f1c...jpg?exp=...&sig=...",
     "kadaluarsa_pada": "2026-08-12T05:30:00.000000Z"
@@ -246,15 +247,16 @@ Penjelasan field yang butuh penjelasan:
 | --- | --- |
 | `status` | `draft`, `menunggu_perangkat`, `berjalan`, `selesai`, `tidak_lengkap`, `dibatalkan`. |
 | `t0` | `null` selama status `draft` / `menunggu_perangkat` — momen ini baru ada setelah pengguna menekan tombol di jam. |
-| `sampel` | **Selalu 4 elemen, index 0..3**, walaupun sebagian masih `menunggu` atau `terlewat`. Jangan buang yang kosong; aplikasi mengaksesnya per index. |
+| `sampel` | **Selalu memuat seluruh slot jadwal milik `jenis`-nya**, walaupun sebagian masih `menunggu` atau `terlewat`: sesi `makan` 4 elemen (index 0..3), sesi `puasa` 3 elemen (index 0, 2, 3 — **tidak ada index 1**). Jangan buang yang kosong, dan jangan mengandalkan posisi di array: aplikasi mengaksesnya per `index`. |
 | `sampel[].status` | `menunggu` (jadwalnya belum tiba), `terisi`, `terlewat`. |
-| `sampel[].detik_relatif_t0` | Detik terhadap t0. Negatif untuk baseline. |
+| `sampel[].detik_relatif_t0` | Detik terhadap t0. Negatif untuk baseline sesi `makan`; 0 untuk titik awal sesi `puasa`. |
 | `sampel[].dari_buffer` | `true` kalau data ini sempat tertahan di memori jam sebelum terkirim. Sekadar informasi. |
 | Metrik (`gula_darah`, dst.) | `null` kalau gagal diukur. **Jangan pakai 0** sebagai penanda gagal. |
 | `hasil` | `null` berarti analisis nutrisinya belum selesai — itu kondisi normal, bukan error. |
 | `hasil.total` | **Simpan apa adanya, jangan dijumlahkan ulang dari `makanan`.** Sebelum dikoreksi pengguna, total dari layanan analisis memang tidak selalu persis sama dengan jumlah per-itemnya, dan menghitung ulang akan diam-diam mengubah angka yang sudah pernah dilihat pengguna. |
 | `hasil.dikoreksi_user` | `true` kalau pengguna sudah mengoreksi porsinya sendiri. Koreksi pengguna tidak boleh ditimpa oleh hasil analisis, lihat bagian 6. |
 | `sesi_uji` | Opsional saat menulis (bawaannya `false`), **selalu** dikembalikan saat membaca. Artinya sesi ini direkam dengan jadwal pengujian yang dimampatkan — empat titik dalam dua menit, bukan dua jam — atau dengan jam tangan palsu. **Penanda pasif: server menyimpan, mengembalikan, dan mengekspornya, tetapi tidak ada satu pun perilaku server yang bercabang atasnya.** Sejak 20 Agustus 2026 sesi uji **ikut dihitung** dalam dashboard, analitik, dan ekspor seperti sesi biasa (keputusan produk: panel harus menampilkan data uji selama pengembangan). Penyaringan diserahkan ke pembaca datanya — kolom `sesi_uji` ada di CSV (1/0) dan di JSON ekspor. Konsekuensi yang perlu diingat sebelum rilis: begitu ada pengguna sungguhan, rakitan uji apa pun yang mengunggah sesi akan menggeser angka agregat **tanpa gejala** — kalau pengecualian itu dihidupkan kembali, tempatnya di sisi server, bukan dengan menyaring di aplikasi. Aplikasi sengaja tetap mengunggah sesi uji: jalur unggah yang hanya bisa dilatih oleh sesi sungguhan menuntut 2,5 jam per percobaan, dan jalur seperti itu tidak pernah teruji sampai ia dipakai sungguhan. |
+| `jenis` | `makan` (bawaan) atau `puasa`. Opsional saat menulis, **selalu** dikembalikan saat membaca. **Ditetapkan sekali, saat sesi pertama kali dibuat**, dan tidak pernah berubah sesudahnya — lihat 7.1 aturan 5. Sesi `puasa` adalah pemantauan gula darah saat berpuasa: tidak ada foto, tidak ada makanan, dan tidak ada tombol "Selesai Makan" — `t0` adalah saat sesi dimulai. Jadwalnya tiga titik: **awal** (index 0, `detik_relatif_t0` = 0), **+1 jam** (index 2), **+2 jam** (index 3). Index 2 dan 3 sengaja sama dengan sesi makan, supaya kolom per slot di ekspor tetap sejajar; index 0 tetap acuan (baseline) yang dipakai menghitung perubahan. Klien lama yang tidak mengirim field ini tetap menghasilkan sesi `makan`, jadi penambahannya tidak memutus versi aplikasi mana pun. Sesi `puasa` **tidak pernah punya `hasil`** — dan konsumen agregat makan (analitik, rata-rata per titik) wajib menyaringnya keluar, karena kurva tanpa makanan yang ikut dirata-rata akan menarik respons makan ke bawah tanpa gejala. |
 | `waktu_tidak_pasti` | Jarang, tapi penting. Artinya: sesi ini datanya benar, tapi jam berapa persisnya terjadi tidak diketahui dan tidak akan pernah bisa diketahui. **Server tidak pernah mengubah `true` jadi `false`.** Simpan apa adanya. |
 | `foto.url` | Pre-signed URL, dibuat baru setiap kali dibaca. Jangan simpan URL permanen. |
 
@@ -381,7 +383,7 @@ POST /api/v1/sinkron
 
 ### 7.1 Aturan konflik
 
-Empat aturan, taruh semuanya di satu kelas (`PenggabungSesi`) — jangan disebar ke controller.
+Lima aturan, taruh semuanya di satu kelas (`PenggabungSesi`) — jangan disebar ke controller.
 
 1. **Sampel yang sudah `terisi` tidak pernah ditimpa.** Kalau datang nilai berbeda untuk
    `(sesi_id, index)` yang sama, abaikan dan catat di log. Jangan balas error — aplikasi yang
@@ -393,6 +395,13 @@ Empat aturan, taruh semuanya di satu kelas (`PenggabungSesi`) — jangan disebar
    hidup lagi karena `PUT` yang lebih tua. Sesi yang dibatalkan pengguna harus benar-benar
    hilang, tidak muncul lagi belakangan.
 4. **`waktu_tidak_pasti` tidak pernah dicabut server.** Sekali `true`, selamanya `true`.
+5. **`jenis` ditetapkan saat sesi dibuat dan tidak pernah berubah.** Kiriman tanpa `jenis`
+   mempertahankan nilai yang ada (atau `makan` untuk sesi baru); kiriman dengan `jenis` yang
+   berbeda dari yang tersimpan diabaikan untuk field itu dan dicatat di log — sisa kirimannya
+   tetap diterima. Alasannya: slot sampel dibuat sesuai jenis saat sesi lahir, dan mengubah
+   jenis sesudahnya meninggalkan slot yang tidak cocok dengan jadwalnya. Sampel untuk index yang
+   bukan milik jadwal jenisnya (index 1 pada sesi `puasa`) diabaikan dengan cara yang sama —
+   dicatat, bukan dibalas galat, sama seperti aturan 1.
 
 ### 7.2 Kapan aplikasi menyinkronkan
 
@@ -418,9 +427,12 @@ sesi                  id(uuid, pk), user_id(fk, index), foto_disk_path(null),
                       foto_hash(null, index), waktu_foto(timestamptz),
                       t0(timestamptz, null), status(string),
                       waktu_tidak_pasti(bool, default false),
+                      sesi_uji(bool, default false),
+                      jenis(string, default 'makan')   ← 'makan' | 'puasa'
                       created_at, updated_at, deleted_at
                       INDEX (user_id, updated_at)     ← untuk kursor sinkron
                       INDEX (user_id, t0)             ← untuk daftar riwayat
+                      INDEX (user_id, jenis)          ← untuk menyaring agregat makan
 
 sampel                sesi_id(fk cascade), index(smallint), detik_relatif_t0(int),
                       status(string), dari_buffer(bool),

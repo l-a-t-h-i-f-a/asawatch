@@ -132,6 +132,7 @@ class KurvaSampel extends StatelessWidget {
     required this.seri,
     this.garisAcuan,
     this.labelAcuan,
+    this.ambangRendah,
     this.tinggi = 200,
     this.pesanKosong = 'Belum ada sampel',
   });
@@ -142,6 +143,11 @@ class KurvaSampel extends StatelessWidget {
   /// Garis putus-putus horizontal, mis. baseline pra-makan.
   final int? garisAcuan;
   final String? labelAcuan;
+
+  /// Batas bawah yang wajar — mis. [ambangGulaRendah] pada sesi puasa. Bila
+  /// diisi, pita di bawahnya diwarnai dan titik yang jatuh ke sana ikut
+  /// berwarna. Lihat [KurvaSampelPainter.ambangRendah].
+  final int? ambangRendah;
 
   final double tinggi;
   final String pesanKosong;
@@ -167,6 +173,7 @@ class KurvaSampel extends StatelessWidget {
                 seri: seri,
                 garisAcuan: garisAcuan,
                 labelAcuan: labelAcuan,
+                ambangRendah: ambangRendah,
               ),
             )
           : Center(
@@ -204,7 +211,10 @@ class KurvaTumpukSesi extends StatelessWidget {
   Widget build(BuildContext context) {
     final layak = [
       for (final s in sesi)
-        if (s.sampel[0].terisi && seri.ambil(s.sampel[0]) != null) s,
+        // Tumpukan ini membandingkan respons makan; kurva puasa tidak punya
+        // makanan untuk direspons.
+        if (!s.puasa && s.sampel[0].terisi && seri.ambil(s.sampel[0]) != null)
+          s,
     ];
 
     return Container(
@@ -437,12 +447,23 @@ class KurvaSampelPainter extends CustomPainter {
     required this.seri,
     this.garisAcuan,
     this.labelAcuan,
+    this.ambangRendah,
   });
 
   final List<Sampel> sampel;
   final List<SeriMetrik> seri;
   final int? garisAcuan;
   final String? labelAcuan;
+
+  /// Pada sesi puasa yang dicari bukan lonjakan tetapi **seberapa dekat ke
+  /// batas rendah**, jadi batas itu digambar sebagai pita dan **selalu masuk
+  /// sumbu y**. Tanpa itu sumbu diskalakan dari datanya saja, dan penurunan
+  /// 98 → 92 mg/dL tampil sama curamnya dengan 98 → 72 — yang satu wajar, yang
+  /// lain hampir rendah, dan gambarnya tidak bisa membedakan keduanya.
+  final int? ambangRendah;
+
+  static const Color _warnaRendah = Color(0xFFB4761E);
+  static const Color _warnaSangatRendah = Color(0xFFC0392B);
 
   /// Cukup untuk **dua baris** label sumbu x: yang berdesakan turun satu baris,
   /// dan titik yang terlewat menulis namanya di atas tanda `—`.
@@ -479,6 +500,11 @@ class KurvaSampelPainter extends CustomPainter {
     final (xMin, xMax) = rentangDetik(sampel);
 
     var nilaiMin = garisAcuan ?? 1 << 30, nilaiMax = garisAcuan ?? -(1 << 30);
+    final ambang = ambangRendah;
+    if (ambang != null) {
+      if (ambang < nilaiMin) nilaiMin = ambang;
+      if (ambang > nilaiMax) nilaiMax = ambang;
+    }
     for (final s in sampel) {
       if (!s.terisi) continue;
       for (final m in seri) {
@@ -519,6 +545,21 @@ class KurvaSampelPainter extends CustomPainter {
       canvas.drawLine(Offset(area.left, y), Offset(area.right, y), paintGrid);
     }
 
+    if (ambang != null) {
+      final y = yDari(ambang).clamp(area.top, area.bottom);
+      canvas.drawRect(
+        Rect.fromLTRB(area.left, y, area.right, area.bottom),
+        Paint()..color = const Color(0xFFFFF4E5),
+      );
+      canvas.drawLine(
+        Offset(area.left, y),
+        Offset(area.right, y),
+        Paint()
+          ..color = const Color(0xFFF0D9B5)
+          ..strokeWidth = 1.2,
+      );
+    }
+
     final acuan = garisAcuan;
     if (acuan != null) {
       final y = yDari(acuan);
@@ -531,30 +572,18 @@ class KurvaSampelPainter extends CustomPainter {
           ..color = const Color(0xFF9CB1AC)
           ..strokeWidth = 1.2,
       );
-      // Ditempel di **kanan**, bukan kiri. Titik paling awal sebuah sesi selalu
-      // baseline, jadi ia duduk di ujung kiri bersama label nilainya sendiri —
-      // dan "baseline" di sana menimpanya persis.
-      //
-      // Angkanya sengaja tidak ikut: garis putus-putus ini menunjukkan **di
-      // mana**, sementara berapanya sudah berdiri sebagai kotak nilai
-      // "Baseline" di atas kurva yang sama.
-      final teksAcuan = labelAcuan ?? 'baseline';
-      _teks(
-        canvas,
-        teksAcuan,
-        Offset(area.right - _ukur(teksAcuan, _gayaAcuan), y - 14),
-        _gayaAcuan,
-      );
     }
 
+    // Kotak angka dan titik yang sudah digambar, supaya label garis di bawah
+    // bisa menghindarinya.
+    final terpakai = <Rect>[];
     for (final m in seri) {
       final titik = <_Titik>[];
-      for (final s in sampel) {
+      for (var i = 0; i < sampel.length; i++) {
+        final s = sampel[i];
         final v = s.terisi ? m.ambil(s) : null;
         if (v == null) continue;
-        titik.add(
-          _Titik(s.index, Offset(xDari(s.detikRelatifT0), yDari(v)), v),
-        );
+        titik.add(_Titik(i, Offset(xDari(s.detikRelatifT0), yDari(v)), v));
       }
       _gambarSeri(
         canvas,
@@ -563,6 +592,50 @@ class KurvaSampelPainter extends CustomPainter {
         m,
         titik,
         tampilkanNilai: seri.length == 1,
+        terpakai: terpakai,
+      );
+    }
+
+    // Label kedua garis mendatar digambar **sesudah** titiknya, dan memilih
+    // tempat yang tidak menimpa angka titik mana pun. Pada sesi yang kembali
+    // ke baseline — hasil yang justru paling diharapkan — angka titik terakhir
+    // duduk tepat di ujung kanan garis baseline, dan labelnya dulu menimpanya.
+    if (acuan != null) {
+      // Utamanya di **kanan**, bukan kiri. Titik paling awal sebuah sesi selalu
+      // baseline, jadi ia duduk di ujung kiri bersama label nilainya sendiri —
+      // dan "baseline" di sana menimpanya persis.
+      //
+      // Angkanya sengaja tidak ikut: garis putus-putus ini menunjukkan **di
+      // mana**, sementara berapanya sudah berdiri sebagai kotak nilai
+      // "Baseline" di atas kurva yang sama.
+      _labelGaris(
+        canvas,
+        labelAcuan ?? 'baseline',
+        _gayaAcuan,
+        yDari(acuan),
+        area,
+        terpakai,
+        kananDulu: true,
+      );
+    }
+    if (ambang != null) {
+      // Kata, bukan angka: "70" di sini akan menjadi tempat kedua angka yang
+      // sama dengan kalimat peringatannya. Utamanya di kiri, karena kanan
+      // biasanya sudah milik label baseline.
+      _labelGaris(
+        canvas,
+        'batas rendah',
+        const TextStyle(
+          fontFamily: fontPainter,
+          fontSize: 9,
+          fontWeight: FontWeight.w600,
+          color: _warnaRendah,
+        ),
+        yDari(ambang).clamp(area.top, area.bottom),
+        area,
+        terpakai,
+        kananDulu: false,
+        bawahDulu: true,
       );
     }
 
@@ -630,6 +703,7 @@ class KurvaSampelPainter extends CustomPainter {
     SeriMetrik m,
     List<_Titik> titik, {
     required bool tampilkanNilai,
+    required List<Rect> terpakai,
   }) {
     if (titik.isEmpty) return;
 
@@ -664,35 +738,108 @@ class KurvaSampelPainter extends CustomPainter {
 
     // Segmen penuh bila dua titik berurutan; putus-putus bila melompati sampel
     // yang terlewat atau masih ditunggu.
+    //
+    // "Berurutan" diukur dari **posisi di daftar sampel**, bukan dari
+    // `Sampel.index`. Daftar itu sudah berisi tepat titik-titik jadwal sesinya
+    // sendiri, sedangkan index adalah nomor slot protokol — dan sesi puasa
+    // sengaja tidak punya slot 1 (jadwalPuasa: 0, 2, 3). Membandingkan index
+    // membuat baseline → +1 jam selalu putus-putus, seolah ada titik yang
+    // terlewat padahal titik itu memang tidak pernah dijadwalkan.
     for (var i = 1; i < titik.length; i++) {
       final a = titik[i - 1], b = titik[i];
       final segmen = Path()..moveTo(a.posisi.dx, a.posisi.dy);
       _sambung(segmen, a.posisi, b.posisi);
-      if (b.index - a.index == 1) {
+      if (b.urutan - a.urutan == 1) {
         canvas.drawPath(segmen, paintGaris);
       } else {
         _pathPutus(canvas, segmen, paintGaris);
       }
     }
 
+    final ambang = ambangRendah;
     for (final t in titik) {
-      canvas.drawCircle(t.posisi, 7, Paint()..color = const Color(0xFFE2F6F0));
-      canvas.drawCircle(t.posisi, 3.5, Paint()..color = m.warna);
+      // Hanya titiknya yang berubah warna, bukan garisnya: yang rendah adalah
+      // satu pengukuran, bukan seluruh perjalanan menuju ke sana.
+      final rendah = ambang != null && t.nilai < ambang;
+      final warna = !rendah
+          ? m.warna
+          : t.nilai < ambangGulaSangatRendah
+          ? _warnaSangatRendah
+          : _warnaRendah;
+      canvas.drawCircle(
+        t.posisi,
+        7,
+        Paint()
+          ..color = rendah ? const Color(0xFFFFF4E5) : const Color(0xFFE2F6F0),
+      );
+      canvas.drawCircle(t.posisi, rendah ? 4.5 : 3.5, Paint()..color = warna);
+      terpakai.add(Rect.fromCircle(center: t.posisi, radius: 7));
       if (!tampilkanNilai) continue;
+      final lebar = _ukur('${t.nilai}', _gayaNilai);
+      final kiri = (t.posisi.dx - lebar / 2).clamp(
+        0.0,
+        (size.width - lebar).clamp(0.0, size.width),
+      );
+      terpakai.add(Rect.fromLTWH(kiri, t.posisi.dy - 24, lebar, 13));
       _teks(
         canvas,
         '${t.nilai}',
         Offset(t.posisi.dx, t.posisi.dy - 24),
-        const TextStyle(
+        TextStyle(
           fontFamily: fontPainter,
           fontSize: 10,
           fontWeight: FontWeight.bold,
-          color: Color(0xFF1E3A34),
+          color: rendah ? warna : const Color(0xFF1E3A34),
         ),
         pusatDiX: true,
         batasKanan: size.width,
       );
     }
+  }
+
+  static const TextStyle _gayaNilai = TextStyle(
+    fontFamily: fontPainter,
+    fontSize: 10,
+    fontWeight: FontWeight.bold,
+  );
+
+  /// Label garis mendatar di atas atau di bawah garisnya, di ujung, di ¾, di ¼,
+  /// atau di ujung seberang — yang pertama yang tidak menimpa apa pun di
+  /// [terpakai].
+  /// Bila semuanya bertabrakan, tempat pertama yang dipakai.
+  void _labelGaris(
+    Canvas canvas,
+    String teks,
+    TextStyle gaya,
+    double y,
+    Rect area,
+    List<Rect> terpakai, {
+    required bool kananDulu,
+    bool bawahDulu = false,
+  }) {
+    final lebar = _ukur(teks, gaya);
+    double tengahDi(double f) => area.left + area.width * f - lebar / 2;
+    final xs = [
+      area.right - lebar,
+      tengahDi(0.75),
+      tengahDi(0.25),
+      area.left + 2,
+    ];
+    final ys = [y - 14, y + 3];
+    if (!kananDulu) xs.setAll(0, xs.reversed.toList());
+    if (bawahDulu) ys.setAll(0, ys.reversed.toList());
+    final calon = [
+      for (final cy in ys)
+        for (final cx in xs) Offset(cx, cy),
+    ];
+    final pilih = calon.firstWhere(
+      (o) => !terpakai.any(
+        (r) => r.overlaps(Rect.fromLTWH(o.dx, o.dy, lebar, 11)),
+      ),
+      orElse: () => calon.first,
+    );
+    terpakai.add(Rect.fromLTWH(pilih.dx, pilih.dy, lebar, 11));
+    _teks(canvas, teks, pilih, gaya);
   }
 
   void _gambarLegenda(Canvas canvas, Size size) {
@@ -757,12 +904,15 @@ class KurvaSampelPainter extends CustomPainter {
   bool shouldRepaint(covariant KurvaSampelPainter oldDelegate) =>
       oldDelegate.sampel != sampel ||
       oldDelegate.seri != seri ||
-      oldDelegate.garisAcuan != garisAcuan;
+      oldDelegate.garisAcuan != garisAcuan ||
+      oldDelegate.ambangRendah != ambangRendah;
 }
 
 class _Titik {
-  const _Titik(this.index, this.posisi, this.nilai);
-  final int index;
+  const _Titik(this.urutan, this.posisi, this.nilai);
+
+  /// Posisi sampel di daftar yang digambar — bukan `Sampel.index`.
+  final int urutan;
   final Offset posisi;
   final int nilai;
 }

@@ -124,13 +124,17 @@ class SesiMakanController extends ChangeNotifier {
         _titikDiarm = null;
       }
 
+      if (!status.tersambung) _puasaDimulai = null;
+
       unawaited(_siapkanJam());
+      unawaited(_mulaiPuasaBilaSiap());
       unawaited(_armTitikBerikutnya());
       notifyListeners();
     });
 
     if (_sesiAktif != null) {
       unawaited(_siapkanJam()); // sesi draft yang dipulihkan perlu di-ARM lagi
+      unawaited(_mulaiPuasaBilaSiap());
       unawaited(_armTitikBerikutnya());
       _jadwalkanTenggat();
     }
@@ -267,6 +271,17 @@ class SesiMakanController extends ChangeNotifier {
   KemajuanUkur? get kemajuanUkur => _kemajuanUkur;
   KemajuanUkur? _kemajuanUkur;
 
+  /// [kemajuanUkur], tetapi hanya bila pengukurannya milik sesi — null selama
+  /// yang sedang berjalan adalah pindai kesehatan atau putaran kalibrasi.
+  ///
+  /// Paket Status tidak menyebut titik mana yang sedang diukur (§5.5), jadi
+  /// yang membedakannya adalah siapa di aplikasi ini yang meminta. Tanpanya,
+  /// kartu progres sesi yang besar akan mengumumkan "Jam sedang mengukur +1 jam"
+  /// untuk pindai yang dijalankan dari halaman lain — dan sampel yang datang
+  /// sesudahnya tidak mengisi titik apa pun.
+  KemajuanUkur? get kemajuanUkurSesi =>
+      (_sedangMemindai || _sedangUkurKalibrasi) ? null : _kemajuanUkur;
+
   /// Ada sesi mode uji tersimpan — dipakai Profil untuk memunculkan tombol
   /// pembersihannya.
   ///
@@ -321,6 +336,10 @@ class SesiMakanController extends ChangeNotifier {
       // siapa pun: `nutrisiHariIni` menjumlahkannya, dan angka itu tampil di
       // Beranda sebagai fakta tentang penggunanya.
       if (s.waktuTidakPasti || s.sesiUji) return false;
+      // Sesi puasa bukan makan: tidak punya kalori, dan menghitungnya sebagai
+      // "1 sesi hari ini" di kartu asupan adalah menghitung makan yang tidak
+      // pernah terjadi.
+      if (s.puasa) return false;
       final d = s.t0 ?? s.waktuFoto;
       return !d.isBefore(hariIni) &&
           d.isBefore(hariIni.add(const Duration(days: 1)));
@@ -362,6 +381,8 @@ class SesiMakanController extends ChangeNotifier {
   List<double> puncakTerakhir({int jumlah = 7}) {
     final nilai = <double>[];
     for (final s in _riwayat) {
+      // "Puncak setelah makan" — sesi puasa tidak punya makan untuk dipuncaki.
+      if (s.puasa) continue;
       final puncak = s.puncakGulaDarah;
       if (puncak != null) nilai.add(puncak.toDouble());
       if (nilai.length == jumlah) break;
@@ -522,6 +543,68 @@ class SesiMakanController extends ChangeNotifier {
     await _siapkanJam();
     if (!await ble.mintaUkur(id, 0)) _tandaiBaselineTerlewat(id);
     unawaited(_analisisNutrisi(id, fotoPath));
+  }
+
+  /// Memulai pemantauan saat berpuasa — sesi tanpa foto (lihat [JenisSesi]).
+  ///
+  /// Tambahan, bukan pengganti: jalur sesi makan ([mulaiDraft]) tidak disentuh
+  /// sedikit pun, dan aturan "tidak ada sesi makan tanpa foto" tetap berlaku —
+  /// yang dilewati di sini hanyalah tombol "Selesai Makan", karena memang tidak
+  /// ada makan yang selesai. Jam dipersiapkan (`ARM_SESI`) lalu langsung
+  /// dimulai lewat `MULAI_SESI`, jadi **t0 tetap milik jam**, sama persis dengan
+  /// sesi makan (§5.3). Baseline-nya adalah pengukuran yang jam lakukan sendiri
+  /// sesaat setelah itu — tidak ada `UKUR` index 0 saat sesi dibuat.
+  ///
+  /// Jam yang belum tersambung tidak menggagalkan apa pun: sesinya menunggu
+  /// sebagai draft dan dimulai sendiri begitu jam tersambung
+  /// ([_mulaiPuasaBilaSiap]).
+  Future<void> mulaiPuasa() async {
+    if (_sesiAktif != null) {
+      throw StateError(
+        'Masih ada sesi aktif. Akhiri sesi berjalan lebih dulu (§6).',
+      );
+    }
+
+    final jadwalPuasaSesi = jadwal.keJenis(JenisSesi.puasa);
+    _sesiAktif = SesiMakan(
+      id: buatIdSesi(),
+      fotoPath: '',
+      waktuFoto: jam(),
+      status: StatusSesi.draft,
+      jenis: JenisSesi.puasa,
+      sampel: [
+        for (final t in jadwalPuasaSesi.titik)
+          Sampel.menunggu(index: t.index, detikRelatifT0: t.detikNominal),
+      ],
+      sesiUji: jadwal.uji,
+    );
+    _simpanAktif();
+    notifyListeners();
+
+    await _siapkanJam();
+    await _mulaiPuasaBilaSiap();
+  }
+
+  /// Sesi puasa yang sudah mengirim `MULAI_SESI` pada koneksi ini.
+  String? _puasaDimulai;
+
+  /// Mengirim `MULAI_SESI` untuk sesi puasa yang belum punya t0, bila jam siap.
+  ///
+  /// Dipanggil saat sesi dibuat dan pada setiap perubahan status jam, sehingga
+  /// jam yang baru tersambung belakangan tetap memulai sesinya tanpa ada yang
+  /// perlu menekan apa pun. Hanya sekali per koneksi: `MULAI_SESI` idempoten di
+  /// firmware, tetapi status yang berubah karena perintah ini akan memanggil
+  /// fungsi ini lagi.
+  Future<void> _mulaiPuasaBilaSiap() async {
+    final sesi = _sesiAktif;
+    if (sesi == null || !sesi.puasa || sesi.t0 != null) return;
+    if (!sesi.status.sedangAktif) return;
+    final p = _statusPerangkat;
+    if (!p.tersambung || p.bateraiKritis) return;
+    if (_puasaDimulai == sesi.id) return;
+
+    _puasaDimulai = sesi.id;
+    if (!await mulaiSesiDariApp()) _puasaDimulai = null;
   }
 
   /// Jam menolak mengukur baseline, jadi titik itu tidak akan pernah terisi.
@@ -870,6 +953,7 @@ class SesiMakanController extends ChangeNotifier {
     // dan kapan — dan memisahkannya berarti dua jawaban yang bisa berselisih.
     unawaited(
       pengingat.jadwalkan(
+        sesiId: sesi.id,
         t0: t0,
         titik: [
           for (final t in sesi.jadwal.titik)
@@ -1050,9 +1134,12 @@ class SesiMakanController extends ChangeNotifier {
     // Hanya baseline yang bergeser; sisanya apa adanya. Ditulis sebagai
     // pemetaan, bukan empat baris, karena jumlah titik tidak lagi tetap sejak
     // jadwal menjadi data (docs/jadwal-titik-ukur.md §1).
+    //
+    // Sesi puasa tidak digeser: baseline-nya justru diukur di t0 — oleh jam,
+    // sesaat setelah perintah ini — jadi belum ada apa pun untuk digeser.
     final sampel = [
       for (final s in sesi.sampel)
-        if (s.index == 0) _geser(s, detikBaseline) else s,
+        if (s.index == 0 && !sesi.puasa) _geser(s, detikBaseline) else s,
     ];
 
     _sesiAktif = sesi.salin(
@@ -1146,6 +1233,18 @@ class SesiMakanController extends ChangeNotifier {
   Sampel _geser(Sampel s, int detikRelatifT0) => Sampel(
     index: s.index,
     detikRelatifT0: detikRelatifT0,
+    status: s.status,
+    dariBuffer: s.dariBuffer,
+    gulaDarah: s.gulaDarah,
+    detakJantung: s.detakJantung,
+    sistolik: s.sistolik,
+    diastolik: s.diastolik,
+    spo2: s.spo2,
+  );
+
+  Sampel _keIndex(Sampel s, int index) => Sampel(
+    index: index,
+    detikRelatifT0: s.detikRelatifT0,
     status: s.status,
     dariBuffer: s.dariBuffer,
     gulaDarah: s.gulaDarah,
@@ -1344,15 +1443,23 @@ class SesiMakanController extends ChangeNotifier {
   int? get sisaHariKalibrasi => _kalibrasiTerakhir?.sisaHariPada(jam());
 
   /// Meminta jam mengukur bersamaan dengan tensimeter.
-  Future<Sampel> ukurUntukKalibrasi() {
+  Future<Sampel> ukurUntukKalibrasi() async {
     // Kalibrasi memakai perintah yang sama dengan pindai kesehatan, jadi
     // halangannya juga sama — dan pada alur ini akibatnya lebih mahal: tiga
     // putaran berjeda 60 detik yang gagal di putaran terakhir berarti seluruh
     // prosedurnya diulang dari awal.
     final halangan = alasanJamTidakBisaUkur;
-    if (halangan != null) return Future.error(GalatJam(halangan));
-    return ble.ukurSekarang();
+    if (halangan != null) throw GalatJam(halangan);
+    _sedangUkurKalibrasi = true;
+    try {
+      return await ble.ukurSekarang();
+    } finally {
+      _sedangUkurKalibrasi = false;
+    }
   }
+
+  /// Lihat [kemajuanUkurSesi].
+  bool _sedangUkurKalibrasi = false;
 
   // --- Pindai kesehatan atas permintaan ----------------------------------
 
@@ -1468,13 +1575,30 @@ class SesiMakanController extends ChangeNotifier {
       return;
     }
 
+    // Sesi puasa: pengukuran yang jam lakukan sendiri sesaat setelah t0
+    // (firmware selalu menamainya index 1) **adalah** baseline-nya. Disimpan
+    // sebagai index 0, sesuai kontrak server (§5.2 `jenis`), yang tidak punya
+    // index 1 untuk sesi puasa.
+    final masuk = sesi.puasa && pesan.sampel.index == 1
+        ? _keIndex(pesan.sampel, 0)
+        : pesan.sampel;
+    final posisi = sesi.sampel.indexWhere((s) => s.index == masuk.index);
+    if (posisi < 0) {
+      debugPrint(
+        'Sampel index ${masuk.index} diabaikan: bukan titik jadwal sesi '
+        '${sesi.jenis.name} ${sesi.id}.',
+      );
+      return;
+    }
+
     // Pengiriman jam at-least-once: sampel yang sama bisa datang dua kali.
-    final kunci = '${pesan.sesiId}#${pesan.sampel.index}';
+    final kunci = '${pesan.sesiId}#${masuk.index}';
     if (!_sampelDiterima.add(kunci)) return;
 
     final sampel = [...sesi.sampel];
-    final masuk = pesan.sampel;
-    sampel[masuk.index] = masuk.index == 0 && sesi.t0 == null
+    // Dicari lewat `index`, bukan dipakai sebagai posisi: sesi puasa tidak
+    // punya index 1, jadi +1 jam-nya ada di `sampel[1]`.
+    sampel[posisi] = masuk.index == 0 && sesi.t0 == null
         ? masuk // jarak baseline ke t0 dihitung nanti di _terimaT0
         : _geser(masuk, _detikRelatifT0(sesi, masuk));
 

@@ -5,6 +5,8 @@ import 'controllers/sesi_makan_controller.dart';
 import 'models/sesi_makan.dart';
 import 'ringkasan_sesi_page.dart';
 import 'utils/format_waktu.dart';
+import 'widgets/indikator_baterai.dart';
+import 'widgets/peringatan_gula_rendah.dart';
 import 'widgets/foto_makanan.dart';
 import 'widgets/petunjuk_tombol_jam.dart';
 import 'widgets/petunjuk_tombol_ukur.dart';
@@ -38,9 +40,9 @@ class SesiBerjalanPage extends StatelessWidget {
           icon: const Icon(Icons.arrow_back, color: Color(0xFF1E3A34)),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
-          'Sesi Berjalan',
-          style: TextStyle(
+        title: Text(
+          (sesi?.puasa ?? false) ? 'Pemantauan Puasa' : 'Sesi Berjalan',
+          style: const TextStyle(
             color: Color(0xFF1E3A34),
             fontWeight: FontWeight.bold,
             fontSize: 18,
@@ -53,6 +55,71 @@ class SesiBerjalanPage extends StatelessWidget {
         child: sesi == null
             ? _SesiSudahBerakhir(controller: controller)
             : _IsiSesi(sesi: sesi, controller: controller),
+      ),
+    );
+  }
+}
+
+/// Pengganti kartu foto makanan pada sesi puasa: apa yang dipantau dan sejak
+/// kapan. Tidak ada piring dan tidak ada angka gizi untuk ditunggu.
+class _KartuPuasa extends StatelessWidget {
+  const _KartuPuasa({required this.sesi});
+
+  final SesiMakan sesi;
+
+  @override
+  Widget build(BuildContext context) {
+    final t0 = sesi.t0;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: const Color(0xFFE2F6F0),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.nightlight_round,
+              color: Color(0xFF0EAD69),
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Pemantauan saat puasa',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1E3A34),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  t0 == null
+                      ? 'Menunggu jam memulai pengukuran'
+                      : 'Dimulai ${formatJam(t0)} · tanpa foto makanan',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF8FA7A1),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -145,64 +212,75 @@ class _IsiSesi extends StatelessWidget {
           ),
           const SizedBox(height: 16),
 
-          // Foto makanan tetap terlihat sepanjang jeda 2 jam (§8).
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    FotoMakanan(
-                      fotoPath: sesi.fotoPath,
-                      lebar: 64,
-                      tinggi: 64,
-                      bisaDibuka: true,
-                      tandaPerbesar: false,
-                      judulPratinjau: sesi.hasil?.ringkasanNama,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            sesi.hasil?.ringkasanNama ?? 'Makanan',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF1E3A34),
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            t0 == null
-                                ? 'Difoto ${formatJam(sesi.waktuFoto)}'
-                                : 'Selesai makan ${formatJam(t0)}',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: Color(0xFF8FA7A1),
-                            ),
-                          ),
-                        ],
+          if (sesi.puasa) ...[
+            // Gula rendah diperingatkan di sini, tepat di bawah titik yang
+            // membacanya — bukan menunggu ringkasan dua jam kemudian.
+            if (sesi.kondisiPuasa.perluPerhatian) ...[
+              PeringatanGulaRendah(sesi: sesi),
+              const SizedBox(height: 16),
+            ],
+            _KartuPuasa(sesi: sesi),
+            const SizedBox(height: 16),
+          ] else ...[
+            // Foto makanan tetap terlihat sepanjang jeda 2 jam (§8).
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFFE2EBE8), width: 1.5),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      FotoMakanan(
+                        fotoPath: sesi.fotoPath,
+                        lebar: 64,
+                        tinggi: 64,
+                        bisaDibuka: true,
+                        tandaPerbesar: false,
+                        judulPratinjau: sesi.hasil?.ringkasanNama,
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                RingkasanNutrisi(
-                  hasil: sesi.hasil,
-                  sedangDianalisis: controller.sedangMenganalisis(sesi.id),
-                ),
-              ],
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              sesi.hasil?.ringkasanNama ?? 'Makanan',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF1E3A34),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              t0 == null
+                                  ? 'Difoto ${formatJam(sesi.waktuFoto)}'
+                                  : 'Selesai makan ${formatJam(t0)}',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF8FA7A1),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  RingkasanNutrisi(
+                    hasil: sesi.hasil,
+                    sedangDianalisis: controller.sedangMenganalisis(sesi.id),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
+            const SizedBox(height: 16),
+          ],
 
           // Kejujuran soal keterlambatan data (§8), dan — sejak jam sungguhan
           // menempel — soal koneksi yang putus di tengah sesi
@@ -225,6 +303,7 @@ class _IsiSesi extends StatelessWidget {
             PetunjukTombolJam(
               status: sesi.status,
               perangkat: controller.statusPerangkat,
+              puasa: sesi.puasa,
             ),
             const SizedBox(height: 12),
           ],
@@ -355,7 +434,7 @@ class _IsiSesi extends StatelessWidget {
                     'sesi ini masih bisa ditunggu.'
               : 'Belum ada satu pun pengukuran yang masuk. Sesi tetap disimpan '
                     'sebagai "Tidak lengkap", tanpa data pengukuran, sebagai '
-                    'catatan bahwa makan ini pernah terjadi.\n\n'
+                    '${sesi.puasa ? 'catatan bahwa pemantauan ini pernah dimulai' : 'catatan bahwa makan ini pernah terjadi'}.\n\n'
                     'Sampel yang mungkin masih tersimpan di jam tidak akan '
                     'masuk lagi ke sesi ini. Bila jam hanya sedang terputus, '
                     'sesi ini masih bisa ditunggu.',
@@ -642,11 +721,9 @@ class StatusPerangkatBar extends StatelessWidget {
           : 'Jam terputus',
       // Baterai kritis tidak ditulis sebagai angka yang lebih kecil melainkan
       // sebagai akibatnya: di bawah 10% jam menolak mengukur (§5.5 bit2), dan
-      // "baterai 8%" tidak memberitahukan itu kepada siapa pun.
-      if (p?.bateraiKritis ?? false)
-        'baterai ${p!.baterai ?? 0}% — jam menolak mengukur'
-      else if (p?.baterai != null)
-        'baterai ${p!.baterai}%',
+      // "baterai 8%" tidak memberitahukan itu kepada siapa pun. Level biasa
+      // tidak ditulis sama sekali — ia digambar [IndikatorBaterai] di kanan.
+      if (p?.bateraiKritis ?? false) 'jam menolak mengukur — isi daya',
       // "Sampel" adalah kosakata protokol, bukan kosakata pengguna. Yang perlu
       // diketahui adalah bahwa ada hasil pengukuran yang belum pindah dari jam
       // ke ponsel — dan kalimatnya berbeda menurut keadaan, karena artinya
@@ -687,21 +764,48 @@ class StatusPerangkatBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
+          // Dua baris, bukan satu: status jam di atas, baterai dan sinkron di
+          // bawahnya. Ketiganya dulu berebut satu baris, dan yang kalah adalah
+          // kalimat terpenting — "Jam tersambung" terlipat per suku kata.
           Expanded(
-            child: Text(
-              keterangan.join(' · '),
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF1E3A34),
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  keterangan.join(' · '),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1E3A34),
+                  ),
+                ),
+                if (p?.baterai != null || p?.sinkronTerakhir != null) ...[
+                  const SizedBox(height: 5),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (p?.baterai != null)
+                        IndikatorBaterai(
+                          persen: p!.baterai!,
+                          kritis: p.bateraiKritis,
+                          dicas: p.sedangDicas,
+                        ),
+                      if (p?.sinkronTerakhir != null)
+                        Text(
+                          'sinkron ${formatWaktuRelatif(p!.sinkronTerakhir!)}',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Color(0xFF8FA7A1),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ],
             ),
           ),
-          if (p?.sinkronTerakhir != null)
-            Text(
-              'sinkron ${formatWaktuRelatif(p!.sinkronTerakhir!)}',
-              style: const TextStyle(fontSize: 10, color: Color(0xFF8FA7A1)),
-            ),
         ],
       ),
     );

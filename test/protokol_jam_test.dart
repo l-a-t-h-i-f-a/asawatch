@@ -329,6 +329,15 @@ void main() {
       expect(s.uptimeS, 999);
     });
 
+    test(
+      'sedang dicas terbaca dari bit4 (v1.5), dan firmware lama berarti tidak',
+      () {
+        expect(bacaStatus(paketStatus(flag: 0x10)).sedangDicas, isTrue);
+        // Firmware ≤ v1.4 selalu mengirim 0 di bit ini.
+        expect(bacaStatus(paketStatus(flag: 0x0F)).sedangDicas, isFalse);
+      },
+    );
+
     test('baterai kritis terbaca dari bit2', () {
       expect(bacaStatus(paketStatus(flag: 0x04)).bateraiKritis, isTrue);
     });

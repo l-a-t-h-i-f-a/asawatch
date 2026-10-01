@@ -16,6 +16,7 @@ import 'package:asawatch/analisis_tab.dart';
 import 'package:asawatch/profil_tab.dart';
 import 'package:asawatch/deteksi_makanan_page.dart';
 import 'package:asawatch/sesi_berjalan_page.dart';
+import 'package:asawatch/konfirmasi_pakai_jam_page.dart';
 import 'package:asawatch/services/pengingat_titik_ukur.dart';
 import 'package:asawatch/controllers/sesi_makan_controller.dart';
 import 'package:asawatch/models/sesi_makan.dart';
@@ -459,6 +460,29 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   int _currentIndex = 0;
 
+  StreamSubscription<AlarmTitik>? _langgananAlarm;
+  bool _konfirmasiTerbuka = false;
+
+  /// Satu layar konfirmasi pada satu waktu — alarm yang diketuk dua kali
+  /// tidak boleh menumpuk dua layar yang sama.
+  Future<void> _bukaKonfirmasiAlarm(AlarmTitik alarm) async {
+    if (_konfirmasiTerbuka || !mounted) return;
+    _konfirmasiTerbuka = true;
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => KonfirmasiPakaiJamPage(alarm: alarm)),
+      );
+    } finally {
+      _konfirmasiTerbuka = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _langgananAlarm?.cancel();
+    super.dispose();
+  }
+
   ProfilRepository get _profil => widget.profil ?? const ProfilRepository();
 
   late final List<Widget> _tabs;
@@ -483,6 +507,18 @@ class _MyHomePageState extends State<MyHomePage> {
         Object galat,
       ) {
         debugPrint('Izin notifikasi gagal diminta: $galat');
+      }),
+    );
+
+    // **Alarm titik ukur membuka layar konfirmasinya**, baik diketuk selama
+    // aplikasi hidup maupun saat ia yang meluncurkan aplikasi. Tanpa ini,
+    // mengetuk alarm hanya membuka Beranda dan alarmnya terus berbunyi tanpa
+    // tombol yang bisa menghentikannya.
+    final pengingat = context.read<SesiMakanController>().pengingat;
+    _langgananAlarm = pengingat.alarmDiketuk.listen(_bukaKonfirmasiAlarm);
+    unawaited(
+      pengingat.ambilAlarmPeluncuran().then((alarm) {
+        if (alarm != null && mounted) _bukaKonfirmasiAlarm(alarm);
       }),
     );
 

@@ -75,8 +75,7 @@ class _PratinjauFotoPageState extends State<PratinjauFotoPage> {
           fit: StackFit.expand,
           children: [
             GestureDetector(
-              onDoubleTapDown: (rincian) =>
-                  _titikKetuk = rincian.localPosition,
+              onDoubleTapDown: (rincian) => _titikKetuk = rincian.localPosition,
               onDoubleTap: _ketukGanda,
               child: InteractiveViewer(
                 transformationController: _transformasi,

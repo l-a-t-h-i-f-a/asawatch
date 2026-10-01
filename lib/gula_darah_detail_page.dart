@@ -24,7 +24,11 @@ class GulaDarahDetailPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<SesiMakanController>();
-    final sesiTampil = sesi ?? controller.sesiTerakhir;
+    // Bawaannya sesi **makan** terakhir: seluruh halaman ini membaca respons
+    // terhadap makanan, dan sesi puasa yang kebetulan paling baru akan
+    // menyajikan "lonjakan" dari kurva tanpa makanan.
+    final sesiTampil =
+        sesi ?? controller.riwayat.where((s) => !s.puasa).firstOrNull;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4FAF7),

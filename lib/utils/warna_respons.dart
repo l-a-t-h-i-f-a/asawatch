@@ -30,3 +30,17 @@ WarnaRespons warnaKualitas(KualitasRespons kualitas) => switch (kualitas) {
     teks: const Color(0xFF8FA7A1),
   ),
 };
+
+/// Warna penilaian sesi puasa, dari keluarga warna yang sama dengan
+/// [warnaKualitas] supaya Riwayat tetap terbaca sebagai satu sistem: yang
+/// tenang hijau, yang perlu perhatian jingga, yang berbahaya merah.
+WarnaRespons warnaKondisiPuasa(KondisiPuasa kondisi) => switch (kondisi) {
+  KondisiPuasa.stabil => warnaKualitas(KualitasRespons.landai),
+  KondisiPuasa.turun => warnaKualitas(KualitasRespons.sedang),
+  KondisiPuasa.rendah => (
+    latar: const Color(0xFFFFF4E5),
+    teks: const Color(0xFFB4761E),
+  ),
+  KondisiPuasa.sangatRendah => warnaKualitas(KualitasRespons.lonjakan),
+  KondisiPuasa.belumLengkap => warnaKualitas(KualitasRespons.belumLengkap),
+};

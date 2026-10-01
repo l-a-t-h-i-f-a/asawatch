@@ -23,6 +23,36 @@ enum StatusSesi {
 
 enum StatusSampel { menunggu, terisi, terlewat }
 
+/// Apa yang dipantau sesi ini.
+///
+/// [makan] adalah fungsi utama aplikasi dan bawaan di setiap lapisan — sesi
+/// lama, kiriman dari server yang tidak menyebut jenisnya, dan setiap jalur
+/// yang tidak memilih secara sengaja. [puasa] adalah tambahan: pemantauan gula
+/// darah saat berpuasa, **tanpa foto, tanpa makanan, dan tanpa tombol "Selesai
+/// Makan"** — t0 adalah saat sesi dimulai, dan titiknya tiga: baseline di t0,
+/// +1 jam, +2 jam (docs/rancangan-api-laravel.md §5.2 `jenis`).
+///
+/// Disimpan sebagai `textEnum`, jadi mengganti nama anggotanya adalah
+/// perubahan skema — dan juga perubahan kawat, karena `name`-nya dikirim apa
+/// adanya sebagai `jenis`.
+enum JenisSesi { makan, puasa }
+
+/// Di bawah angka ini gula darah dianggap rendah (hipoglikemia, mg/dL).
+///
+/// Ambang umum yang dipakai panduan klinis. Hanya dipakai sesi puasa: di sana
+/// yang berbahaya adalah gula yang turun, bukan yang melonjak.
+const int ambangGulaRendah = 70;
+
+/// Di bawah angka ini gula darah dianggap sangat rendah (mg/dL).
+const int ambangGulaSangatRendah = 54;
+
+/// Penilaian satu sesi puasa, dari titik terendahnya.
+enum KondisiPuasa { stabil, turun, rendah, sangatRendah, belumLengkap }
+
+/// Turun sebanyak ini dari baseline (mg/dL) sudah disebut "turun", walau belum
+/// menyentuh [ambangGulaRendah].
+const int ambangPuasaTurun = 15;
+
 /// Pengelompokan sesi di Riwayat menggantikan filter per-metrik lama (§4.2).
 /// Diturunkan dari jam t0, tidak pernah dipilih user.
 enum WaktuMakan { sarapan, makanSiang, makanMalam, camilan }
@@ -72,6 +102,20 @@ extension LabelWaktuMakan on WaktuMakan {
     WaktuMakan.makanMalam => 'Makan Malam',
     WaktuMakan.camilan => 'Camilan',
   };
+}
+
+extension LabelKondisiPuasa on KondisiPuasa {
+  String get label => switch (this) {
+    KondisiPuasa.stabil => 'Stabil',
+    KondisiPuasa.turun => 'Turun',
+    KondisiPuasa.rendah => 'Gula rendah',
+    KondisiPuasa.sangatRendah => 'Gula sangat rendah',
+    KondisiPuasa.belumLengkap => 'Belum lengkap',
+  };
+
+  /// Rendah atau sangat rendah — keadaan yang menuntut peringatan.
+  bool get perluPerhatian =>
+      this == KondisiPuasa.rendah || this == KondisiPuasa.sangatRendah;
 }
 
 extension LabelKualitasRespons on KualitasRespons {
@@ -142,6 +186,7 @@ class SesiMakan {
     this.waktuTidakPasti = false,
     this.sesiUji = false,
     this.diperbaruiPada,
+    this.jenis = JenisSesi.makan,
   });
 
   final String id;
@@ -150,7 +195,15 @@ class SesiMakan {
   final DateTime? t0; // null selama status == draft
   final StatusSesi status;
   final HasilDeteksi? hasil; // null bila analisis nutrisi belum selesai
-  final List<Sampel> sampel; // selalu 4 elemen, index 0..3
+  /// Seluruh titik jadwal sesi ini, urut index: 4 elemen (index 0..3) untuk
+  /// sesi makan, 3 elemen (index 0, 2, 3) untuk sesi puasa. `sampel[0]` selalu
+  /// baseline di kedua jenis; selebihnya cari lewat `index`, jangan lewat posisi.
+  final List<Sampel> sampel;
+
+  /// Lihat [JenisSesi]. Ditetapkan saat sesi lahir dan tidak pernah berubah.
+  final JenisSesi jenis;
+
+  bool get puasa => jenis == JenisSesi.puasa;
 
   /// Waktu sesi ini tidak diketahui dan tidak akan pernah diketahui
   /// (docs/protokol-jam.md §4.3): jam menjalani satu boot penuh tanpa sekali pun
@@ -207,6 +260,7 @@ class SesiMakan {
       waktuTidakPasti: waktuTidakPasti ?? this.waktuTidakPasti,
       sesiUji: sesiUji ?? this.sesiUji,
       diperbaruiPada: diperbaruiPada ?? this.diperbaruiPada,
+      jenis: jenis,
     );
   }
 
@@ -216,7 +270,7 @@ class SesiMakan {
   /// sedang berjalan: sesi lama harus tetap dinilai dengan jadwal yang berlaku
   /// saat ia direkam. Rakitan uji yang membuka riwayat sungguhan tidak boleh
   /// menyatakan seluruh titiknya telat karena diukur dengan penggaris dua menit.
-  JadwalSesi get jadwal => sesiUji ? jadwalUji : jadwalNormal;
+  JadwalSesi get jadwal => (sesiUji ? jadwalUji : jadwalNormal).keJenis(jenis);
 
   /// Pengukuran ini tiba di luar jendela toleransi titiknya
   /// (docs/jadwal-titik-ukur.md §3).
@@ -341,7 +395,9 @@ class SesiMakan {
   /// sebagai "Sarapan" adalah menebak, dan tebakan itu akan terlihat persis
   /// seperti fakta (protokol §4.3).
   WaktuMakan? get waktuMakan {
-    if (waktuTidakPasti) return null;
+    // Sesi puasa tidak punya makanan, jadi tidak punya "waktu makan" — dan
+    // karena itu tidak jatuh ke filter Sarapan/Makan Siang di Riwayat.
+    if (waktuTidakPasti || puasa) return null;
     final jam = (t0 ?? waktuFoto).hour;
     if (jam >= 5 && jam < 11) return WaktuMakan.sarapan;
     if (jam >= 11 && jam < 15) return WaktuMakan.makanSiang;
@@ -352,13 +408,16 @@ class SesiMakan {
   /// Label waktu makan yang selalu bisa ditampilkan, termasuk saat jamnya tidak
   /// diketahui. Dipakai seluruh kartu sesi supaya tidak ada satu pun tempat yang
   /// harus mengarang teks pengganti sendiri.
-  String get labelWaktuMakan => waktuMakan?.label ?? 'Waktu tidak pasti';
+  String get labelWaktuMakan =>
+      puasa ? 'Pemantauan Puasa' : (waktuMakan?.label ?? 'Waktu tidak pasti');
 
   /// Indikator respons untuk daftar Riwayat. Sesi yang datanya belum cukup
   /// dinyatakan `belumLengkap`, bukan dipaksa masuk salah satu kategori.
   KualitasRespons get kualitasRespons {
     final delta = deltaPuncak;
-    if (delta == null || status.sedangAktif) {
+    // Respons terhadap makanan tidak ada artinya tanpa makanan. Sesi puasa
+    // dinilai lewat [kondisiPuasa], dan tidak ikut filter respons Riwayat.
+    if (delta == null || status.sedangAktif || puasa) {
       return KualitasRespons.belumLengkap;
     }
     if (delta <= ambangResponsLandai) return KualitasRespons.landai;
@@ -366,11 +425,52 @@ class SesiMakan {
     return KualitasRespons.lonjakan;
   }
 
+  /// Titik dengan gula darah terendah di antara yang sudah terisi (baseline
+  /// ikut dihitung).
+  Sampel? get sampelTerendah {
+    Sampel? terendah;
+    for (final s in sampel) {
+      final g = s.gulaDarah;
+      if (!s.terisi || g == null) continue;
+      if (terendah == null || g < terendah.gulaDarah!) terendah = s;
+    }
+    return terendah;
+  }
+
+  int? get gulaTerendah => sampelTerendah?.gulaDarah;
+
+  /// Ada titik yang gula darahnya di bawah [ambangGulaRendah].
+  bool get adaGulaRendah {
+    final t = gulaTerendah;
+    return t != null && t < ambangGulaRendah;
+  }
+
+  /// Penilaian sesi puasa. Rendah dinilai dari **titik mana pun**, termasuk
+  /// selagi sesi masih berjalan: gula yang sudah terbaca rendah tidak menunggu
+  /// sesi selesai untuk menjadi penting. "Stabil" dan "turun" baru dinyatakan
+  /// sesudah sesi berakhir, karena keduanya menilai seluruh kurva.
+  KondisiPuasa get kondisiPuasa {
+    final terendah = gulaTerendah;
+    if (terendah != null && terendah < ambangGulaSangatRendah) {
+      return KondisiPuasa.sangatRendah;
+    }
+    if (terendah != null && terendah < ambangGulaRendah) {
+      return KondisiPuasa.rendah;
+    }
+    final dasar = gulaDarahBaseline;
+    if (status.sedangAktif || dasar == null || terendah == null) {
+      return KondisiPuasa.belumLengkap;
+    }
+    if (dasar - terendah >= ambangPuasaTurun) return KondisiPuasa.turun;
+    return KondisiPuasa.stabil;
+  }
+
   /// Kalori sesi ini; null selama analisis nutrisi belum selesai.
   double? get kalori => hasil?.total.kalori;
 
   /// Kalimat Bahasa Indonesia untuk kartu hasil (§12.3).
   String get verdict {
+    if (puasa) return _verdictPuasa;
     switch (status) {
       case StatusSesi.dibatalkan:
         return 'Sesi dibatalkan.';
@@ -403,6 +503,37 @@ class SesiMakan {
       if (adaSampelTerlewat) 'ada sampel terlewat',
     ];
     return bagian.join(' · ');
+  }
+
+  String get _verdictPuasa {
+    switch (status) {
+      case StatusSesi.dibatalkan:
+        return 'Pemantauan dibatalkan.';
+      case StatusSesi.draft:
+        return 'Pemantauan puasa dimulai begitu jam menerima perintahnya.';
+      case StatusSesi.menungguPerangkat:
+        return 'Jam belum tersambung, jadi pemantauan belum bisa dimulai.';
+      case StatusSesi.berjalan:
+      case StatusSesi.selesai:
+      case StatusSesi.tidakLengkap:
+        break;
+    }
+    final terendah = gulaTerendah;
+    final bagian = switch (kondisiPuasa) {
+      KondisiPuasa.sangatRendah => [
+        'gula darah sangat rendah ($terendah mg/dL)',
+      ],
+      KondisiPuasa.rendah => ['gula darah rendah ($terendah mg/dL)'],
+      KondisiPuasa.turun => [
+        'turun ${gulaDarahBaseline! - terendah!} mg/dL dari baseline',
+      ],
+      KondisiPuasa.stabil => ['gula darah stabil selama pemantauan'],
+      KondisiPuasa.belumLengkap =>
+        status == StatusSesi.berjalan
+            ? ['Pemantauan masih berjalan, menunggu titik berikutnya']
+            : ['Data gula darah belum cukup untuk menilai pemantauan ini'],
+    };
+    return [...bagian, if (adaSampelTerlewat) 'ada titik terlewat'].join(' · ');
   }
 
   static String _jamRingkas(Duration d) {
@@ -981,7 +1112,10 @@ class StatusPerangkat {
     this.penyandinganHilang = false,
     this.kemampuan,
     bool bateraiKritis = false,
+    bool sedangDicas = false,
   }) : _bateraiTerakhir = baterai,
+       // ignore: prefer_initializing_formals
+       _sedangDicas = sedangDicas,
        // Namanya sengaja tanpa garis bawah di luar: getter di bawah
        // menyaringnya dengan `tersambung`, dan pemanggil tidak perlu tahu ada
        // dua bentuk — persis pola `baterai` di atasnya.
@@ -1025,6 +1159,16 @@ class StatusPerangkat {
   /// Dibuang saat terputus, sama seperti [baterai] dan berbeda dari
   /// [kemampuan]: ia keadaan yang berubah tiap menit, bukan sifat alatnya.
   bool get bateraiKritis => tersambung && _bateraiKritis;
+
+  final bool _sedangDicas;
+
+  /// Jam sedang dicas (§5.5 `flag` bit4, v1.5).
+  ///
+  /// Selama arus cas mengalir, tegangan yang dibaca jam bukan tegangan sel dan
+  /// persennya bisa melompat 8–15% — jadi indikator baterai menyembunyikan
+  /// angkanya dan menampilkan ikon cas. Dibuang saat terputus, sama seperti
+  /// [baterai]: jam yang lepas bisa saja sudah dicabut dari kabelnya.
+  bool get sedangDicas => tersambung && _sedangDicas;
   final int sampelTertunda; // masih tertahan di buffer jam
   final DateTime? sinkronTerakhir;
 
@@ -1074,6 +1218,7 @@ class StatusPerangkat {
     bool? penyandinganHilang,
     KemampuanPerangkat? kemampuan,
     bool? bateraiKritis,
+    bool? sedangDicas,
   }) {
     return StatusPerangkat(
       tersambung: tersambung ?? this.tersambung,
@@ -1088,6 +1233,7 @@ class StatusPerangkat {
       // Lewat getternya, jadi status yang sudah terputus tidak membawa kabar
       // lama ikut serta — persis alasan yang sama dengan baterai di atas.
       bateraiKritis: bateraiKritis ?? this.bateraiKritis,
+      sedangDicas: sedangDicas ?? this.sedangDicas,
       // Ditahan, tidak seperti baterai: lihat alasannya di definisi field-nya.
       kemampuan: kemampuan ?? this.kemampuan,
     );
