@@ -358,6 +358,7 @@ mengirim entrinya lagi, dan duplikat memang perilaku normal (§1 aturan 5).
 | `0x08` | `ACK_EVENT` | 1B seq | (internal, §6) |
 | `0x09` | `MULAI_SESI` | 16B sesiId | `mulaiSesi()` |
 | `0x0A` | `ARM_TITIK` | 16B sesiId + 1B index | `armTitik()` |
+| `0x0B` | `BATAL_UKUR` **(v1.6)** | — | `batalkanUkur()` |
 
 Catatan per opcode:
 
@@ -418,6 +419,34 @@ Catatan per opcode:
     perintah yang terkirim dua kali.
   - **Peristiwa yang dikirimnya tidak dibedakan dari tombol fisik.** Tidak ada flag "dari aplikasi",
     dan memang tidak boleh ada: bagi seluruh sisa dokumen ini, keduanya adalah peristiwa yang sama.
+
+- **`BATAL_UKUR` menghentikan pengukuran yang sedang berjalan, apa pun pemiliknya** (v1.6) —
+  `UKUR`, `UKUR_SEKARANG`, index 1 yang dijadwalkan sendiri, maupun cek manual di layar jam. Hanya
+  ada satu sensor, jadi payload-nya kosong. Aturannya:
+
+  - **Berhenti tanpa jejak**: sensor padam, **tidak** ada paket Sampel walau sebagian metrik sudah
+    terbaca, dan **tidak** ada `UKUR_GAGAL` — sensornya tidak gagal, penggunanya yang berhenti.
+  - **Bit dedup tidak dinyalakan dan `ARM_TITIK` tidak dipadamkan**, sehingga titik yang dihentikan
+    masih bisa diukur ulang lewat `UKUR` atau tombol jam. Index 1 milik sesi RUNNING ditandai
+    selesai, karena tanpa itu penjadwalnya (§9) memulainya lagi pada putaran berikutnya.
+  - **Selalu di-`ACK`**, juga saat tidak ada yang sedang diukur. Pertanyaannya "apakah jam masih
+    mengukur", bukan "apakah saya menghentikan sesuatu" — alasan yang sama dengan `DELETE` yang
+    menganggap 404 berhasil. ACK yang hilang membuat aplikasi mengulang, dan pengulangan itu tidak
+    boleh dijawab `NAK`.
+  - Status dikirim ulang dengan bit0 padam, jadi kabar kemajuan (§5.6) berhenti di semua layar.
+
+  Firmware ≤ v1.5 menjawabnya `NAK 0x01`. Aplikasi lalu tetap berhenti menunggu, tetapi **berkata**
+  bahwa jamnya mungkin masih mengukur. Tombol yang mengaku menghentikan jam padahal tidak adalah
+  kebohongan yang dulu dihindari "Berhenti Menunggu" dengan tidak mengaku apa-apa.
+
+- **`BATAL_SESI` juga menghentikan pengukuran milik sesi itu** (v1.6). Sampai v1.5 ia hanya
+  memindahkan mesin status ke IDLE: pengukuran sesi yang sedang berjalan diteruskan sampai tuntas dan
+  sampelnya dikirim ke sesi yang sudah dibatalkan. Lebih buruk lagi, sejak v1.3 jam hampir selalu
+  IDLE (ia dimatikan di antara titik ukur, dan `UKUR` tidak mengubah statusnya), sehingga perintah
+  ini di-`NAK 0x04` sementara LED-nya tetap menyala. Kini tiga hal diperiksa terpisah, masing-masing
+  dengan `sesiId` miliknya sendiri: pengukuran yang berjalan (seperti `BATAL_UKUR`, tetapi hanya bila
+  `sesiId`-nya sama), tombol `ARM_TITIK` sesi itu, dan mesin status. `NAK 0x04` hanya bila **tidak
+  satu pun** cocok.
 
 - **`ARM_SESI` menimpa sesi ARMED sebelumnya** yang belum ditekan. Hanya satu sesi ARMED pada satu
   waktu — cerminan aturan satu-sesi-aktif di `SesiMakanController`.
@@ -1028,6 +1057,11 @@ Dipakai kedua tim sebelum integrasi dinyatakan selesai.
       hilang tanpa jejak, dan entri yang terlanjur ditandai "sudah dikirim" tidak akan datang lagi
       sampai ada `SINKRON` berikutnya.
 - [ ] `UKUR_SEKARANG` dijawab paket Sampel ber-`sesiId` 16 byte nol, `index` 0 (§5.1).
+- [ ] `BATAL_UKUR` (v1.6) memadamkan sensor seketika, **tanpa** Sampel dan **tanpa** `UKUR_GAGAL`,
+      tidak menyalakan bit dedup, dan di-`ACK` juga saat tidak ada yang diukur (§5.1). Uji: `now` →
+      `henti` di konsol serial; LED padam, tidak ada entri baru di buffer.
+- [ ] `BATAL_SESI` menghentikan pengukuran `UKUR` milik sesi itu **walau jam IDLE** (v1.6). Uji:
+      `ukur 2` → `batal`; dulu ini `NAK 0x04` dengan LED tetap menyala.
 - [ ] `UKUR_SEKARANG` dilayani di **IDLE, ARMED, maupun RUNNING**, dan tidak menggeser jadwal titik
       ukur sesi (§9). Bila sensornya sedang sibuk, jawabannya `NAK` `0x05` — bukan pembacaan lama.
 - [ ] Paket Status **10 byte**, dan `ukur_persen`/`ukur_sisa_detik` benar-benar bergerak selama
@@ -1173,6 +1207,23 @@ yang diimplementasikannya di byte 0–1 handshake (§3).
 
 Bagian ini adalah satu-satunya tempat yang memberi arti pada angka itu. Tanpanya, `versi_minor` cuma
 bilangan yang naik.
+
+### v1.6
+
+Satu opcode baru dan satu pelebaran: **pembatalan dari aplikasi kini menghentikan jamnya.**
+
+- **`BATAL_UKUR` (`0x0B`, tanpa payload)** — menghentikan pengukuran yang sedang berjalan tanpa
+  Sampel dan tanpa `UKUR_GAGAL`; selalu di-`ACK` (§5.1). Aplikasi memakainya di tombol "Hentikan
+  Pengukuran" pada Pindai Kesehatan (menggantikan "Berhenti Menunggu", yang hanya menutup layar),
+  pada putaran kalibrasi (juga saat "Batalkan kalibrasi" atau kembali ditekan di tengah pengukuran),
+  dan pada kartu kemajuan titik sesi. Titik sesi yang dihentikan tetap `menunggu` dan konfirmasi
+  "jam sudah dipakai"-nya dicabut, supaya percobaan ulang otomatis tidak memulainya lagi sendiri.
+- **`BATAL_SESI` menghentikan pengukuran dan memadamkan `ARM_TITIK` milik sesinya** walau jam
+  sedang IDLE, dan hanya `NAK 0x04` bila tidak ada apa pun milik sesi itu (§5.1). "Batalkan Sesi"
+  dan "Selesaikan Sesi" di aplikasi sudah mengirimnya; yang berubah hanya firmware.
+
+Firmware ≤ v1.5 menjawab `BATAL_UKUR` dengan `NAK 0x01`; aplikasi tetap berhenti menunggu dan
+mengatakan bahwa jamnya mungkin masih menyelesaikan pengukuran. Tidak ada paket yang berubah bentuk.
 
 ### v1.5
 

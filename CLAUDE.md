@@ -506,6 +506,20 @@ check reads Status once before clearing, so a watch that dies mid-measurement st
 measure without a waiter to notice. `FakeBleService(denyutUkur:, denyutUkurBerhenti:, persenUkurMacet:)`
 models the three watch behaviours; a real watch cannot be ordered to die mid-measurement.
 
+**Stopping a measurement stops the watch (protocol v1.6).** `BATAL_UKUR` (`0x0B`, no payload)
+switches the sensor off with no Sampel and no `UKUR_GAGAL`, and is ACKed even when nothing was
+running; `SesiMakanController.batalkanPengukuran()` sends it from "Hentikan Pengukuran" on
+`PindaiKesehatanPage` (which replaced "Berhenti Menunggu", a button that only closed the screen),
+the calibration round (also on "Batalkan kalibrasi" and back), and `KartuKemajuanUkur`'s
+`onHentikan` for session points (not the baseline). Three rules. The waiter ends with
+`UkurDibatalkan` — **not** a `GalatJam`, so no error copy — before the ACK arrives. A `false`
+return (disconnected, or firmware ≤ v1.5 answering `NAK 0x01`) must be *said*: the screen
+stops waiting but never claims the watch stopped. And a stopped session point **loses its
+"jam sudah dipakai" confirmation and its auto-retry timer**, or `_ukurOtomatis` restarts the
+measurement seconds after someone stopped it; the point stays `menunggu` and the watch's button
+stays armed. Firmware's `BATAL_SESI` now also stops that session's measurement and its
+`ARM_TITIK` even while IDLE — before v1.6 it was `NAK 0x04` with the LED still lit.
+
 **On session surfaces the progress replaces the button, it does not sit beside it.**
 [lib/widgets/kartu_kemajuan_ukur.dart](lib/widgets/kartu_kemajuan_ukur.dart) (`KartuKemajuanUkur`:
 label, 28 px percent, animated full-width bar, the watch's own remaining-seconds estimate, and the

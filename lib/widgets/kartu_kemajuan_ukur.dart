@@ -23,7 +23,13 @@ class KartuKemajuanUkur extends StatelessWidget {
     required this.kemajuan,
     required this.namaTitik,
     this.ringkas = false,
+    this.onHentikan,
   });
+
+  /// Menghentikan jam (`BATAL_UKUR`, protokol v1.6). null menyembunyikan
+  /// tombolnya — baseline tidak menawarkannya, karena ia diminta sekali saat
+  /// shutter dan tidak punya tombol untuk mengulangnya.
+  final VoidCallback? onHentikan;
 
   final KemajuanUkur kemajuan;
 
@@ -150,6 +156,26 @@ class KartuKemajuanUkur extends StatelessWidget {
               ),
             ],
           ),
+          if (onHentikan != null)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: onHentikan,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  visualDensity: VisualDensity.compact,
+                ),
+                icon: const Icon(
+                  Icons.stop_circle_outlined,
+                  size: 16,
+                  color: Color(0xFF6B807B),
+                ),
+                label: const Text(
+                  'Hentikan Pengukuran',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF6B807B)),
+                ),
+              ),
+            ),
         ],
       ),
     );

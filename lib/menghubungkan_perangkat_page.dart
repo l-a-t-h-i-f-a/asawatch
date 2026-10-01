@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -52,6 +53,12 @@ class MenghubungkanPerangkatPage extends StatelessWidget {
                 // (§4.7).
                 _StatusJam(izin: izin),
                 const SizedBox(height: 20),
+                // Alat uji alarm titik ukur — hanya di build debug, tidak
+                // pernah sampai ke pengguna.
+                if (kDebugMode) ...[
+                  const _UjiAlarm(),
+                  const SizedBox(height: 20),
+                ],
 
                 // 3-step diagram mockup (Matches mockup)
                 Container(
@@ -805,6 +812,74 @@ class _StatusJam extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Dua tombol untuk memunculkan alarm sekarang juga (debug saja), supaya
+/// alarm bisa diperiksa tanpa menunggu jadwal sesi.
+class _UjiAlarm extends StatelessWidget {
+  const _UjiAlarm();
+
+  Future<void> _uji(BuildContext context, {required bool suaraAlarm}) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final laporan = await context
+        .read<SesiMakanController>()
+        .pengingat
+        .ujiAlarm(suaraAlarm: suaraAlarm);
+    messenger.showSnackBar(
+      SnackBar(content: Text(laporan), duration: const Duration(seconds: 8)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF4E5),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Uji alarm (debug)',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF1E3A34),
+            ),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton(
+            onPressed: () => _uji(context, suaraAlarm: true),
+            child: const Text('Tes alarm (nada alarm)'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: () => _uji(context, suaraAlarm: false),
+            child: const Text('Tes alarm (suara bawaan)'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              final laporan = await context
+                  .read<SesiMakanController>()
+                  .pengingat
+                  .ujiAlarmTerjadwal(const Duration(minutes: 1));
+              messenger.showSnackBar(
+                SnackBar(
+                  content: Text(laporan),
+                  duration: const Duration(seconds: 8),
+                ),
+              );
+            },
+            child: const Text('Tes alarm terjadwal (1 menit lagi)'),
+          ),
+        ],
       ),
     );
   }

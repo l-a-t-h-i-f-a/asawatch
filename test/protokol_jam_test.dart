@@ -470,6 +470,11 @@ void main() {
       expect(tulisUkurSekarang(), [Opcode.ukurSekarang]);
     });
 
+    test('BATAL_UKUR (v1.6) adalah opcode 0x0B tanpa payload', () {
+      expect(tulisBatalUkur(), [0x0B]);
+      expect(Opcode.nama(Opcode.batalUkur), 'BATAL_UKUR');
+    });
+
     test('MULAI_SESI membawa sesiId saja — tanpa satu byte pun waktu', () {
       // Ini bukan sekadar memeriksa panjang. Ketiadaan waktu di paket inilah
       // yang membuat tombol "Selesai Makan" di aplikasi tidak melanggar §4:

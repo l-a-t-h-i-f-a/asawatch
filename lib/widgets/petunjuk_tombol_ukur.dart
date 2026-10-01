@@ -147,6 +147,9 @@ class _PetunjukTombolUkurState extends State<PetunjukTombolUkur> {
         kemajuan: kemajuanSesi,
         namaTitik: titik.label,
         ringkas: widget.ringkas,
+        // Titiknya tidak hilang: tombol "Ukur" kembali menyala begitu jam
+        // berhenti, dan tombol di jam tetap ter-ARM.
+        onHentikan: () => unawaited(c.batalkanPengukuran()),
       );
     }
 

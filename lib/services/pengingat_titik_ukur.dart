@@ -101,6 +101,25 @@ abstract class PengingatTitikUkur {
 
   Future<void> batalkanSemua();
 
+  /// Membunyikan alarm satu titik **sekarang juga**, dari aplikasi yang sedang
+  /// hidup.
+  ///
+  /// **Ini jalur utama; jadwal sistem di [jadwalkan] hanya cadangan.** Selama
+  /// sesi berjalan, foreground service (`LayananLatar`, dengan wakelock)
+  /// menjaga proses tetap hidup, dan controller bangun tepat saat jendela
+  /// terbuka. Menampilkan notifikasi dari proses yang hidup terbukti bekerja
+  /// di HyperOS, sedangkan alarm `AlarmManager` di sana bisa ditahan tanpa
+  /// gejala apa pun — dan itu yang terjadi di ponsel uji. Jadwal sistem tetap
+  /// dipasang untuk proses yang benar-benar mati.
+  ///
+  /// [sisaJendela] menjadi batas bunyinya: setelah jendela tertutup titik itu
+  /// sudah terlewat.
+  Future<void> bunyikanSekarang({
+    required String sesiId,
+    required TitikJadwal titik,
+    required Duration sisaJendela,
+  });
+
   /// Membungkam alarm satu titik — hanya dipanggil dari konfirmasi pengguna.
   Future<void> hentikanAlarm(int index);
 
@@ -109,6 +128,21 @@ abstract class PengingatTitikUkur {
 
   /// Alarm yang meluncurkan aplikasi dari keadaan mati, sekali saja.
   Future<AlarmTitik?> ambilAlarmPeluncuran();
+
+  /// **Alat uji, hanya untuk build debug**: menampilkan alarm sekarang juga,
+  /// tanpa menunggu jadwal sesi. Mengembalikan laporan singkat — izin, dan
+  /// galat bila tampilnya gagal — karena kegagalan menampilkan notifikasi
+  /// tidak bergejala apa pun di layar.
+  ///
+  /// [suaraAlarm] false memakai kanal uji tersendiri dengan suara notifikasi
+  /// bawaan, untuk memisahkan "nada alarm yang ditolak ponsel" dari "notifikasi
+  /// yang tidak tampil sama sekali".
+  Future<String> ujiAlarm({required bool suaraAlarm});
+
+  /// Alat uji debug: menjadwalkan alarm [jeda] dari sekarang lewat jalur yang
+  /// sama dengan alarm sesi (`zonedSchedule`), supaya alarm yang berbunyi
+  /// saat aplikasi di latar belakang bisa diperiksa tanpa menjalankan sesi.
+  Future<String> ujiAlarmTerjadwal(Duration jeda);
 }
 
 /// Tidak melakukan apa-apa. Bawaan untuk test dan untuk platform yang tidak
@@ -132,6 +166,13 @@ class PengingatDiam implements PengingatTitikUkur {
   Future<void> batalkanSemua() async {}
 
   @override
+  Future<void> bunyikanSekarang({
+    required String sesiId,
+    required TitikJadwal titik,
+    required Duration sisaJendela,
+  }) async {}
+
+  @override
   Future<void> hentikanAlarm(int index) async {}
 
   @override
@@ -139,6 +180,14 @@ class PengingatDiam implements PengingatTitikUkur {
 
   @override
   Future<AlarmTitik?> ambilAlarmPeluncuran() async => null;
+
+  @override
+  Future<String> ujiAlarm({required bool suaraAlarm}) async =>
+      'Pengingat dimatikan di build ini.';
+
+  @override
+  Future<String> ujiAlarmTerjadwal(Duration jeda) async =>
+      'Pengingat dimatikan di build ini.';
 }
 
 class PengingatLokal implements PengingatTitikUkur {
@@ -148,6 +197,18 @@ class PengingatLokal implements PengingatTitikUkur {
   final FlutterLocalNotificationsPlugin _plugin;
   Future<void>? _persiapan;
   bool _peluncuranDiambil = false;
+
+  /// Penjadwalan dijalankan berurutan, tidak pernah bertumpuk. Pemanggilnya
+  /// dipicu setiap paket Status jam — dua detik sekali selama jam mengukur —
+  /// dan dua penjadwalan yang saling menyela bisa membaca daftar terjadwal
+  /// sebelum yang lain selesai menulisnya, lalu menghapus alarm yang baru
+  /// saja dijadwalkan.
+  Future<void> _antrean = Future.value();
+
+  /// Penjadwalan terakhir yang berhasil. Yang sama persis tidak diulang:
+  /// menghapus dan menjadwalkan ulang alarm yang sama setiap dua detik tidak
+  /// mengubah apa pun selain membuka celah di detik alarm itu berbunyi.
+  String? _jadwalTerakhir;
   final _diketuk = StreamController<AlarmTitik>.broadcast();
 
   /// Berapa lama sebelum jendela terbuka pengingat pertama berbunyi.
@@ -278,12 +339,36 @@ class PengingatLokal implements PengingatTitikUkur {
     required DateTime t0,
     required List<TitikJadwal> titik,
     required DateTime sekarang,
+  }) {
+    final jadwal =
+        '$sesiId|${t0.toIso8601String()}|${titik.map((t) => t.index).join(',')}';
+    return _antrean = _antrean.then((_) async {
+      if (jadwal == _jadwalTerakhir) return;
+      if (await _jadwalkanSekali(
+        sesiId: sesiId,
+        t0: t0,
+        titik: titik,
+        sekarang: sekarang,
+      )) {
+        _jadwalTerakhir = jadwal;
+      }
+    });
+  }
+
+  Future<bool> _jadwalkanSekali({
+    required String sesiId,
+    required DateTime t0,
+    required List<TitikJadwal> titik,
+    required DateTime sekarang,
   }) async {
     try {
       await siapkan();
-      await _batalkanKecuali(
-        await _alarmYangMasihBerlaku(t0: t0, titik: titik, sekarang: sekarang),
+      final tetap = await _alarmYangMasihBerlaku(
+        t0: t0,
+        titik: titik,
+        sekarang: sekarang,
       );
+      await _batalkanKecuali(tetap);
 
       for (final t in titik) {
         if (!t.berjendela) continue;
@@ -299,6 +384,12 @@ class PengingatLokal implements PengingatTitikUkur {
               'pergelangan.',
           detail: _detailSiapkan,
         );
+        // Yang dipertahankan tidak dijadwalkan ulang: ia sudah ada, entah
+        // sedang berbunyi atau tinggal beberapa milidetik lagi.
+        if (tetap.contains(idAlarm(t.index))) {
+          debugPrint('Alarm ${t.label} dipertahankan (sudah ada).');
+          continue;
+        }
         await _satu(
           id: idAlarm(t.index),
           kapan: jatuhTempo,
@@ -313,29 +404,42 @@ class PengingatLokal implements PengingatTitikUkur {
           muatan: AlarmTitik(sesiId: sesiId, index: t.index).keMuatan(),
         );
       }
+      return true;
     } catch (e) {
       // Notifikasi yang gagal dijadwalkan **tidak** menggagalkan sesi. Kedua
       // tombolnya tetap bekerja dan layar sesi tetap menunjukkan hitung
       // mundurnya; yang hilang hanyalah pengingat saat aplikasi tertutup.
       debugPrint('Pengingat titik ukur gagal dijadwalkan: $e');
+      return false;
     }
   }
 
-  /// Id alarm yang sedang berbunyi untuk titik yang masih kosong dan masih
-  /// dalam jendelanya — yang tidak boleh ikut terhapus oleh penjadwalan ulang.
+  /// Id alarm untuk titik yang masih kosong dan **jendelanya sudah terbuka**,
+  /// yang masih ada — sedang berbunyi, atau masih terjadwal — dan karena itu
+  /// tidak boleh ikut terhapus oleh penjadwalan ulang.
+  ///
+  /// **Yang masih terjadwal ikut dihitung, dan itu bukan kelengkapan.**
+  /// Penjadwalan ulang yang paling pasti terjadi justru jatuh tepat pada detik
+  /// alarm itu sendiri: `_armTitikBerikutnya` dibangunkan saat jendela terbuka
+  /// untuk memulai pengukuran otomatis, dan alarm dijadwalkan pada detik yang
+  /// sama. Bila yang dipertahankan hanya yang sudah tampil, alarm yang tinggal
+  /// beberapa milidetik lagi dihapus, lalu tidak dijadwalkan ulang karena
+  /// waktunya "sudah lewat" — dan yang terlihat di ponsel hanya jam yang
+  /// tiba-tiba mengukur, tanpa satu bunyi pun.
   Future<Set<int>> _alarmYangMasihBerlaku({
     required DateTime t0,
     required List<TitikJadwal> titik,
     required DateTime sekarang,
   }) async {
-    final aktif = {
+    final ada = {
+      for (final p in await _plugin.pendingNotificationRequests()) p.id,
       for (final n in await _plugin.getActiveNotifications())
         if (n.channelId == kanalAlarm && n.id != null) n.id!,
     };
     return {
       for (final t in titik)
         if (t.berjendela &&
-            aktif.contains(idAlarm(t.index)) &&
+            ada.contains(idAlarm(t.index)) &&
             !sekarang.isBefore(t0.add(Duration(seconds: t.jendelaAwal!))) &&
             sekarang.isBefore(t0.add(Duration(seconds: t.jendelaAkhir!))))
           idAlarm(t.index),
@@ -373,7 +477,11 @@ class PengingatLokal implements PengingatTitikUkur {
     // berbunyi, tetapi ia juga tidak jujur: sesi yang dipulihkan setelah
     // aplikasi tertutup dua jam akan menjadwalkan empat pengingat yang semuanya
     // sudah kedaluwarsa.
-    if (!kapan.isAfter(sekarang)) return;
+    if (!kapan.isAfter(sekarang)) {
+      debugPrint('Pengingat $id dilewati: $kapan sudah lewat.');
+      return;
+    }
+    debugPrint('Pengingat $id dijadwalkan pada $kapan.');
 
     await _plugin.zonedSchedule(
       id: id,
@@ -390,10 +498,111 @@ class PengingatLokal implements PengingatTitikUkur {
   }
 
   @override
+  Future<void> bunyikanSekarang({
+    required String sesiId,
+    required TitikJadwal titik,
+    required Duration sisaJendela,
+  }) async {
+    try {
+      await siapkan();
+      // Cadangan yang terjadwal untuk detik yang sama dibuang dulu, supaya ia
+      // tidak menyusul beberapa milidetik kemudian dan membunyikan ulang
+      // notifikasi yang sama.
+      await _plugin.cancel(id: idAlarm(titik.index));
+      await _plugin.show(
+        id: idAlarm(titik.index),
+        title: 'Saatnya pengukuran ${titik.label}',
+        body:
+            'Pakai jam di pergelangan, lalu buka AsaWatch dan tekan '
+            '"Oke, Jam Sudah Dipakai".',
+        notificationDetails: _detailAlarm(sisaJendela),
+        payload: AlarmTitik(sesiId: sesiId, index: titik.index).keMuatan(),
+      );
+      debugPrint('Alarm ${titik.label} dibunyikan dari aplikasi.');
+    } catch (e) {
+      // Cadangan terjadwal masih ada; yang gagal di sini hanya jalur utamanya.
+      debugPrint('Alarm ${titik.label} gagal dibunyikan: $e');
+    }
+  }
+
+  @override
+  Future<String> ujiAlarm({required bool suaraAlarm}) async {
+    final laporan = <String>[];
+    try {
+      await siapkan();
+      final android = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      laporan.add(
+        'notifikasi diizinkan: ${await android?.areNotificationsEnabled()}',
+      );
+      laporan.add(
+        'alarm tepat diizinkan: ${await android?.canScheduleExactNotifications()}',
+      );
+      await _plugin.show(
+        id: 999,
+        title: 'Tes alarm AsaWatch',
+        body: suaraAlarm
+            ? 'Nada alarm, berulang. Geser laci notifikasi untuk membuangnya.'
+            : 'Suara notifikasi bawaan, kanal uji.',
+        notificationDetails: suaraAlarm
+            ? _detailAlarm(const Duration(seconds: 30))
+            : NotificationDetails(
+                android: AndroidNotificationDetails(
+                  'titik_ukur_alarm_uji',
+                  'Uji Alarm (debug)',
+                  importance: Importance.max,
+                  priority: Priority.max,
+                  category: AndroidNotificationCategory.alarm,
+                  audioAttributesUsage: AudioAttributesUsage.alarm,
+                  additionalFlags: Int32List.fromList([_flagInsistent]),
+                  timeoutAfter: 30000,
+                ),
+              ),
+      );
+      laporan.add('tampil: berhasil dikirim ke sistem');
+    } catch (e) {
+      laporan.add('GAGAL: $e');
+    }
+    final teks = laporan.join(' · ');
+    debugPrint('Uji alarm (suaraAlarm=$suaraAlarm): $teks');
+    return teks;
+  }
+
+  @override
+  Future<String> ujiAlarmTerjadwal(Duration jeda) async {
+    try {
+      await siapkan();
+      final kapan = DateTime.now().add(jeda);
+      await _plugin.zonedSchedule(
+        id: 998,
+        title: 'Tes alarm terjadwal AsaWatch',
+        body: 'Alarm ini dijadwalkan ${jeda.inSeconds} detik sebelumnya.',
+        scheduledDate: tz.TZDateTime.from(kapan, tz.local),
+        notificationDetails: _detailAlarm(const Duration(seconds: 60)),
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      );
+      final teks =
+          'Alarm uji dijadwalkan pukul '
+          '${kapan.hour.toString().padLeft(2, '0')}.'
+          '${kapan.minute.toString().padLeft(2, '0')}.'
+          '${kapan.second.toString().padLeft(2, '0')}. Tutup aplikasinya '
+          'sekarang.';
+      debugPrint('Uji alarm terjadwal: $teks');
+      return teks;
+    } catch (e) {
+      debugPrint('Uji alarm terjadwal GAGAL: $e');
+      return 'GAGAL: $e';
+    }
+  }
+
+  @override
   Future<void> hentikanAlarm(int index) async {
     try {
       await siapkan();
       await _plugin.cancel(id: idAlarm(index));
+      debugPrint('Alarm titik $index dihentikan (dikonfirmasi).');
     } catch (e) {
       debugPrint('Alarm titik ukur gagal dihentikan: $e');
     }
@@ -401,6 +610,7 @@ class PengingatLokal implements PengingatTitikUkur {
 
   @override
   Future<void> batalkanSemua() async {
+    _jadwalTerakhir = null;
     try {
       await siapkan();
       await _plugin.cancelAll();

@@ -176,6 +176,15 @@ itu sama dengan tidak diingatkan. Karena itu pengingat **T** dikirim di kanal te
 alarm, nada alarm bawaan ponsel, `FLAG_INSISTENT` (bunyi diulang), tidak bisa digeser hilang, dan
 tidak hilang saat diketuk. Pengingat T−5 tetap notifikasi biasa.
 
+- **Alarm dibunyikan dari aplikasi yang sedang hidup; jadwal sistem hanya cadangan.** Di ponsel uji
+  (Xiaomi HyperOS, Android 15) alarm `AlarmManager` terjadwal dengan benar lalu tidak pernah tampil,
+  sementara notifikasi yang ditampilkan dari proses yang hidup selalu berbunyi. Selama sesi berjalan
+  foreground service (`LayananLatar`, dengan wakelock) menahan proses tetap hidup, jadi
+  `SesiMakanController._jadwalkanAlarmTitik` memasang timer Dart yang bangun tepat saat jendela
+  terbuka dan memanggil `PengingatTitikUkur.bunyikanSekarang` — sekali per titik, dan **tidak
+  bergantung pada jam tersambung** (di v1.3 jam memang mati di antara titik, dan alarm itulah yang
+  menyuruh menyalakannya). Cadangan `zonedSchedule` untuk detik yang sama dibuang sesaat sebelum
+  tampil, supaya tidak berbunyi dua kali; ia tetap ada untuk proses yang benar-benar mati.
 - **Mengetuknya membuka `KonfirmasiPakaiJamPage`**, satu tombol: *"Oke, Jam Sudah Dipakai"*. Tombol
   itu membungkam alarm dan langsung menyuruh jam mengukur, lalu berganti ke Sesi Berjalan. **Tidak
   ada tombol tunda**: jendela titik ukur hanya beberapa menit, dan menunda adalah cara termudah
@@ -184,7 +193,14 @@ tidak hilang saat diketuk. Pengingat T−5 tetap notifikasi biasa.
   "terpakai". Penjadwalan ulang yang dipicu tiap koneksi karena itu **tidak** menghapus alarm yang
   sedang berbunyi untuk titik yang masih kosong dan jendelanya masih terbuka.
 - **Yang membungkamnya hanya dua**: konfirmasi, atau sampel titik itu yang benar-benar masuk (sampel
-  butuh nadi, jadi ia bukti jamnya menempel — dan pengukuran otomatis tetap berjalan seperti biasa).
+  butuh nadi, jadi ia bukti jamnya menempel).
+- **Pengukuran otomatis menunggu konfirmasi** (`SesiMakanController._titikDikonfirmasi`). Versi
+  pertamanya mengukur begitu jendela terbuka dan jam tersambung, sehingga di ponsel yang terlihat
+  hanya jam yang tiba-tiba mengukur — tanpa ada yang tahu ia dipakai atau tidak. Sekarang
+  konfirmasi (atau tombol ukur di aplikasi, yang sama artinya) yang menyalakannya; sesudah itu ia
+  tetap mengukur begitu jam tersambung dan mencoba ulang selama jendela terbuka. Tanda konfirmasi
+  hanya di memori: aplikasi yang dimulai ulang di tengah jendela meminta konfirmasi lagi. Tombol
+  fisik jam (`ARM_TITIK`) tidak berubah — orang yang menekannya sudah memegang jamnya.
 - **Ia berhenti sendiri saat jendelanya tertutup** (`timeoutAfter`): setelah itu titiknya sudah
   terlewat, dan alarm untuk sesuatu yang tidak bisa lagi dikerjakan hanya mengajari orang mematikan
   suara.

@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:math';
 
 import '../models/sesi_makan.dart';
-import 'protokol_jam.dart' show GalatJam, PesanUkur, ProtokolJam;
+import 'protokol_jam.dart'
+    show GalatJam, PesanUkur, ProtokolJam, UkurDibatalkan;
 
 /// Tahap penyambungan yang sedang berjalan — docs/alur-pemasangan-jam.md §4.3.
 ///
@@ -258,6 +259,19 @@ abstract class BleService {
   /// beberapa detik lagi selesai.
   Future<bool> jamSedangMengukur();
 
+  /// Menghentikan pengukuran yang sedang berjalan di jam (`BATAL_UKUR`, §5.1
+  /// v1.6) — milik [ukurSekarang] maupun titik sesi.
+  ///
+  /// Penantian [ukurSekarang] yang sedang berjalan berakhir dengan
+  /// [UkurDibatalkan] **apa pun jawabannya**: pengguna sudah memutuskan berhenti
+  /// menunggu, dan itu tidak boleh bergantung pada radionya.
+  ///
+  /// Mengembalikan true bila jam mengonfirmasi (ACK) bahwa sensornya berhenti;
+  /// false bila tidak tersambung, perintahnya tidak sampai, atau firmware
+  /// ≤ v1.5 yang belum mengenal opcode ini. Yang false itu yang membuat layar
+  /// berkata jujur bahwa jam **masih** menyelesaikan pengukurannya.
+  Future<bool> batalkanUkur();
+
   /// Mengirim koefisien kalibrasi ke jam.
   Future<void> kirimKalibrasi(Kalibrasi kalibrasi);
 
@@ -398,6 +412,22 @@ class FakeBleService implements BleService {
   final _pengendaliKemajuan = StreamController<KemajuanUkur>.broadcast();
   final _timer = <Timer>[];
 
+  /// Timer pengukuran titik sesi yang sedang berjalan ([mintaUkur]) — dipisah
+  /// dari [_timer] supaya [batalkanUkur] bisa menghentikan pengukurannya saja,
+  /// seperti jam sungguhan, tanpa ikut menghentikan jadwal sesi.
+  final _timerUkur = <Timer>[];
+
+  void _hentikanUkurTitik() {
+    for (final t in _timerUkur) {
+      t.cancel();
+    }
+    _timerUkur.clear();
+    if (sedangMengukurTitik) {
+      sedangMengukurTitik = false;
+      _pengendaliKemajuan.add(KemajuanUkur.diam);
+    }
+  }
+
   /// Sesi yang tombol "Selesai Makan"-nya sedang menyala di jam. null berarti
   /// jam menolak tombolnya — belum ada foto makanan.
   String? _sesiSiap;
@@ -528,7 +558,7 @@ class FakeBleService implements BleService {
     sedangMengukurTitik = true;
     const langkah = 4;
     for (var i = 1; i <= langkah; i++) {
-      _timer.add(
+      _timerUkur.add(
         Timer(_jeda(20) * (i / langkah), () {
           if (!denyutUkur) return;
           _pengendaliKemajuan.add(
@@ -541,8 +571,9 @@ class FakeBleService implements BleService {
         }),
       );
     }
-    _timer.add(
+    _timerUkur.add(
       Timer(_jeda(20), () {
+        _timerUkur.clear();
         sedangMengukurTitik = false;
         _pengendaliKemajuan.add(KemajuanUkur.diam);
         _kirim(sesiId, _buatSampel(index, index == 0 ? -1500 : 0));
@@ -589,6 +620,8 @@ class FakeBleService implements BleService {
   Future<void> batalkanSesi(String sesiId) async {
     titikDiarm = null;
     tombolUkurMenyala = false;
+    // v1.6: sesi yang dibatalkan menghentikan pengukuran miliknya di jam.
+    _hentikanUkurTitik();
     _bersihkanTimer();
     _sesiSiap = null;
     _sudahDitekan = false;
@@ -611,10 +644,12 @@ class FakeBleService implements BleService {
     }
 
     _sedangUkur = true;
+    _dibatalkan = false;
     try {
       return await _ukurBerdenyut();
     } finally {
       _sedangUkur = false;
+      _dibatalkan = false;
     }
   }
 
@@ -627,6 +662,7 @@ class FakeBleService implements BleService {
     const langkah = 6;
     for (var i = 1; i <= langkah; i++) {
       await Future<void>.delayed(_jeda(5));
+      if (_dibatalkan) throw const UkurDibatalkan();
       if (denyutUkurBerhenti != null && i > denyutUkurBerhenti!) {
         // Jam berhenti mengabari. Yang ditirukan adalah akibatnya di layar,
         // bukan algoritma penjaganya — penjaga denyut yang sesungguhnya hidup
@@ -666,6 +702,28 @@ class FakeBleService implements BleService {
   /// pengukuran — pada jadwal uji yang dimampatkan, itu keadaan yang biasa,
   /// bukan langka.
   bool sedangMengukurTitik = false;
+
+  /// [batalkanUkur] sudah dipanggil untuk pengukuran yang sedang berjalan.
+  bool _dibatalkan = false;
+
+  /// Berapa kali [batalkanUkur] dipanggil. Jam yang berhenti dan layar yang
+  /// sekadar berhenti menunggu terlihat sama di layar; yang membedakannya
+  /// hanya apakah perintahnya benar-benar dikirim.
+  int jumlahBatalUkur = 0;
+
+  /// false menirukan firmware ≤ v1.5, yang menjawab `BATAL_UKUR` dengan
+  /// `NAK 0x01`: penantiannya tetap berhenti, tetapi jamnya tidak.
+  bool kenalBatalUkur = true;
+
+  @override
+  Future<bool> batalkanUkur() async {
+    jumlahBatalUkur++;
+    if (_sedangUkur) _dibatalkan = true;
+    if (!_status.tersambung || !kenalBatalUkur) return false;
+    _hentikanUkurTitik();
+    if (_sedangUkur) _pengendaliKemajuan.add(KemajuanUkur.diam);
+    return true;
+  }
 
   @override
   Future<bool> jamSedangMengukur() async =>
@@ -893,6 +951,10 @@ class FakeBleService implements BleService {
       t.cancel();
     }
     _timer.clear();
+    for (final t in _timerUkur) {
+      t.cancel();
+    }
+    _timerUkur.clear();
   }
 
   @override

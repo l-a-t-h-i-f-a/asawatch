@@ -78,7 +78,7 @@ abstract final class ProtokolJam {
   /// dibelinya adalah kemampuan mengenali firmware lama nanti, saat ada firmware
   /// lama.
   static const int versiMayorDidukung = 1;
-  static const int versiMinorDidukung = 5;
+  static const int versiMinorDidukung = 6;
 
   static const String uuidLayanan = 'a5a70001-6b4c-4e2a-9d31-0f8c2e5a7b10';
   static const String uuidInfo = 'a5a70002-6b4c-4e2a-9d31-0f8c2e5a7b10';
@@ -249,6 +249,13 @@ abstract final class Opcode {
   /// v1.3 — menyalakan tombol ukur di jam untuk satu titik tertentu.
   static const int armTitik = 0x0A;
 
+  /// v1.6 — menghentikan pengukuran yang sedang berjalan, tanpa hasil.
+  ///
+  /// Tanpa payload: jam hanya punya satu sensor. Jam berhenti tanpa mengirim
+  /// Sampel maupun `UKUR_GAGAL`, dan titik sesi yang dihentikan tetap bisa
+  /// diukur ulang. Firmware ≤ v1.5 menjawabnya `NAK 0x01`.
+  static const int batalUkur = 0x0B;
+
   static String nama(int opcode) => switch (opcode) {
     anchorWaktu => 'ANCHOR_WAKTU',
     armSesi => 'ARM_SESI',
@@ -260,6 +267,7 @@ abstract final class Opcode {
     ackEvent => 'ACK_EVENT',
     mulaiSesi => 'MULAI_SESI',
     armTitik => 'ARM_TITIK',
+    batalUkur => 'BATAL_UKUR',
     _ => 'opcode 0x${opcode.toRadixString(16)}',
   };
 }
@@ -528,6 +536,19 @@ class PesanUkur {
       'pergelangan, lalu coba lagi.';
 }
 
+/// Pengukuran dihentikan atas permintaan pengguna (`BATAL_UKUR`, §5.1 v1.6).
+///
+/// Bukan [GalatJam], dan perbedaan itu yang membuatnya ada: tidak ada yang
+/// gagal, jadi layar yang menangkapnya kembali ke keadaan awal tanpa kalimat
+/// galat. Membungkusnya sebagai `GalatJam` akan memaksa setiap pemanggil
+/// membandingkan teks pesan untuk tahu bahwa ini bukan kegagalan.
+class UkurDibatalkan implements Exception {
+  const UkurDibatalkan();
+
+  @override
+  String toString() => 'UkurDibatalkan';
+}
+
 /// Isi karakteristik Status (§5.5).
 class StatusJam {
   const StatusJam({
@@ -718,6 +739,9 @@ Uint8List tulisUkur(String sesiId, int index) {
 }
 
 Uint8List tulisUkurSekarang() => Uint8List.fromList([Opcode.ukurSekarang]);
+
+/// `BATAL_UKUR` (§5.1, v1.6) — satu byte, tanpa payload.
+Uint8List tulisBatalUkur() => Uint8List.fromList([Opcode.batalUkur]);
 
 /// Batas atas `index` di kawat: 1 byte penuh (§5.1).
 ///

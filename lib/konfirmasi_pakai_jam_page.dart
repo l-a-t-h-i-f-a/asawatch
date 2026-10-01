@@ -58,12 +58,7 @@ class _KonfirmasiPakaiJamPageState extends State<KonfirmasiPakaiJamPage> {
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _mengirim = true);
 
-    await c.pengingat.hentikanAlarm(widget.alarm.index);
-
-    // Jam yang sudah mengukur (pengukuran otomatis, atau tombol fisiknya)
-    // tidak diganggu dengan perintah kedua.
-    String? galat;
-    if (c.kemajuanUkurSesi == null) galat = await c.ukurTitikSekarang();
+    final galat = await c.konfirmasiJamDipakai(widget.alarm.index);
     if (!mounted) return;
 
     navigator.pushReplacement(

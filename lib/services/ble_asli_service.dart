@@ -1004,6 +1004,25 @@ class BleAsliService implements BleService {
   }
 
   @override
+  Future<bool> batalkanUkur() async {
+    // Penantiannya dihentikan **lebih dulu**, tanpa menunggu ACK: pengguna yang
+    // menekan "Hentikan" sudah selesai menunggu, dan radio yang lambat atau
+    // firmware lama tidak boleh menahan layarnya. Yang bergantung pada ACK
+    // hanya kalimat sesudahnya — apakah jamnya benar-benar berhenti.
+    _penantiUkur?.batalkan();
+    if (!_status.tersambung) return false;
+    try {
+      await _kirimPerintah(tulisBatalUkur());
+      return true;
+    } catch (e) {
+      // NAK 0x01 dari firmware ≤ v1.5 jatuh ke sini juga: perintahnya tidak
+      // dikenal, dan jam meneruskan pengukurannya sampai tuntas.
+      debugPrint('BATAL_UKUR gagal: $e');
+      return false;
+    }
+  }
+
+  @override
   Stream<KemajuanUkur> get kemajuanUkur => _pengendaliKemajuan.stream;
 
   @override
@@ -2060,6 +2079,13 @@ class BleAsliService implements BleService {
 /// bedanya dengan satu `timeout()` yang menampung semua sebab dengan satu
 /// kalimat.
 class _PenantiUkur {
+  _PenantiUkur() {
+    // Penantian bisa diakhiri ([batalkan], penjaga) selagi perintahnya masih
+    // dikirim, sebelum siapa pun menunggu [masaDepan]. Tanpa ini galatnya
+    // menjadi galat tak tertangani di zona, jauh dari sebabnya.
+    _selesai.future.ignore();
+  }
+
   final _selesai = Completer<Sampel>();
 
   StreamSubscription<({String sesiId, Sampel sampel})>? langganan;
@@ -2107,6 +2133,12 @@ class _PenantiUkur {
   void gagalkan(GalatJam galat) {
     if (_selesai.isCompleted) return;
     _selesai.completeError(galat);
+  }
+
+  /// Pengguna menghentikan pengukurannya (`BATAL_UKUR`).
+  void batalkan() {
+    if (_selesai.isCompleted) return;
+    _selesai.completeError(const UkurDibatalkan());
   }
 
   void bersihkan() {

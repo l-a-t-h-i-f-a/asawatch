@@ -55,11 +55,14 @@ class _PindaiKesehatanPageState extends State<PindaiKesehatanPage>
   _Tahap _tahap = _Tahap.persiapan;
   String? _galat;
 
-  /// Pengguna berhenti menunggu. Jam **tidak** bisa disuruh membatalkan
-  /// pengukuran yang sudah berjalan (tidak ada opcode untuk itu, §5.1), jadi
-  /// yang berhenti di sini hanyalah layarnya. Hasilnya tetap disimpan controller
-  /// kalau sempat sampai, dan muncul sebagai kartu "hasil terakhir".
+  /// Pengguna menekan "Hentikan Pengukuran". Sejak protokol v1.6 itu
+  /// menghentikan **jamnya** (`BATAL_UKUR`, §5.1), bukan hanya layar ini.
   bool _berhentiMenunggu = false;
+
+  /// Jam tidak mengonfirmasi berhenti — terputus, atau firmware ≤ v1.5 yang
+  /// belum mengenal `BATAL_UKUR`. Layarnya tetap berhenti menunggu, tetapi
+  /// tidak boleh mengaku jamnya ikut berhenti.
+  bool _jamTidakBerhenti = false;
 
   Timer? _detak;
   DateTime? _mulaiPada;
@@ -99,6 +102,7 @@ class _PindaiKesehatanPageState extends State<PindaiKesehatanPage>
       _tahap = _Tahap.mengukur;
       _galat = null;
       _berhentiMenunggu = false;
+      _jamTidakBerhenti = false;
       _mulaiPada = DateTime.now();
     });
     _denyut.repeat();
@@ -133,7 +137,8 @@ class _PindaiKesehatanPageState extends State<PindaiKesehatanPage>
     }
   }
 
-  void _hentikanMenunggu() {
+  Future<void> _hentikanPengukuran() async {
+    final controller = context.read<SesiMakanController>();
     _detak?.cancel();
     _detak = null;
     _denyut.stop();
@@ -141,6 +146,9 @@ class _PindaiKesehatanPageState extends State<PindaiKesehatanPage>
       _berhentiMenunggu = true;
       _tahap = _Tahap.persiapan;
     });
+    final berhenti = await controller.batalkanPengukuran();
+    if (!mounted || berhenti) return;
+    setState(() => _jamTidakBerhenti = true);
   }
 
   // --- Tampilan -----------------------------------------------------------
@@ -155,7 +163,7 @@ class _PindaiKesehatanPageState extends State<PindaiKesehatanPage>
         // Selagi mengukur, tombol kembali dihilangkan: meninggalkan halaman
         // tidak menghentikan jam, dan tombol yang tampak seperti "batal" tetapi
         // bukan lebih buruk daripada tidak ada tombol sama sekali. Yang
-        // menghentikan penantian ada di badan halaman, dengan kalimatnya.
+        // menghentikan jam ada di badan halaman, dengan namanya sendiri.
         leading: _tahap == _Tahap.mengukur
             ? null
             : IconButton(
@@ -208,12 +216,13 @@ class _PindaiKesehatanPageState extends State<PindaiKesehatanPage>
           const SizedBox(height: 16),
         ],
 
-        if (_berhentiMenunggu && controller.sedangMemindai) ...[
+        if (_jamTidakBerhenti) ...[
           const _KartuInfo(
             ikon: Icons.hourglass_bottom_rounded,
             teks:
-                'Jam masih menyelesaikan pengukurannya. Hasilnya akan muncul di '
-                'halaman ini kalau sempat sampai.',
+                'Jam tidak menjawab perintah berhenti, jadi mungkin masih '
+                'menyelesaikan pengukurannya. Hasilnya tidak ditampilkan. '
+                'Tunggu lampu sensor di bawah jam padam sebelum memindai lagi.',
           ),
           const SizedBox(height: 16),
         ],
@@ -424,26 +433,20 @@ class _PindaiKesehatanPageState extends State<PindaiKesehatanPage>
         const SizedBox(height: 24),
 
         Center(
-          child: TextButton(
-            onPressed: _hentikanMenunggu,
-            child: const Text(
-              'Berhenti Menunggu',
-              style: TextStyle(fontSize: 12, color: Color(0xFF8FA7A1)),
+          child: TextButton.icon(
+            // Menghentikan **jam**, bukan hanya penantian di layar ini
+            // (`BATAL_UKUR`, protokol v1.6): sensornya padam dan tidak ada
+            // hasil yang dikirim. Firmware lama yang tidak mengenalnya
+            // dikatakan apa adanya oleh kartu di layar persiapan.
+            onPressed: _hentikanPengukuran,
+            icon: const Icon(
+              Icons.stop_circle_outlined,
+              size: 18,
+              color: Color(0xFF6B807B),
             ),
-          ),
-        ),
-        const SizedBox(height: 6),
-        const Center(
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 24),
-            child: Text(
-              // Dikatakan apa adanya: tombolnya menutup layar ini, bukan
-              // menghentikan jam. Tidak ada perintah "batalkan pengukuran" di
-              // protokol, dan tombol yang mengaku punya akan berbohong.
-              'Jam tetap menyelesaikan pengukurannya. Yang berhenti hanyalah '
-              'penantian di layar ini.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 10, color: Color(0xFF9CB1AC)),
+            label: const Text(
+              'Hentikan Pengukuran',
+              style: TextStyle(fontSize: 13, color: Color(0xFF6B807B)),
             ),
           ),
         ),

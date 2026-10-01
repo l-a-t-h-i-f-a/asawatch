@@ -53,6 +53,15 @@ class PengingatPencatat implements PengingatTitikUkur {
   final _diketuk = StreamController<AlarmTitik>.broadcast();
   void ketukAlarm(AlarmTitik a) => _diketuk.add(a);
 
+  final List<int> alarmDibunyikan = [];
+
+  @override
+  Future<void> bunyikanSekarang({
+    required String sesiId,
+    required TitikJadwal titik,
+    required Duration sisaJendela,
+  }) async => alarmDibunyikan.add(titik.index);
+
   @override
   Future<void> hentikanAlarm(int index) async => alarmDihentikan.add(index);
 
@@ -61,6 +70,12 @@ class PengingatPencatat implements PengingatTitikUkur {
 
   @override
   Future<AlarmTitik?> ambilAlarmPeluncuran() async => null;
+
+  @override
+  Future<String> ujiAlarm({required bool suaraAlarm}) async => '';
+
+  @override
+  Future<String> ujiAlarmTerjadwal(Duration jeda) async => '';
 }
 
 /// Jadwal yang jendelanya benar-benar punya jarak, supaya "belum waktunya"
@@ -317,6 +332,56 @@ void main() {
 
       await tester.pump(const Duration(milliseconds: 400));
       expect(c.kemajuanUkur, isNull);
+
+      await hentikanSesi(tester, c);
+    });
+
+    testWidgets('pengukuran titik bisa dihentikan, dan tidak mulai sendiri', (
+      tester,
+    ) async {
+      final ble = FakeBleService(
+        percepatan: 60,
+        lewatkan: {2, 3},
+        otomatisSelesaiMakan: null,
+      );
+      final jam = JamPalsu();
+      final c = buatControllerUji(
+        ble: ble,
+        jadwal: jadwalUjiTitik,
+        jam: jam.call,
+      );
+      await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
+      await c.mulaiDraft(contohFotoPath);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tekanTombolJam(tester, c);
+      await tester.pump(const Duration(milliseconds: 500));
+
+      await majuBersama(tester, jam, const Duration(seconds: 56));
+      ble.lewatkan.clear();
+      final index = c.titikBerikutnya!.index;
+
+      await tester.tap(find.textContaining('Ukur '));
+      await tester.pump(const Duration(milliseconds: 120));
+      expect(find.byType(KartuKemajuanUkur), findsOneWidget);
+      final diminta = ble.permintaanUkur.length;
+
+      await tester.tap(find.text('Hentikan Pengukuran'));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(ble.jumlahBatalUkur, 1);
+      expect(c.kemajuanUkur, isNull);
+      expect(find.byType(KartuKemajuanUkur), findsNothing);
+      // Titiknya tidak hilang: tombolnya kembali, siap ditekan lagi.
+      expect(find.textContaining('Ukur '), findsWidgets);
+
+      // Percobaan ulang otomatis tidak boleh memulai lagi pengukuran yang
+      // baru saja dihentikan orang, dan sampelnya tidak pernah datang.
+      await majuBersama(tester, jam, const Duration(seconds: 6));
+      expect(ble.permintaanUkur.length, diminta);
+      expect(
+        c.sesiAktif!.sampel.firstWhere((s) => s.index == index).status,
+        StatusSampel.menunggu,
+      );
 
       await hentikanSesi(tester, c);
     });
@@ -700,6 +765,64 @@ void main() {
       // Kalau tidak, ponsel akan berbunyi satu jam lagi menyuruh mengukur sesi
       // yang sudah tidak ada.
       expect(pengingat.dibatalkan, greaterThan(sebelum));
+    });
+
+    testWidgets('alarm dibunyikan dari aplikasi saat jendela terbuka, sekali '
+        'saja', (tester) async {
+      final pengingat = PengingatPencatat();
+      final jam = JamPalsu();
+      final c = buatControllerUji(
+        percepatan: 3600,
+        lewatkan: {2, 3},
+        jadwal: jadwalUjiTitik,
+        jam: jam.call,
+        pengingat: pengingat,
+      );
+      await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
+      await jalankan(tester, c);
+
+      await majuBersama(tester, jam, const Duration(seconds: 50));
+      expect(pengingat.alarmDibunyikan, isEmpty);
+
+      await majuBersama(tester, jam, const Duration(seconds: 6));
+      expect(pengingat.alarmDibunyikan, [2]);
+
+      // Paket Status jam terus datang; alarmnya tidak dibunyikan ulang.
+      await majuBersama(tester, jam, const Duration(seconds: 6));
+      expect(pengingat.alarmDibunyikan, [2]);
+
+      await hentikanSesi(tester, c);
+    });
+
+    testWidgets('alarm tetap berbunyi saat jam tidak tersambung', (
+      tester,
+    ) async {
+      final pengingat = PengingatPencatat();
+      final ble = FakeBleService(
+        percepatan: 3600,
+        lewatkan: {2, 3},
+        otomatisSelesaiMakan: null,
+      );
+      final jam = JamPalsu();
+      final c = buatControllerUji(
+        ble: ble,
+        jadwal: jadwalUjiTitik,
+        jam: jam.call,
+        pengingat: pengingat,
+      );
+      await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
+      await jalankan(tester, c);
+
+      // Di v1.3 jam dimatikan di antara titik ukur; alarm itulah yang menyuruh
+      // menyalakannya kembali.
+      await ble.putuskan();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(c.statusPerangkat.tersambung, isFalse);
+
+      await majuBersama(tester, jam, const Duration(seconds: 56));
+      expect(pengingat.alarmDibunyikan, [2]);
+
+      await hentikanSesi(tester, c);
     });
 
     test('muatan alarm membawa sesi dan titiknya, dan menolak yang lain', () {

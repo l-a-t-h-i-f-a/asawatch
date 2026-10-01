@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'controllers/sesi_makan_controller.dart';
 import 'models/sesi_makan.dart';
 import 'services/ble_asli_service.dart' show GalatJam;
+import 'services/protokol_jam.dart' show UkurDibatalkan;
 import 'utils/format_waktu.dart';
 
 /// Kalibrasi tekanan darah (§5), dengan metode manset berulang yang sudah
@@ -170,6 +171,10 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
               'pergelangan, diamkan tangan, lalu ukur lagi.';
         }
       });
+    } on UkurDibatalkan {
+      // Pengguna sendiri yang menghentikannya — bukan galat, tidak ada
+      // kalimat. Putarannya kembali ke awal: tensimeter yang terlanjur
+      // memompa tidak punya pasangan lagi.
     } on GalatJam catch (e) {
       if (mounted) setState(() => _galat = e.pesanPengguna);
     } catch (_) {
@@ -179,6 +184,17 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
     } finally {
       if (mounted) setState(() => _sedangMengukur = false);
     }
+  }
+
+  /// Menghentikan jam yang sedang mengukur (`BATAL_UKUR`, protokol v1.6).
+  ///
+  /// Dipanggil dari tombol "Hentikan", dari "Batalkan kalibrasi", dan dari
+  /// tombol kembali: ketiganya berarti pengguna sudah meninggalkan putaran
+  /// ini, dan sensor yang dibiarkan menyala sampai tuntas hanya membakar
+  /// baterai untuk angka yang tidak punya pasangan tensimeter.
+  void _hentikanUkur() {
+    if (!_sedangMengukur) return;
+    unawaited(context.read<SesiMakanController>().batalkanPengukuran());
   }
 
   /// Judul kartu selagi jam mengukur — tiga keadaan, tiga kalimat.
@@ -247,6 +263,7 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
   }
 
   void _ulangSemua() {
+    _hentikanUkur();
     _jeda?.cancel();
     setState(() {
       _selesai.clear();
@@ -301,7 +318,10 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Color(0xFF1E3A34)),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            _hentikanUkur();
+            Navigator.pop(context);
+          },
         ),
         title: const Text(
           'Kalibrasi Tekanan Darah',
@@ -621,6 +641,21 @@ class _KalibrasiTekananDarahPageState extends State<KalibrasiTekananDarahPage> {
                   ),
                 ),
               ),
+              if (_sedangMengukur)
+                Center(
+                  child: TextButton.icon(
+                    onPressed: _hentikanUkur,
+                    icon: const Icon(
+                      Icons.stop_circle_outlined,
+                      size: 16,
+                      color: Color(0xFF6B807B),
+                    ),
+                    label: const Text(
+                      'Hentikan Pengukuran',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF6B807B)),
+                    ),
+                  ),
+                ),
               if (halangan != null && _galat == null) ...[
                 const SizedBox(height: 10),
                 Text(

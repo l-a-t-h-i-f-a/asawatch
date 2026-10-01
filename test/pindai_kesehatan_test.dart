@@ -128,7 +128,7 @@ void main() {
       expect(find.text('Menunggu jam'), findsOneWidget);
       expect(find.text('Jam sedang mengukur'), findsNothing);
       expect(find.text('0 dtk'), findsOneWidget);
-      expect(find.text('Berhenti Menunggu'), findsOneWidget);
+      expect(find.text('Hentikan Pengukuran'), findsOneWidget);
 
       // Denyut pertama tiba: barulah kalimatnya berubah, dan cincinnya
       // menampilkan angka dari jam alih-alih detik yang dihitung layar.
@@ -149,6 +149,61 @@ void main() {
       final sampel = c.pindaiTerakhir!.sampel;
       expect(find.text('${sampel.gulaDarah}'), findsOneWidget);
       expect(find.text(sampel.tekananDarah!), findsOneWidget);
+    });
+
+    testWidgets('"Hentikan Pengukuran" menghentikan jamnya, tanpa galat', (
+      tester,
+    ) async {
+      // Dulu tombol ini hanya menutup penantian di layar, dan jamnya meneruskan
+      // pengukuran sampai tuntas. Sejak v1.6 ia mengirim `BATAL_UKUR`.
+      final ble = FakeBleService(percepatan: 3600, otomatisSelesaiMakan: null);
+      final c = buatControllerUji(ble: ble);
+      await pumpHalaman(
+        tester,
+        const PindaiKesehatanPage(izin: IzinBleSelaluBoleh()),
+        controller: c,
+      );
+
+      await tester.tap(find.text('Mulai Pindai'));
+      await tester.pump(_tengahMengukur);
+      expect(c.kemajuanUkur, isNotNull);
+
+      await tester.tap(find.text('Hentikan Pengukuran'));
+      await tester.pump(_selesaiMengukur);
+
+      expect(ble.jumlahBatalUkur, 1);
+      expect(c.sedangMemindai, isFalse);
+      expect(c.kemajuanUkur, isNull);
+      // Tidak ada hasil, tidak ada galat, dan tidak ada kalimat "jam masih
+      // mengukur" — jamnya memang sudah berhenti.
+      expect(c.pindaiTerakhir, isNull);
+      expect(find.text('Pindai selesai'), findsNothing);
+      expect(find.text('Mulai Pindai'), findsOneWidget);
+      expect(find.textContaining('tidak menjawab perintah berhenti'), findsNothing);
+    });
+
+    testWidgets('jam lama yang tidak bisa dihentikan dikatakan apa adanya', (
+      tester,
+    ) async {
+      final ble = FakeBleService(percepatan: 3600, otomatisSelesaiMakan: null)
+        ..kenalBatalUkur = false;
+      final c = buatControllerUji(ble: ble);
+      await pumpHalaman(
+        tester,
+        const PindaiKesehatanPage(izin: IzinBleSelaluBoleh()),
+        controller: c,
+      );
+
+      await tester.tap(find.text('Mulai Pindai'));
+      await tester.pump(_tengahMengukur);
+      await tester.tap(find.text('Hentikan Pengukuran'));
+      await tester.pump(_selesaiMengukur);
+
+      expect(find.text('Mulai Pindai'), findsOneWidget);
+      expect(
+        find.textContaining('tidak menjawab perintah berhenti'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('jam yang berhenti mengabari dikatakan, bukan digantung', (

@@ -32,7 +32,9 @@ void main() {
   setUpAll(loadMontserrat);
 
   group('Service hidup selama sesi aktif', () {
-    testWidgets('tidak menyala sama sekali bila tidak ada sesi', (tester) async {
+    testWidgets('tidak menyala sama sekali bila tidak ada sesi', (
+      tester,
+    ) async {
       final layanan = LayananLatarPalsu();
       final c = buatControllerUji(layanan: layanan);
       await pumpHalaman(tester, const SesiBerjalanPage(), controller: c);
@@ -156,9 +158,8 @@ void main() {
   });
 
   group('Pengukuran otomatis', () {
-    testWidgets('mengirim UKUR sendiri saat jendela terbuka, tanpa ditekan', (
-      tester,
-    ) async {
+    testWidgets('tidak mengukur sebelum dikonfirmasi; sesudahnya langsung '
+        'mengukur', (tester) async {
       final ble = FakeBleService(
         percepatan: 3600,
         lewatkan: {2, 3},
@@ -183,21 +184,29 @@ void main() {
       ble.lewatkan.clear();
       ble.permintaanUkur.clear();
 
-      // Tidak ada satu pun ketukan sesudah baris ini.
       await majuBersama(tester, jam, const Duration(seconds: 56));
       await tester.pump(const Duration(seconds: 1));
 
+      // Jendelanya terbuka dan jam tersambung — tetapi tersambung bukan
+      // terpakai (docs/jadwal-titik-ukur.md §6.1).
       expect(
         ble.permintaanUkur.any((p) => p.index == 2),
-        isTrue,
-        reason: 'titik +1 jam harus diukur tanpa menunggu siapa pun menekan',
+        isFalse,
+        reason: 'jam tidak boleh diukur sebelum ada yang bilang ia dipakai',
       );
+
+      await c.konfirmasiJamDipakai(2);
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(ble.permintaanUkur.any((p) => p.index == 2), isTrue);
       expect(c.sesiAktif!.sampel[2].status, StatusSampel.terisi);
 
       await hentikanSesi(tester, c);
     });
 
-    testWidgets('mencoba lagi selama titiknya masih kosong', (tester) async {
+    testWidgets('sesudah dikonfirmasi, mencoba lagi selama titiknya masih kosong', (
+      tester,
+    ) async {
       final ble = FakeBleService(
         percepatan: 3600,
         lewatkan: {2, 3},
@@ -221,6 +230,7 @@ void main() {
       // meniru pergelangan yang dingin atau tali yang longgar.
       ble.permintaanUkur.clear();
       await majuBersama(tester, jam, const Duration(seconds: 56));
+      await c.konfirmasiJamDipakai(2);
 
       // Jendelanya 55–70 detik pada jadwal ini, jadi jedanya (70-55)/5 = 3 detik.
       await majuBersama(tester, jam, const Duration(seconds: 8));

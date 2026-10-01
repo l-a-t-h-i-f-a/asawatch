@@ -16,7 +16,7 @@ import '../services/layanan_latar.dart';
 import '../services/nutrisi_service.dart';
 import '../services/kamera_service.dart' show jalurFotoTetap;
 import '../services/pengingat_titik_ukur.dart';
-import '../services/protokol_jam.dart' show GalatJam, buatIdSesi;
+import '../services/protokol_jam.dart' show GalatJam, UkurDibatalkan, buatIdSesi;
 
 /// Satu-satunya state hidup di aplikasi (§12.6), disediakan lewat satu
 /// `ChangeNotifierProvider` di atas `MaterialApp`.
@@ -898,13 +898,16 @@ class SesiMakanController extends ChangeNotifier {
   /// Mengembalikan pesan galat, atau null bila perintahnya terkirim. Yang
   /// ditunggu sesudahnya adalah sampelnya sendiri: layar tidak boleh menyatakan
   /// titik itu terisi sebelum jamnya menjawab.
+  ///
+  /// **Menekannya sama dengan konfirmasi "jam sudah dipakai"** (§6.1): orang
+  /// yang meminta pengukuran sudah memegang jamnya. Titiknya ditandai
+  /// terkonfirmasi — sehingga percobaan ulang otomatis boleh berjalan, juga
+  /// setelah jam yang belum tersambung akhirnya tersambung — dan alarmnya
+  /// dibungkam.
   Future<String?> ukurTitikSekarang() async {
     final sesi = _sesiAktif;
     final titik = titikBerikutnya;
     if (sesi == null || titik == null) return null;
-
-    final halangan = alasanJamTidakBisaUkur;
-    if (halangan != null) return halangan;
 
     // Terlalu cepat ditahan, bukan ditandai: titik ini belum lewat dan masih
     // bisa diukur dengan benar sebentar lagi (docs/jadwal-titik-ukur.md §3).
@@ -912,6 +915,44 @@ class SesiMakanController extends ChangeNotifier {
     if (sisa != null && sisa.inSeconds > 0) {
       return 'Titik ${titik.label} belum waktunya diukur.';
     }
+
+    _titikDikonfirmasi.add('${sesi.id}#${titik.index}');
+    unawaited(pengingat.hentikanAlarm(titik.index));
+
+    final galat = await _kirimUkurTitik(sesi, titik);
+    // Percobaan ulang dinyalakan dari sini juga: sebelum konfirmasi
+    // `_ukurOtomatis` tidak pernah berjalan, jadi belum ada timer apa pun
+    // yang akan mencobanya lagi bila yang pertama ini gagal.
+    _jadwalkanUlangUkur(titik);
+    return galat;
+  }
+
+  /// Konfirmasi dari layar alarm: jam sudah dipakai.
+  ///
+  /// Membungkam alarm dan menandai titiknya, lalu meminta jam mengukur —
+  /// kecuali jam sudah mengukur (tombol fisiknya ditekan lebih dulu), yang
+  /// tidak diganggu dengan perintah kedua.
+  Future<String?> konfirmasiJamDipakai(int index) async {
+    final sesi = _sesiAktif;
+    if (sesi != null) _titikDikonfirmasi.add('${sesi.id}#$index');
+    await pengingat.hentikanAlarm(index);
+    if (kemajuanUkurSesi != null) return null;
+    return ukurTitikSekarang();
+  }
+
+  /// Titik (`sesiId#index`) yang sudah dikonfirmasi "jam sudah dipakai".
+  ///
+  /// **Hanya titik ini yang boleh diukur otomatis.** Jam yang tersambung belum
+  /// tentu terpakai — yang tergeletak di meja pun tersambung — dan pengukuran
+  /// pada pergelangan yang kosong bukan sekadar gagal: ia membuat jam sibuk
+  /// 90 detik tepat ketika orangnya baru memakainya. Disimpan di memori saja:
+  /// aplikasi yang dimulai ulang di tengah jendela kehilangan tandanya dan
+  /// menunggu konfirmasi lagi, arah salah yang aman.
+  final Set<String> _titikDikonfirmasi = {};
+
+  Future<String?> _kirimUkurTitik(SesiMakan sesi, TitikJadwal titik) async {
+    final halangan = alasanJamTidakBisaUkur;
+    if (halangan != null) return halangan;
 
     if (!await ble.mintaUkur(sesi.id, titik.index)) {
       return 'Jam tidak menerima perintahnya. Pastikan jam menyala dan '
@@ -937,6 +978,11 @@ class SesiMakanController extends ChangeNotifier {
   /// seperti `ANCHOR_WAKTU`: murah, idempoten, dan melewatkannya sekali berarti
   /// tombol fisiknya padam justru saat ia paling dibutuhkan.
   Future<void> _armTitikBerikutnya() async {
+    // Alarm lebih dulu, dan **tidak** di belakang syarat tersambung di bawah:
+    // di v1.3 jam memang dimatikan di antara titik ukur, dan alarm itulah yang
+    // menyuruh menyalakannya kembali.
+    _jadwalkanAlarmTitik();
+
     final sesi = _sesiAktif;
     final t0 = sesi?.t0;
     if (sesi == null || t0 == null) return;
@@ -989,8 +1035,16 @@ class SesiMakanController extends ChangeNotifier {
   Timer? _timerUlangUkur;
   String? _ukurOtomatisBerjalan;
 
-  /// Mengukur titik yang sudah jatuh tempo **tanpa menunggu ada yang menekan
-  /// apa pun**.
+  /// Mengukur titik yang sudah jatuh tempo **setelah dikonfirmasi** — dan
+  /// mencobanya lagi selama jendelanya masih terbuka.
+  ///
+  /// **Tidak berjalan sebelum konfirmasi** (docs/jadwal-titik-ukur.md §6.1).
+  /// Versi pertamanya mengukur begitu titik jatuh tempo dan jam tersambung,
+  /// tanpa menunggu siapa pun; di ponsel itu terlihat sebagai jam yang
+  /// tiba-tiba mengukur tanpa ada yang tahu ia sedang dipakai atau tidak. Yang
+  /// tersisa di sini adalah alasan sesudah konfirmasi: jam yang belum
+  /// tersambung saat tombolnya ditekan diukur begitu ia tersambung, dan
+  /// pengukuran yang gagal dicoba lagi.
   ///
   /// Ini alasan foreground service ada (docs/rencana-produksi.md §7.1). Sampai
   /// sekarang setiap titik menuntut satu tindakan manusia pada menit yang
@@ -1016,13 +1070,20 @@ class SesiMakanController extends ChangeNotifier {
     if (sesi == null || titik == null) return;
 
     final kunci = '${sesi.id}#${titik.index}';
+    if (!_titikDikonfirmasi.contains(kunci)) return;
+    // Jam yang masih mengukur menolak `UKUR` kedua (§7 `sedangMengukur`);
+    // menunggu giliran berikutnya, bukan mengirim perintah yang pasti ditolak.
+    if (kemajuanUkur != null) {
+      _jadwalkanUlangUkur(titik);
+      return;
+    }
     // Satu percobaan pada satu waktu. `_armTitikBerikutnya` dipanggil dari
     // setiap notifikasi status jam, jadi tanpa penjaga ini satu jam yang cerewet
     // menghasilkan belasan `UKUR` untuk titik yang sama.
     if (_ukurOtomatisBerjalan == kunci) return;
     _ukurOtomatisBerjalan = kunci;
     try {
-      final galat = await ukurTitikSekarang();
+      final galat = await _kirimUkurTitik(sesi, titik);
       if (galat != null) {
         debugPrint('Ukur otomatis ${titik.label} belum berhasil: $galat');
       }
@@ -1069,6 +1130,59 @@ class SesiMakanController extends ChangeNotifier {
   String? _titikDiarm;
 
   Timer? _timerArm;
+
+  Timer? _timerAlarm;
+
+  /// Titik (`sesiId#index`) yang alarmnya sudah dibunyikan dari aplikasi —
+  /// sekali per titik. Tanpanya setiap paket Status jam (dua detik sekali
+  /// selama mengukur) membunyikannya ulang, juga setelah dikonfirmasi.
+  final Set<String> _alarmDibunyikan = {};
+
+  /// Membangunkan aplikasi tepat saat jendela titik berikutnya terbuka, lalu
+  /// membunyikan alarmnya dari proses yang sedang hidup
+  /// (`PengingatTitikUkur.bunyikanSekarang`, docs/jadwal-titik-ukur.md §6.1).
+  ///
+  /// Terpisah dari [_timerArm] karena syaratnya berbeda: ARM butuh jam yang
+  /// tersambung, alarm justru paling dibutuhkan saat jam belum tersambung.
+  /// Timer Dart ini tetap berjalan selama sesi karena foreground service
+  /// menahan prosesnya hidup dengan wakelock.
+  void _jadwalkanAlarmTitik() {
+    _timerAlarm?.cancel();
+    _timerAlarm = null;
+
+    final sesi = _sesiAktif;
+    final titik = titikBerikutnya;
+    final t0 = sesi?.t0;
+    if (_dibuang || sesi == null || titik == null || t0 == null) return;
+    if (!sesi.status.sedangAktif) return;
+
+    final sisa = sisaSampaiTitikBerikutnya ?? Duration.zero;
+    if (sisa > Duration.zero) {
+      _timerAlarm = Timer(sisa, () {
+        _timerAlarm = null;
+        _jadwalkanAlarmTitik();
+      });
+      return;
+    }
+
+    final kunci = '${sesi.id}#${titik.index}';
+    if (_titikDikonfirmasi.contains(kunci)) return;
+    if (_alarmDibunyikan.contains(kunci)) return;
+
+    final sisaJendela = t0
+        .add(Duration(seconds: titik.jendelaAkhir!))
+        .difference(jam());
+    if (sisaJendela <= Duration.zero) return;
+
+    _alarmDibunyikan.add(kunci);
+    unawaited(
+      pengingat.bunyikanSekarang(
+        sesiId: sesi.id,
+        titik: titik,
+        sisaJendela: sisaJendela,
+      ),
+    );
+  }
 
   /// Membangunkan [_armTitikBerikutnya] saat jendela titik berikutnya terbuka.
   ///
@@ -1266,6 +1380,8 @@ class SesiMakanController extends ChangeNotifier {
     _titikDiarm = null;
     _timerArm?.cancel();
     _timerArm = null;
+    _timerAlarm?.cancel();
+    _timerAlarm = null;
     _tenggat?.cancel();
     _tenggat = null;
     _sesiAktif = null;
@@ -1535,6 +1651,41 @@ class SesiMakanController extends ChangeNotifier {
     }
   }
 
+  /// Menghentikan pengukuran yang sedang berjalan **di jam** (`BATAL_UKUR`,
+  /// §5.1 v1.6): pindai kesehatan, putaran kalibrasi, atau titik sesi.
+  ///
+  /// Penantian yang sedang berjalan berakhir dengan [UkurDibatalkan] apa pun
+  /// jawaban jamnya. Mengembalikan false bila jamnya **tidak** mengonfirmasi
+  /// berhenti — terputus, atau firmware ≤ v1.5 — supaya layar bisa berkata
+  /// bahwa jam masih menyelesaikan pengukurannya, alih-alih mengaku sudah
+  /// menghentikannya.
+  ///
+  /// Titik sesi yang dihentikan **tidak** ditandai `terlewat`: jam tidak
+  /// menyalakan bit dedup-nya dan tombol ukurnya tetap menyala, jadi titik itu
+  /// masih bisa diukur ulang selama jendelanya terbuka. Konfirmasi "jam sudah
+  /// dipakai"-nya **dicabut**, bersama percobaan ulang otomatisnya: tanpa itu
+  /// [_ukurOtomatis] mengirim `UKUR` lagi beberapa detik kemudian, dan
+  /// pengukuran yang baru saja dihentikan orang mulai lagi sendiri. Mengukurnya
+  /// lagi menunggu tombol ditekan — yang memberi konfirmasi baru.
+  Future<bool> batalkanPengukuran() async {
+    final sesi = _sesiAktif;
+    final titik = titikBerikutnya;
+    if (kemajuanUkurSesi != null && sesi != null && titik != null) {
+      _titikDikonfirmasi.remove('${sesi.id}#${titik.index}');
+      _timerUlangUkur?.cancel();
+      _timerUlangUkur = null;
+    }
+    final berhenti = await ble.batalkanUkur();
+    if (berhenti && _kemajuanUkur != null) {
+      // Paket Status ber-bit0 padam akan menyusul dan memadamkannya juga; ini
+      // hanya supaya layar tidak menunggu satu perjalanan radio lagi untuk
+      // berhenti mengaku jamnya mengukur.
+      _kemajuanUkur = null;
+      notifyListeners();
+    }
+    return berhenti;
+  }
+
   /// Membuang hasil pindai terakhir dari layar.
   void buangPindaiTerakhir() {
     if (_pindaiTerakhir == null) return;
@@ -1637,6 +1788,8 @@ class SesiMakanController extends ChangeNotifier {
     _titikDiarm = null;
     _timerArm?.cancel();
     _timerArm = null;
+    _timerAlarm?.cancel();
+    _timerAlarm = null;
     _riwayat.insert(0, sesi);
     _sesiAktif = null;
     _hasilBelumDibaca = sesi;
@@ -1825,6 +1978,8 @@ class SesiMakanController extends ChangeNotifier {
     _tenggat = null;
     _timerArm?.cancel();
     _timerArm = null;
+    _timerAlarm?.cancel();
+    _timerAlarm = null;
     _sesiDiarm = null;
     _titikDiarm = null;
     _sesiAktif = null;
@@ -2074,6 +2229,7 @@ class SesiMakanController extends ChangeNotifier {
     _dibuang = true;
     _tenggat?.cancel();
     _timerArm?.cancel();
+    _timerAlarm?.cancel();
     _timerUlangUkur?.cancel();
     _timerLayanan?.cancel();
     // Service milik sesi, bukan milik controller — tetapi controller yang
