@@ -67,6 +67,23 @@ class _PluginPalsu implements FlutterLocalNotificationsPlugin {
     tampil.clear();
   }
 
+  /// Setiap `show` adalah bunyi baru — termasuk yang memasang ulang id yang
+  /// sama, yang di Android dibisukan bila datang dalam satu detik.
+  final List<int> ditampilkan = [];
+
+  @override
+  Future<void> show({
+    required int id,
+    String? title,
+    String? body,
+    NotificationDetails? notificationDetails,
+    String? payload,
+  }) async {
+    terjadwal.remove(id);
+    tampil[id] = PengingatLokal.kanalAlarm;
+    ditampilkan.add(id);
+  }
+
   /// Sistem membunyikan yang terjadwal.
   void bunyikan(int id) {
     terjadwal.remove(id);
@@ -165,6 +182,35 @@ void main() {
 
     expect(plugin.tampil, isEmpty);
     expect(plugin.terjadwal.containsKey(idAlarm), isFalse);
+  });
+
+  group('bunyikanSekarang', () {
+    Future<void> bunyikanDariAplikasi() => pengingat.bunyikanSekarang(
+      sesiId: 'sesi-1',
+      titik: titik,
+      sisaJendela: const Duration(seconds: 75),
+    );
+
+    test('aplikasi lebih dulu: cadangan terjadwal dibuang, alarm tampil '
+        'sekali', () async {
+      await jadwalkan(10);
+
+      await bunyikanDariAplikasi();
+
+      expect(plugin.terjadwal.containsKey(idAlarm), isFalse);
+      expect(plugin.ditampilkan, [idAlarm]);
+    });
+
+    test('cadangan sistem lebih dulu: alarm yang sedang berbunyi tidak '
+        'dibatalkan lalu dipasang ulang (dibisukan Android)', () async {
+      await jadwalkan(10);
+      plugin.bunyikan(idAlarm);
+
+      await bunyikanDariAplikasi();
+
+      expect(plugin.tampil.containsKey(idAlarm), isTrue);
+      expect(plugin.ditampilkan, isEmpty);
+    });
   });
 
   test('titik yang sudah terisi kehilangan alarmnya', () async {

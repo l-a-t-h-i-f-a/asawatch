@@ -505,9 +505,23 @@ class PengingatLokal implements PengingatTitikUkur {
   }) async {
     try {
       await siapkan();
-      // Cadangan yang terjadwal untuk detik yang sama dibuang dulu, supaya ia
-      // tidak menyusul beberapa milidetik kemudian dan membunyikan ulang
-      // notifikasi yang sama.
+      // **Cadangan yang sudah tampil dibiarkan, tidak dipasang ulang.** Ia
+      // dijadwalkan pada detik yang sama dengan timer ini, jadi sering menang
+      // beberapa milidetik. Membatalkan lalu menampilkannya lagi justru
+      // membuatnya bisu: `cancel` mematikan bunyi yang sedang berjalan, dan
+      // Android membisukan notifikasi kedua dari aplikasi yang sama dalam
+      // satu detik (`AlertRateLimiter`, "Muting recently noisy" di logcat) —
+      // notifikasinya tampil, suaranya tidak. Itu yang terjadi di ponsel uji:
+      // tes alarm berbunyi, alarm sesi tidak.
+      final sudahTampil = (await _plugin.getActiveNotifications()).any(
+        (n) => n.id == idAlarm(titik.index) && n.channelId == kanalAlarm,
+      );
+      if (sudahTampil) {
+        debugPrint('Alarm ${titik.label} sudah dibunyikan cadangan sistem.');
+        return;
+      }
+      // Cadangan yang belum berbunyi dibuang dulu, supaya ia tidak menyusul
+      // beberapa milidetik kemudian dan membunyikan ulang notifikasi yang sama.
       await _plugin.cancel(id: idAlarm(titik.index));
       await _plugin.show(
         id: idAlarm(titik.index),

@@ -184,7 +184,11 @@ tidak hilang saat diketuk. Pengingat T−5 tetap notifikasi biasa.
   terbuka dan memanggil `PengingatTitikUkur.bunyikanSekarang` — sekali per titik, dan **tidak
   bergantung pada jam tersambung** (di v1.3 jam memang mati di antara titik, dan alarm itulah yang
   menyuruh menyalakannya). Cadangan `zonedSchedule` untuk detik yang sama dibuang sesaat sebelum
-  tampil, supaya tidak berbunyi dua kali; ia tetap ada untuk proses yang benar-benar mati.
+  tampil, supaya tidak berbunyi dua kali; ia tetap ada untuk proses yang benar-benar mati. **Bila
+  cadangan itu sudah lebih dulu tampil, ia dibiarkan berbunyi** — membatalkan lalu menampilkannya
+  ulang membuatnya bisu, karena Android membisukan notifikasi kedua dari aplikasi yang sama dalam
+  satu detik ("Muting recently noisy" di logcat). Gejalanya: tes alarm berbunyi, alarm sesi tampil
+  tanpa suara.
 - **Mengetuknya membuka `KonfirmasiPakaiJamPage`**, satu tombol: *"Oke, Jam Sudah Dipakai"*. Tombol
   itu membungkam alarm dan langsung menyuruh jam mengukur, lalu berganti ke Sesi Berjalan. **Tidak
   ada tombol tunda**: jendela titik ukur hanya beberapa menit, dan menunda adalah cara termudah
